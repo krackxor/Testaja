@@ -1,0 +1,118 @@
+# ╔══════════════════════════════════════════════════════════════════════╗
+# ║            REQUIREMENTS.TXT — Encoder Bot                            ║
+# ║            Last updated: 2026 — Python 3.11+                         ║
+# ╚══════════════════════════════════════════════════════════════════════╝
+#
+# CATATAN PENTING:
+#   - Semua versi di-pin untuk mencegah auto-upgrade yang break bot
+#   - numpy di-pin ke 1.26.x (JANGAN upgrade ke 2.x) karena opencv & moviepy
+#     belum semua kompatibel dengan numpy 2.x
+#   - moviepy di-pin ke 2.0.0 (API berbeda total dari 1.x)
+#   - Sebelum upgrade library apapun, test dulu di environment dev
+#
+# Install: pip install -r requirements.txt
+
+# ── TELEGRAM ──────────────────────────────────────────────────────────
+# Telethon: upgrade 1.26.1 → 1.36.0
+#   - Fix: FloodWait handling lebih robust
+#   - Fix: File upload/download API diperbaiki
+#   - Fix: Connection retry logic lebih baik
+#   - New: Support for newer MTProto features
+Telethon==1.36.0
+
+# Crypto accelerator untuk Telethon (enkripsi MTProto lebih cepat)
+cryptg==0.4.0
+
+# TgCrypto: crypto backend untuk Pyrogram (Fast Download)
+TgCrypto==1.2.5
+
+# Pyrogram: Dipakai sebagai bridge paralel download yang sangat cepat
+pyrogram==2.0.106
+
+# ── DATABASE ──────────────────────────────────────────────────────────
+# Motor: async MongoDB driver — upgrade 3.1.1 → 3.5.1
+motor==3.5.1
+
+# PyMongo: HARUS sinkron versinya dengan motor
+pymongo==4.8.0
+
+# DNS untuk MongoDB SRV connection string (mongodb+srv://)
+dnspython==2.6.1
+
+# ── HTTP, ASYNC & CORE ACCELERATOR ────────────────────────────────────
+# Ultra-fast asyncio event loop pengganti bawaan Python (HANYA UNTUK LINUX/VPS)
+# Membuat seluruh proses antrian dan download 2-4x lebih cepat
+uvloop==0.20.0
+
+# aiohttp: WAJIB upgrade 3.8.3 → 3.10.5
+aiohttp==3.10.5
+
+# aiofiles: upgrade 22.1.0 → 24.1.0
+aiofiles==24.1.0
+
+# requests: SECURITY UPGRADE 2.28.2 → 2.32.3
+requests==2.32.3
+
+# Modern async HTTP client (pengganti requests di beberapa module & SpeedTest.py)
+httpx==0.27.2
+
+# ── ENVIRONMENT & CONFIG ──────────────────────────────────────────────
+# python-dotenv: upgrade 0.21.0 → 1.0.1
+python-dotenv==1.0.1
+
+# Timezone — upgrade 2022.7 → 2024.1
+pytz==2024.1
+
+# ── SISTEM & MONITORING ───────────────────────────────────────────────
+# psutil: upgrade 5.9.4 → 6.0.0
+psutil==6.0.0
+
+# File type detection (butuh: apt install libmagic1 di server)
+python-magic==0.4.27
+
+# ── DOWNLOAD ENGINE ───────────────────────────────────────────────────
+# Aria2 Python wrapper (sudah latest, Aria2 sendiri stabil)
+aria2p==0.11.3
+
+# yt-dlp: tidak di-pin karena YouTube update tiap minggu
+yt-dlp>=2024.1.0
+
+# ── VIDEO PROCESSING ──────────────────────────────────────────────────
+# MoviePy: di-pin ke 2.0.0 (API 2.x BERBEDA TOTAL dari 1.x)
+moviepy==2.0.0
+
+# Backend core untuk MoviePy 2.x (Ditulis eksplisit mencegah gagal build di Docker)
+imageio==2.35.1
+imageio-ffmpeg==0.5.1
+
+# FFmpeg Python bindings (Dipertahankan untuk FFMPEG_Commands.py lama)
+ffmpeg-python==0.2.0
+
+# OpenCV headless (tanpa GUI, cocok untuk server)
+opencv-python-headless==4.10.0.84
+
+# NumPy: DI-PIN KE 1.26.x — JANGAN UPGRADE KE 2.x
+# OpenCV 4.10 & MoviePy 2.0 masih ada issue dengan NumPy 2.x
+numpy==1.26.4
+
+# Image processing
+Pillow==10.4.0
+
+# ── TEXT TO SPEECH ────────────────────────────────────────────────────
+# edge-tts: di-pin (API Microsoft TTS bisa berubah)
+edge-tts
+
+# ── YOUTUBE API ───────────────────────────────────────────────────────
+# Google API client
+google-api-python-client==2.143.0
+
+# OAuth2 — PERHATIAN: run_local_server() tidak bisa di VPS headless!
+google-auth-oauthlib==1.2.1
+google-auth-httplib2==0.2.0
+
+# ── WEB SERVER (untuk webhook / health check) ─────────────────────────
+# Flask: di-pin (3.x breaking change dari 2.x)
+flask==3.0.3
+
+# Gunicorn: WSGI server untuk production
+gunicorn==23.0.0

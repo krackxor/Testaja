@@ -1,0 +1,752 @@
+"""
+╔══════════════════════════════════════════════════════════════════════╗
+║           bot_helper/Process/Process_Status.py                       ║
+║           Encoder1 Bot — v3.1                                        ║
+╠══════════════════════════════════════════════════════════════════════╣
+║  CHANGELOG dari versi lama:                                          ║
+║  [FIX HIGH]  get_data()[user_id] → .get() di 6+ tempat             ║
+║  [FIX HIGH]  sync open() di async loop → aiofiles                  ║
+║  [FIX HIGH]  move_send_files: return di dalam loop → fix bug        ║
+║  [FIX]       print() → LOGGER.debug()                              ║
+║  [FIX]       bare except → typed exception                         ║
+║  [FIX]       rclone log dibuka tiap baris → buka sekali            ║
+║  [FIX]       ValueError continue → break + warning                 ║
+║  [FIX]       check_running_process throttle (10 iter = 5 detik)    ║
+║  [FIX]       speed ZeroDivisionError → max(1, elapsed)             ║
+║  [FIX]       ETA ZeroDivisionError saat speed=0                    ║
+║  [FIX]       thumbnail fallback exists() check                     ║
+║  [FIX]       LOGGER.info(e) → LOGGER.error(exc_info=True)         ║
+║  [IMPROVE]   check_file_drive_link indentasi standard 4 spaces     ║
+╚══════════════════════════════════════════════════════════════════════╝
+"""
+
+# ── Standard Library ──────────────────────────────────────────────────
+from asyncio import sleep as asynciosleep, wait_for, create_subprocess_exec
+from asyncio.subprocess import PIPE as asyncioPIPE
+from json import loads
+from math import floor
+from os import makedirs, remove, rename
+from os.path import exists, getsize, isdir
+from re import findall as refindall
+from shutil import move as shutil_move
+from time import time
+
+# ── Third Party ───────────────────────────────────────────────────────
+from aiofiles import open as aio_open
+
+# ── Internal ──────────────────────────────────────────────────────────
+from bot_helper.Database.User_Data import get_data
+from bot_helper.Others.Helper_Functions import (
+    gen_random_string, get_account_type, get_human_size,
+    get_readable_time, get_value,
+)
+from bot_helper.Others.Names import Names
+from bot_helper.Process.Running_Process import check_running_process
+from config.config import Config
+
+LOGGER                  = Config.LOGGER
+FINISHED_PROGRESS_STR   = Config.FINISHED_PROGRESS_STR
+UNFINISHED_PROGRESS_STR = Config.UNFINISHED_PROGRESS_STR
+CMD_SUFFIX              = Config.CMD_SUFFIX
+download_dir            = Config.DOWNLOAD_DIR
+
+# Peta nama posisi watermark
+ws_name = {
+    "5:5":                              "Kiri Atas",
+    "main_w-overlay_w-5:5":            "Kanan Atas",
+    "5:main_h-overlay_h":              "Kiri Bawah",
+    "main_w-overlay_w-5:main_h-overlay_h-5": "Kanan Bawah",
+}
+
+# Throttle cancel check — cek setiap N iterasi bukan setiap 0.5 detik
+_CANCEL_CHECK_EVERY = 10
+
+
+# ═══════════════════════════════════════════════════════════════════════
+#  HELPER FUNCTIONS
+# ═══════════════════════════════════════════════════════════════════════
+
+def create_direc(direc: str) -> None:
+    if not isdir(direc):
+        makedirs(direc, exist_ok=True)
+
+
+def get_progress_bar_from_percentage(percentage: str) -> str:
+    """Progress bar dari string persentase seperti '45.3%'."""
+    try:
+        p = int(float(percentage.strip().strip("%")))
+    except (ValueError, TypeError, AttributeError):
+        p = 0
+    p     = min(max(p, 0), 100)
+    cFull = p // 8
+    p_str = FINISHED_PROGRESS_STR * cFull + UNFINISHED_PROGRESS_STR * (12 - cFull)
+    return f"[{p_str}]"
+
+
+def get_progress_bar_string(current: float, total: float) -> str:
+    """Progress bar dari nilai current/total."""
+    if total <= 0:
+        total = 1
+    p     = min(max(round(current * 100 / total), 0), 100)
+    cFull = p // 8
+    p_str = FINISHED_PROGRESS_STR * cFull + UNFINISHED_PROGRESS_STR * (12 - cFull)
+    return f"[{p_str}]"
+
+
+def ffmpeg_status_foot(status, user_id: int, start_time: float, time_in_us: float) -> str:
+    """
+    Generate footer status FFmpeg.
+    [FIX HIGH] get_data()[user_id] → .get() dengan fallback
+    """
+    # [FIX] .get() dengan fallback
+    user_data   = get_data().get(user_id, {})
+    status_foot = ""
+
+    if user_data.get("ffmpeg_ptime", True):
+        status_foot += f"\n**W.Proses**: {get_readable_time(time() - start_time)}"
+
+    if user_data.get("ffmpeg_size", True):
+        sep = "\n" if not status_foot else " | "
+        try:
+            est_size = get_human_size(
+                (status.output_size() / max(time_in_us, 1)) * status.duration * 1024 * 1024
+            )
+            status_foot += f"{sep}**Perkiraan Ukuran**: {est_size}"
+        except (ZeroDivisionError, TypeError):
+            status_foot += f"{sep}**Perkiraan Ukuran**: Tidak Diketahui"
+
+    return status_foot
+
+
+def generate_ffmpeg_status_head(user_id: int, pmode: str, input_size: int) -> str:
+    """
+    Generate header status FFmpeg sesuai mode proses.
+    [FIX HIGH] get_data()[user_id] → .get() dengan fallback
+    """
+    # [FIX] Cache user_data sekali
+    user_data         = get_data().get(user_id, {})
+    video_settings    = user_data.get("video", {})
+    watermark_settings = user_data.get("watermark", {})
+    merge_settings    = user_data.get("merge", {})
+    mux_settings      = user_data.get("mux", {})
+
+    if pmode in [Names.compress, Names.convert, Names.hardmux, Names.watermark]:
+        qsize_text = (
+            f"**Ukuran Antrian**: {video_settings.get('queue_size', '-')}"
+            if video_settings.get("use_queue_size")
+            else "**Ukuran Antrian**: False"
+        )
+        text = (
+            f"\n**SYNC**: {video_settings.get('sync')} | **Preset**: {video_settings.get('preset')}\n"
+            f"**CRF**: {video_settings.get('crf')} | **Salin Sub**: {video_settings.get('copy_sub')}\n"
+            f"{qsize_text} | **Peta**: {video_settings.get('map')}\n"
+            f"**Encoder**: {video_settings.get('encoder')} | **Ukr.Masuk**: {get_human_size(input_size)}"
+        )
+        if pmode == Names.watermark:
+            text += (
+                f"\n**Ukr.W**: {watermark_settings.get('size', '-')}% | "
+                f"**Posisi W.**: {ws_name.get(watermark_settings.get('position', ''), 'N/A')}"
+            )
+        return text
+
+    elif pmode == Names.merge:
+        return f"\n**Peta**: {merge_settings.get('map')} | **Perbaiki Blank**: {merge_settings.get('fix_blank')}"
+
+    elif pmode in [Names.softmux, Names.softremux]:
+        return f"\n**Codec Subtitle**: {mux_settings.get('sub_codec')} | **Ukr.Masuk**: {get_human_size(input_size)}"
+
+    return ""
+
+
+# ═══════════════════════════════════════════════════════════════════════
+#  RCLONE UTILITIES
+# ═══════════════════════════════════════════════════════════════════════
+
+async def get_ffmpeg_process_line(proc) -> bytes | bool:
+    data = False
+    try:
+        data = await wait_for(proc.stderr.readline(), 5)
+    except Exception:
+        pass
+    return data
+
+
+async def get_rclone_process_line(proc) -> bytes | bool:
+    data = False
+    try:
+        data = await wait_for(proc.stdout.readline(), 5)
+    except Exception as e:
+        LOGGER.warning(f"⚠️  Error baca log rclone: {e}")
+    return data
+
+
+async def getdrivelink(search_command: list, event) -> str | bool:
+    """Ambil ID file dari hasil rclone lsjson."""
+    process = await create_subprocess_exec(*search_command, stdout=asyncioPIPE)
+    stdout, _ = await process.communicate()
+    try:
+        decoded = stdout.decode().strip()
+        LOGGER.debug(f"getdrivelink stdout: {decoded[:200]}")   # [FIX] debug bukan print
+        data    = loads(decoded)
+        file_id = data[0]["ID"]
+        return file_id
+    except Exception as e:
+        await event.reply(f"❌ Error saat mendapatkan ID berkas: `{e}`")
+        LOGGER.error(f"❌ getdrivelink error: {e}", exc_info=True)   # [FIX] ERROR + traceback
+        return False
+
+
+async def check_file_drive_link(
+    search_command: list, event, fileloc: str,
+    r_config: str, drive_name: str, name: str, caption: str,
+) -> None:
+    """
+    Cek dan kirim link file setelah upload ke drive.
+    [IMPROVE] Indentasi standard 4 spaces (sebelumnya 32+ spaces)
+    """
+    file_link = await rclone_get_link(drive_name, name, r_config)
+
+    try:
+        fisize = get_human_size(getsize(fileloc))
+    except (OSError, FileNotFoundError):
+        fisize = "Unknown"
+
+    if file_link:
+        link_text = f"⛓ Tautan: `{file_link}`"
+        file_text = (
+            f"✅ Berhasil mengunggah `{name}` ke `{drive_name}`\n\n"
+            f"{link_text}\n\n💽 Ukuran: {fisize}"
+        )
+    else:
+        file_text = (
+            f"✅ Berhasil mengunggah `{name}` ke `{drive_name}`\n\n"
+            f"❗ Gagal mendapatkan tautan\n\n💽 Ukuran: {fisize}"
+        )
+
+    if caption:
+        file_text += f"\n\n{str(caption).strip()}"
+
+    await event.reply(file_text)
+
+
+async def rclone_get_link(remote: str, name: str, conf: str) -> str | bool:
+    """Ambil shareable link file dari rclone."""
+    cmd = ["rclone", "link", f"--config={conf}", f"{remote}:{name}"]
+    LOGGER.info(f"Mendapatkan link berkas {name} dari {remote}")
+    process = await create_subprocess_exec(*cmd, stdout=asyncioPIPE, stderr=asyncioPIPE)
+    out, _  = await process.communicate()
+    url     = out.decode().strip()
+    if process.returncode == 0:
+        return url
+    return False
+
+
+# ═══════════════════════════════════════════════════════════════════════
+#  PROCESS STATUS CLASS
+# ═══════════════════════════════════════════════════════════════════════
+
+class ProcessStatus:
+    """
+    Tracking state untuk satu proses bot (download → process → upload).
+    """
+
+    def __init__(
+        self,
+        user_id: int,
+        chat_id: int,
+        user_name: str,
+        user_first_name: str,
+        event,
+        process_type: str,
+        file_name=False,
+        thumbnail=False,
+        start_time=False,
+        custom_metadata=False,
+        custom_index=False,
+        input_mode: str = "Telegram",
+    ):
+        self.user_id        = user_id
+        self.chat_id        = chat_id
+        self.amap_options   = "0:a"
+        self.user_name      = user_name
+        self.user_first_name = user_first_name
+        self.event          = event
+        self.dir            = f"{download_dir}/{user_id}/{gen_random_string(5)}"
+        self.send_files     = []
+        self.dw_files       = []
+        self.subtitles      = []
+        self.dw_index       = "-/-"
+        self.file_name      = file_name
+        self.status_message_id = gen_random_string(5)
+        self.process_id     = gen_random_string(10)
+        self.status_message = f"🔁 Menginisialisasi\n`/cancel{CMD_SUFFIX} process {self.process_id}`"
+        self.message        = "Tidak Ditemukan"
+        self.caption        = False
+        self.process_type   = process_type
+        self.start_time     = start_time
+        self.convert_quality = 480
+        self.convert_index  = "-/-"
+        self.ping           = time()
+        self.trash_objects  = False
+        self.multi_tasks    = []
+        self.multi_task_no  = 0
+        self.custom_metadata = custom_metadata
+        self.custom_index   = custom_index
+        self.input_mode     = input_mode
+
+        # Fitur-fitur proses
+        self.trim_start    = None
+        self.trim_end      = None
+        self.split_mode    = None
+        self.split_value   = None
+        self.cut_ranges    = []
+        self.rotate_option = None
+        self.new_extension = None
+        self.file_type     = "video"
+        self.crop_params   = None
+        self.extract_maps  = []
+
+        # Thumbnail
+        if not thumbnail and exists(f"./userdata/{user_id}_Thumbnail.jpg"):
+            self.thumbnail = f"./userdata/{user_id}_Thumbnail.jpg"
+        else:
+            self.thumbnail = thumbnail
+
+        # Added by info
+        if self.user_name:
+            self.added_by = f"[{self.user_first_name}](https://t.me/{self.user_name})"
+        else:
+            self.added_by = self.user_first_name
+
+    # ── Multi-task Methods ───────────────────────────────────────────
+
+    def append_multi_tasks(self, task) -> None:
+        self.multi_tasks.append(task)
+
+    def change_multi_tasks_no(self, no: int) -> None:
+        self.multi_task_no = no
+
+    def get_multi_task_no(self) -> str:
+        if self.multi_task_no:
+            done = self.multi_task_no - len(self.multi_tasks)
+            return f"({done}/{self.multi_task_no})"
+        return ""
+
+    def replace_multi_tasks(self, multi_tasks: list) -> None:
+        self.multi_tasks = multi_tasks
+
+    # ── Status Message Methods ───────────────────────────────────────
+
+    def update_status_message(self, message: str) -> None:
+        self.message = message
+
+    def update_convert_quality(self, convert_quality) -> None:
+        self.convert_quality = convert_quality
+
+    def update_convert_index(self, convert_index: str) -> None:
+        self.convert_index = convert_index
+
+    def update_process_message(self, text: str) -> None:
+        self.status_message = text
+
+    def update_start_time(self, start_time: float) -> None:
+        self.start_time = start_time
+
+    # ── File Methods ─────────────────────────────────────────────────
+
+    def set_custom_thumbnail(self, thumbnail: str) -> None:
+        self.thumbnail = thumbnail
+
+    def move_custom_thumbnail(self, thumbnail: str | None) -> None:
+        """
+        Pindahkan thumbnail dari task sebelumnya ke direktori task ini.
+        [FIX] Fallback thumbnail cek exists() sebelum set
+        """
+        if not thumbnail:
+            return
+        if exists(thumbnail):
+            name     = thumbnail.split("/")[-1]
+            move_dir = f"{self.dir}/thumbnail"
+            if exists(f"{move_dir}/{name}"):
+                move_dir = f"{self.dir}/{gen_random_string(5)}"
+            create_direc(move_dir)
+            LOGGER.info(f"Memindahkan thumbnail {thumbnail} → {move_dir}/{name}")
+            shutil_move(thumbnail, f"{move_dir}/{name}")
+            self.thumbnail = f"{move_dir}/{name}"
+        else:
+            # [FIX] Cek exists sebelum fallback
+            self.thumbnail = "./thumb.jpg" if exists("./thumb.jpg") else None
+            LOGGER.info(f"⚠️  Thumbnail {thumbnail} tidak ditemukan, pakai default")
+
+    def set_send_files(self, name: str) -> None:
+        self.send_files = [f"{self.dir}/{name}"]
+
+    def replace_send_files(self, file_name: str) -> None:
+        self.send_files = [file_name]
+
+    def replace_send_list(self, send_files: list) -> None:
+        self.send_files = send_files
+
+    def append_send_files(self, name: str) -> None:
+        path = f"{self.dir}/{name}"
+        if path not in self.send_files:
+            self.send_files.append(path)
+
+    def append_send_files_loc(self, fileloc: str) -> None:
+        if fileloc not in self.send_files:
+            self.send_files.append(fileloc)
+
+    def append_dw_files_loc(self, fileloc: str) -> None:
+        if fileloc not in self.dw_files:
+            self.dw_files.append(fileloc)
+
+    def append_dw_files(self, name: str) -> None:
+        path = f"{self.dir}/{name}"
+        if path not in self.dw_files:
+            self.dw_files.append(path)
+
+    def set_file_name(self, file_name: str) -> None:
+        if not self.file_name:
+            self.file_name = file_name
+
+    def set_file_name_from_send_list(self) -> None:
+        if not self.file_name:
+            try:
+                if self.send_files:
+                    self.file_name = self.send_files[-1].split("/")[-1]
+                    LOGGER.info(f"Nama berkas: {self.file_name}")
+                else:
+                    LOGGER.info("Tidak ada berkas dalam send_files untuk set nama")
+            except Exception as e:
+                LOGGER.warning(f"⚠️  Error set nama berkas: {e}")
+        else:
+            LOGGER.info(f"Nama berkas sudah ada: {self.file_name}")
+
+    def set_caption(self, caption: str) -> None:
+        self.caption = caption
+
+    def set_amap_options(self, options: str) -> None:
+        self.amap_options = options
+
+    def set_dw_index(self, dw_index: str) -> None:
+        self.dw_index = dw_index
+
+    def move_dw_file(self, name: str) -> None:
+        src = f"{self.dir}/{name}"
+        if not exists(src):
+            LOGGER.info(f"⚠️  Berkas {src} tidak ditemukan")
+            return
+        if src not in self.dw_files:
+            LOGGER.info(f"⚠️  {src} tidak dalam dw_files")
+            return
+
+        self.dw_files.remove(src)
+        move_dir = f"{self.dir}/work_files"
+        create_direc(move_dir)
+        dest = f"{move_dir}/{name}"
+
+        if exists(dest):
+            LOGGER.info(f"Rename existing {dest}")
+            rename(dest, f"{move_dir}/{gen_random_string(5)}_{name}")
+
+        LOGGER.info(f"Memindahkan {src} → {dest}")
+        shutil_move(src, dest)
+        self.send_files.append(dest)
+
+    def move_send_files(self, send_files: list) -> None:
+        """
+        Pindahkan semua send_files dari task lain ke task ini.
+        [FIX HIGH] return di dalam loop dihapus — sebelumnya hanya proses file pertama
+        """
+        for file in send_files:
+            if not exists(file):
+                LOGGER.info(f"⚠️  Berkas {file} tidak ditemukan saat move")
+                continue   # [FIX] continue, bukan return — proses file berikutnya
+
+            name     = file.split("/")[-1]
+            move_dir = f"{self.dir}/work_files"
+            if exists(f"{move_dir}/{name}"):
+                move_dir = f"{self.dir}/{gen_random_string(5)}"
+            create_direc(move_dir)
+            LOGGER.info(f"Memindahkan {file} → {move_dir}/{name}")
+            shutil_move(file, f"{move_dir}/{name}")
+            self.send_files.append(f"{move_dir}/{name}")
+        # [FIX] return setelah loop selesai, bukan di dalam loop
+
+    def append_subtitles(self, sub_loc: str) -> None:
+        if not exists(sub_loc):
+            LOGGER.info(f"⚠️  Subtitle {sub_loc} tidak ditemukan")
+            return
+        if sub_loc not in self.subtitles:
+            self.subtitles.append(sub_loc)
+        else:
+            LOGGER.info(f"Subtitle {sub_loc} sudah dalam daftar")
+
+    def get_task_details(self) -> str:
+        return f"**Ditambahkan Oleh**: {self.added_by} | **ID**: `{self.user_id}`"
+
+    # ── Status Update Methods ────────────────────────────────────────
+
+    async def update_status(self, status) -> None:
+        """
+        Loop update status message selama proses berjalan.
+
+        [FIX HIGH] sync open() → aiofiles untuk baca log FFmpeg
+        [FIX]      check_running_process throttle (setiap 10 iter = 5 detik)
+        [FIX HIGH] get_data()[user_id] → .get() dengan fallback
+        """
+        if status.type() == Names.ffmpeg:
+            input_size  = status.input_size()
+            ffmpeg_head = generate_ffmpeg_status_head(self.user_id, self.process_type, input_size)
+
+        total_files   = len(self.send_files)
+        error_no      = 0
+        multi_task_no = self.get_multi_task_no()
+        iter_count    = 0   # [FIX] counter untuk throttle cancel check
+
+        while True:
+            self.ping = time()
+            iter_count += 1
+
+            # ── ARIA STATUS ──────────────────────────────────────────
+            if status.type() == Names.aria:
+                if status.process_status == 0:
+                    text = (
+                        f"{status.status()} [{self.dw_index}]\n"
+                        f"`{status.name()}`\n"
+                        f"{get_progress_bar_from_percentage(status.progress())} {status.progress()}\n"
+                        f"**Ditambahkan Oleh**: {self.added_by} | **ID**: `{self.user_id}`\n"
+                        f"**Mesin**: Aria\n"
+                        f"**Diunduh**: {get_human_size(int(status.processed_bytes()))} "
+                        f"dari {get_human_size(int(status.size_raw()))}\n"
+                        f"**Kecepatan**: {status.speed()} | **Perkiraan Waktu Tiba**: {status.eta()}\n"
+                        f"`/cancel{CMD_SUFFIX} aria {status.gid()}`"
+                    )
+                    self.status_message = text
+                    await asynciosleep(0.5)
+                else:
+                    LOGGER.info(f"Aria status stop: {status.process_status}")
+                    break
+
+            # ── FFMPEG STATUS ────────────────────────────────────────
+            elif status.type() == Names.ffmpeg:
+                # [FIX] Throttle cancel check — setiap 10 iterasi (5 detik)
+                if iter_count % _CANCEL_CHECK_EVERY == 0:
+                    if not check_running_process(self.process_id):
+                        await self.event.reply("🔒 Tugas dibatalkan oleh pengguna")
+                        break
+
+                # [FIX] Check returncode lebih robust (None = belum selesai)
+                if status.returncode is not None:
+                    LOGGER.info(f"FFmpeg selesai dengan returncode: {status.returncode}")
+                    break
+
+                # [FIX HIGH] aiofiles bukan sync open() — tidak block event loop
+                if exists(status.log_file):
+                    try:
+                        async with aio_open(status.log_file, "r", encoding="utf-8", errors="replace") as f:
+                            ffmpeg_text = await f.read()
+                        time_in_us = get_value(refindall(r"out_time_ms=(.+)", ffmpeg_text), int, 1)
+                        progress   = get_value(refindall(r"progress=(\w+)", ffmpeg_text), str, "error")
+                        speed      = get_value(refindall(r"speed=(\d+\.?\d*)", ffmpeg_text), float, 1)
+                    except (OSError, IOError) as e:
+                        LOGGER.debug(f"Gagal baca log file: {e}")
+                        time_in_us, progress, speed = 1, "error", 1.0
+                else:
+                    time_in_us, progress, speed = 1, "error", 1.0
+
+                if progress == "end":
+                    break
+
+                if progress == "error":
+                    if error_no == 30:
+                        LOGGER.warning(f"FFmpeg progress error 30x untuk {self.process_id}")
+                        await self.event.reply("❗ Terjadi beberapa error pada proses FFmpeg.")
+                    if error_no == 100:
+                        break
+                    error_no += 1
+
+                elapsed_time = time_in_us / 1_000_000
+
+                if self.process_type == Names.convert:
+                    process_state = f"{Names.STATUS[self.process_type]} Ke {self.convert_quality}P [{self.convert_index}]"
+                    name          = status.name
+                elif self.process_type != Names.merge:
+                    process_state = Names.STATUS.get(self.process_type, self.process_type)
+                    name          = status.name
+                else:
+                    process_state = f"{Names.STATUS[self.process_type]} [{total_files} Berkas]"
+                    name          = str(self.file_name)
+
+                # [FIX HIGH] get_data()[user_id] → .get()
+                user_data        = get_data().get(self.user_id, {})
+                show_detailed    = user_data.get("detailed_messages", True)
+
+                duration         = max(status.duration, 0.001)
+                progress_percent = f"{elapsed_time * 100 / duration:.1f}%"
+                progress_bar     = get_progress_bar_string(elapsed_time, duration)
+                eta_str          = (
+                    get_readable_time(floor((duration - elapsed_time) / speed))
+                    if speed > 0 else "N/A"
+                )
+
+                text = (
+                    f"{process_state} {multi_task_no}\n"
+                    f"`{name}`\n"
+                    f"{progress_bar} {progress_percent}\n"
+                    f"**Ditambahkan Oleh**: {self.added_by} | **ID**: `{self.user_id}`\n"
+                    f"**Mesin**: FFMPEG"
+                    f"{ffmpeg_head if show_detailed else ''}\n"
+                    f"**Diproses**: {get_readable_time(elapsed_time)} dari {get_readable_time(duration)}\n"
+                    f"**Kecepatan**: {speed}x | **Perkiraan Waktu Tiba**: {eta_str}"
+                    f"{ffmpeg_status_foot(status, self.user_id, self.start_time, time_in_us)}\n"
+                    f"`/ffmpeg{CMD_SUFFIX} log {self.process_id}`\n"
+                    f"`/cancel{CMD_SUFFIX} process {self.process_id}`"
+                )
+                self.status_message = text
+                await asynciosleep(0.5)
+
+        if status.type() == Names.aria and status.name():
+            path = f"{self.dir}/{status.name()}"
+            if path not in self.dw_files:
+                self.dw_files.append(path)
+
+    def telegram_update_status(
+        self,
+        current: int,
+        total: int,
+        mode: str,
+        name: str,
+        start_time: float,
+        status: str,
+        engine: str,
+        client=False,
+    ) -> None:
+        """
+        Update status untuk Telegram upload/download.
+        [FIX] max(1, elapsed) cegah ZeroDivisionError
+        [FIX] ETA guard saat speed=0
+        """
+        self.ping = time()
+
+        if client:
+            if not check_running_process(self.process_id):
+                client.stop_transmission()
+
+        # [FIX] max(1, elapsed) — cegah ZeroDivisionError saat dipanggil sangat cepat
+        elapsed = max(1, round(time() - start_time))
+        speed   = current / elapsed
+
+        # [FIX] ETA saat speed=0
+        if speed > 0 and total > current:
+            eta = get_readable_time((total - current) / speed)
+        else:
+            eta = "N/A"
+
+        pct  = f"{current * 100 / max(total, 1):.1f}%"
+        text = (
+            f"{status}\n"
+            f"`{name}`\n"
+            f"{get_progress_bar_string(current, total)} {pct}\n"
+            f"**Ditambahkan Oleh**: {self.added_by} | **ID**: `{self.user_id}`\n"
+            f"**Mesin**: {engine}\n"
+            f"**{mode}**: {get_human_size(current)} dari {get_human_size(total)}\n"
+            f"**Kecepatan**: {get_human_size(int(speed))}ps | **Perkiraan Waktu Tiba**: {eta}\n"
+            f"`/cancel{CMD_SUFFIX} process {self.process_id}`"
+        )
+        self.status_message = text
+
+    async def rclone__update_status(
+        self,
+        rclone_process,
+        name: str,
+        search_command: list,
+        fileloc: str,
+        r_config: str,
+        drive_name: str,
+        status: str,
+    ) -> bool:
+        """
+        Monitor dan update status upload rclone.
+        [FIX]      print(line) → LOGGER.debug()
+        [FIX]      File log dibuka SEKALI di luar loop
+        [FIX]      ValueError continue → break + warning
+        """
+        cancelled = False
+        log_path  = f"{self.dir}/upload_log_{name}.txt"
+
+        try:
+            # [FIX] Buka file log SEKALI di luar loop
+            async with aio_open(log_path, "a+", encoding="utf-8") as log_f:
+                try:
+                    async for raw_line in rclone_process.stdout:
+                        if not check_running_process(self.process_id):
+                            cancelled = True
+                            break
+
+                        line = raw_line.decode("utf-8", errors="replace").strip()
+                        LOGGER.debug(f"rclone: {line}")   # [FIX] debug bukan print
+
+                        # [FIX] Tulis ke log tanpa open/close ulang
+                        await log_f.write(f"{line}\n")
+
+                        # Parse progress dari rclone output
+                        try:
+                            datam = refindall(r"Transferred:.*ETA.*", line)
+                            if datam:
+                                progress   = datam[0].replace("Transferred:", "").strip().split(",")
+                                percentage = progress[1].strip("% ")
+                                dwdata     = progress[0].strip().split("/")
+                                eta        = progress[3].strip().replace("ETA", "").strip()
+                                text = (
+                                    f"{status}\n"
+                                    f"`{name}`\n"
+                                    f"{get_progress_bar_from_percentage(percentage)} {percentage}%\n"
+                                    f"**Ditambahkan Oleh**: {self.added_by} | **ID**: `{self.user_id}`\n"
+                                    f"**Mesin**: {Names.rclone}\n"
+                                    f"**Diunggah**: {dwdata[0].strip()} dari {dwdata[1].strip()}\n"
+                                    f"**Kecepatan**: {progress[2]} | **Perkiraan Waktu Tiba**: {eta}\n"
+                                    f"`/cancel{CMD_SUFFIX} process {self.process_id}`"
+                                )
+                                self.status_message = text
+                                await asynciosleep(0.5)
+                        except (IndexError, Exception) as e:
+                            LOGGER.debug(f"Parse rclone progress error: {e}")
+
+                except ValueError as e:
+                    # [FIX] break + warning, bukan continue (infinite loop)
+                    LOGGER.warning(f"⚠️  rclone stdout ValueError: {e} — stop logging")
+
+        except (OSError, PermissionError) as e:
+            LOGGER.error(f"❌ Gagal buka/tulis rclone log {log_path}: {e}")
+
+        if not cancelled:
+            await rclone_process.wait()
+            if rclone_process.returncode == 0:
+                await check_file_drive_link(
+                    search_command, self.event, fileloc,
+                    r_config, drive_name, name, self.caption,
+                )
+            else:
+                if exists(log_path):
+                    await self.event.client.send_file(
+                        self.chat_id,
+                        file=log_path,
+                        allow_cache=False,
+                        reply_to=self.event.message,
+                        caption=f"❌ Error saat mengunggah {name} ke Drive",
+                    )
+                else:
+                    await self.event.reply("❗ Berkas log rclone tidak ditemukan")
+        else:
+            try:
+                rclone_process.kill()
+            except Exception as e:
+                LOGGER.debug(f"rclone kill error: {e}")
+            if exists(log_path):
+                remove(log_path)
+            return False
+
+        if exists(log_path):
+            remove(log_path)
+        return True

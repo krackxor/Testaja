@@ -1,0 +1,47 @@
+verify1 - Verify Trakteer Payment
+myvip1 - Check VIP Status
+compress1 - Compress Video
+convert1 - Convert Video
+watermark1 - Add Watermark To Video
+hardmux1 - Hardmux Video
+softmux1 - Softmux Video
+softremux1 - Softremux Video
+merge1 - Merge Video
+trim1 - Trim Video
+split1 - Split Video
+cut1 - Cut Video Segments
+rotate1 - Rotate Video
+extension1 - Change File Extension/Container
+crop1 - Crop Video
+autocrop1 - Autocrop Black Bars
+gensample1 - Generate Sample Video
+genss1 - Generate Screenshots
+changemetadata1 - Change Video Metadata
+changeindex1 - Change Index Or Remove Stream
+extract1 - Extract Audio/Subtitle Streams
+mediainfo1 - Get Media Info (ffprobe)
+mirror1 - Mirror File
+leech1 - Leech File
+savewatermark1 - Save Watermark Image
+savethumb1 - Save Static Thumbnail
+saveconfig1 - Save Rclone Config
+status1 - Check Process Status
+stats1 - Get Stats
+speedtest1 - SpeedTest
+time1 - Get Bot Uptime
+settings1 - Settings Section
+add_vip1 - Manually Add VIP Status
+delete_vip1 - Manually Remove VIP Status
+view_vip1 - View List of Active VIP Users
+addsudo1 - Add Sudo User
+delsudo1 - Delete Sudo User
+checksudo1 - Check Sudo Users
+tasklimit1 - Change Task Limit
+changeconfig1 - Change Bot Config
+clearconfigs1 - Restore To Default Config
+renew1 - Renew Storage
+resetdb1 - Reset Database
+restart1 - Restart Bot
+herokurestart1 - Restart Heroku Dyno
+log1 - Get Log Message
+logs1 - Get Log File
