@@ -6,11 +6,11 @@
 ║  CHANGELOG dari versi lama:                                          ║
 ║  [NEW]      Menggunakan asyncio.run() native Python 3.11             ║
 ║  [NEW]      Aiogram dp.start_polling() sebagai main loop             ║
+║  [NEW]      Global Message Catcher untuk fitur "Inline Waiter"       ║
 ║  [FIX]      Setup Bot Commands dipindah dari Telethon ke Aiogram     ║
 ║  [FIX]      Inisialisasi semua client (Telethon & Pyrogram) async    ║
 ║  [IMPROVE]  Penanganan error restart message lebih aman (split string)║
-║  [IMPROVE]  Parsing commands.txt pakai split("-", 1) agar deskripsi  ║
-║             yang mengandung tanda "-" tidak error.                   ║
+║  [IMPROVE]  Parsing commands.txt pakai split("-", 1)                 ║
 ╚══════════════════════════════════════════════════════════════════════╝
 """
 
@@ -19,12 +19,18 @@ from os import remove
 from os.path import exists
 
 # ── Aiogram ───────────────────────────────────────────────────────────
-from aiogram.types import BotCommand
+from aiogram.types import BotCommand, Message
+from aiogram.dispatcher.middlewares.base import BaseMiddleware
+from aiogram import Router
 
 # ── Internal ──────────────────────────────────────────────────────────
 from config.config import Config
 from bot_helper.Aria2.Aria2_Engine import start_listener
 from bot_helper.Telegram.Telegram_Client import Telegram
+from bot_helper.Handlers.shared import resolve_waiter
+
+# Mengimpor router dari media_handlers
+from bot_helper.Handlers.media_handlers import router as media_router
 
 # Coba pasang uvloop untuk akselerasi (jika di Linux/VPS)
 try:
@@ -39,8 +45,25 @@ sudo_users = Config.SUDO_USERS
 LOGGER = Config.LOGGER
 
 ###############------Load_Plugins------###############
-# Cukup panggil bot.start, karena file ini sudah mengatur semua impor handler
+# Baris ini dipertahankan jika file bot.start memuat handler Telethon lama
+# Namun, handler yang sudah di-refactor akan dimuat lewat router Aiogram
 import bot.start
+
+
+# ═══════════════════════════════════════════════════════════════════════
+#  GLOBAL MESSAGE CATCHER (UNTUK INLINE WAITER)
+# ═══════════════════════════════════════════════════════════════════════
+# Middleware ini akan berjalan SEBELUM handler perintah (seperti /compress)
+class WaiterCatcherMiddleware(BaseMiddleware):
+    async def __call__(self, handler, event: Message, data: dict):
+        # Cek apakah ada fungsi yang sedang menunggu balasan dari user ini
+        if resolve_waiter(event):
+            # Jika True, pesan sudah ditangkap oleh waiter. 
+            # JANGAN teruskan pesan ini ke handler perintah!
+            return None 
+        # Jika tidak, teruskan pesan ke handler perintah (seperti /start)
+        return await handler(event, data)
+
 
 ###############------Set_Bot_Commands-----###############
 async def set_bot_commands(command_file):
@@ -94,6 +117,10 @@ async def start_user_account():
 ###############------Main_Async_Loop------###############
 async def main():
     LOGGER.info("⚡ Starting Trinity Clients (Aiogram + Telethon + Pyrogram) ⚡")
+
+    # Mendaftarkan Middleware dan Router ke Dispatcher Utama
+    Telegram.AIOGRAM_DP.message.middleware(WaiterCatcherMiddleware())
+    Telegram.AIOGRAM_DP.include_router(media_router)
 
     # 1. Start Telethon Bot
     LOGGER.info("🔶 Starting Telethon Bot")
