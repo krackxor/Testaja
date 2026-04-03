@@ -586,6 +586,59 @@ async def _autocrop_video(message: Message):
     task = build_task(ps, video_event_for_task)
     await submit_task(task)
     await update_status_message(message)
+    
+
+# ═══════════════════════════════════════════════════════════════════════
+#  /mute - BISUKAN VIDEO INSTAN
+# ═══════════════════════════════════════════════════════════════════════
+
+@router.message(Command("mute"))
+async def _mute_video(message: Message):
+    if not await vip_check(message): return
+    link, custom_name = await get_link(message)
+    if not link: return await message.reply("❗ Reply video untuk membisukan.")
+
+    ps = ProcessStatus(message.from_user.id, message.chat.id, get_username(message), 
+                       message.from_user.first_name, message, Names.mute, custom_name)
+    ps.ffmpeg_args = ["-c:v", "copy", "-an"] # Video copy, Audio none
+    
+    await submit_task(build_task(ps, link))
+    await update_status_message(message)
+    
+
+# ═══════════════════════════════════════════════════════════════════════
+#  /speed - DASHBOARD KECEPATAN
+# ═══════════════════════════════════════════════════════════════════════
+
+@router.message(Command("speed"))
+async def _speed_video(message: Message):
+    if not await vip_check(message): return
+    user_id, chat_id = message.from_user.id, message.chat.id
+    link, custom_name = await get_link(message)
+    if not link: return await message.reply("❗ Reply video untuk ubah kecepatan.")
+
+    kb = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="🐢 0.5x", callback_data=f"sp_0.5_{user_id}"),
+         InlineKeyboardButton(text="🏃 1.5x", callback_data=f"sp_1.5_{user_id}"),
+         InlineKeyboardButton(text="⚡ 2.0x", callback_data=f"sp_2.0_{user_id}")],
+        [InlineKeyboardButton(text="❌ Batal", callback_data=f"sp_cancel_{user_id}")]
+    ])
+    
+    dash = await message.reply("🚀 **Pilih Kecepatan Video:**\n_(Proses ini memerlukan render ulang)_", reply_markup=kb)
+    
+    try:
+        # Gunakan waiter untuk menangkap input teks sebagai fallback atau konfirmasi sederhana
+        resp = await wait_for_message(chat_id, user_id, 60)
+        speed_val = resp.text # Misal user ketik 1.5
+        
+        if not speed_val or "batal" in speed_val.lower(): return
+        
+        ps = ProcessStatus(user_id, chat_id, get_username(message), message.from_user.first_name, message, Names.video_speed, custom_name)
+        ps.speed_value = speed_val
+        
+        await submit_task(build_task(ps, link))
+        await update_status_message(message)
+    except: pass
 
 
 # ═══════════════════════════════════════════════════════════════════════
