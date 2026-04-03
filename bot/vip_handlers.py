@@ -33,7 +33,7 @@ from bot_helper.Database.User_Data import (
 from bot_helper.Telegram.Telegram_Client import Telegram
 from config.config import Config
 
-from bot.shared import (
+from shared import (
     LOGGER, SAVE_TO_DATABASE,
     ask_text_event, owner_checker,
     safe_reply, user_auth_checker,
