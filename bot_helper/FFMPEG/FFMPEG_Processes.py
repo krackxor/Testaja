@@ -1,22 +1,22 @@
 """
 ╔══════════════════════════════════════════════════════════════════════╗
-║           bot_helper/FFMPEG/FFMPEG_Processes.py                      ║
-║           Encoder1 Bot — v3.1                                        ║
+║            bot_helper/FFMPEG/FFMPEG_Processes.py                     ║
+║            Encoder1 Bot — v3.1                                       ║
 ╠══════════════════════════════════════════════════════════════════════╣
 ║  CHANGELOG dari versi lama:                                          ║
-║  [FIX HIGH]  asyncio.gather split → Semaphore(2) cegah OOM/saturasi ║
-║  [FIX HIGH]  get_data()[user_id] → .get() semua fungsi              ║
-║  [FIX HIGH]  execute(shell_str) → subprocess list args              ║
-║  [FIX HIGH]  start_time += cut_duration - 3 → tanpa -3 (no overlap) ║
-║  [FIX]       bare except → except (KeyError, TypeError)             ║
-║  [FIX]       print() → LOGGER.debug/info/error                      ║
-║  [FIX]       -vsync/-async deprecated → -fps_mode cfr              ║
-║  [FIX]       DocumentAttributeVideo width/height dari ffprobe       ║
-║  [FIX]       gen_ss_list duplikat timestamp                         ║
-║  [FIX]       amap_options audio index calculation                   ║
-║  [FIX]       change_metadata retry logging                          ║
-║  [IMPROVE]   select_audio indentasi & readability                   ║
-║  [IMPROVE]   sleep(1) ss → sleep(0.3) dengan jitter                ║
+║  [FIX HIGH]  asyncio.gather split → Semaphore(2) cegah OOM/saturasi  ║
+║  [FIX HIGH]  get_data()[user_id] → .get() semua fungsi               ║
+║  [FIX HIGH]  execute(shell_str) → subprocess list args               ║
+║  [FIX HIGH]  start_time += cut_duration - 3 → tanpa -3 (no overlap)  ║
+║  [FIX]       bare except → except (KeyError, TypeError)              ║
+║  [FIX]       print() → LOGGER.debug/info/error                       ║
+║  [FIX]       -vsync/-async deprecated → -fps_mode cfr                ║
+║  [FIX]       DocumentAttributeVideo width/height dari ffprobe        ║
+║  [FIX]       gen_ss_list duplikat timestamp                          ║
+║  [FIX]       amap_options audio index calculation                    ║
+║  [FIX]       change_metadata retry logging                           ║
+║  [IMPROVE]   select_audio indentasi & readability                    ║
+║  [IMPROVE]   sleep(1) ss → sleep(0.3) dengan jitter                  ║
 ╚══════════════════════════════════════════════════════════════════════╝
 """
 
