@@ -1,15 +1,15 @@
 """
 ╔══════════════════════════════════════════════════════════════════════╗
-║           bot_helper/Others/Names.py — v3.1                         ║
+║           bot_helper/Others/Names.py — v3.1                          ║
 ║                    Konstanta Nama Proses Bot                         ║
 ╠══════════════════════════════════════════════════════════════════════╣
 ║  CHANGELOG:                                                          ║
-║  [FIX]  split tidak ada di STATUS dict → ditambahkan                ║
-║  [FIX]  '쪼Splitting Video' karakter Korean → emoji ✂️             ║
-║  [FIX]  STATUS_* string tanpa emoji → ditambahkan emoji            ║
-║  [NEW]  ytupload, autoclip, movierecap (Step 14-16)                ║
-║  [NEW]  top, review, short_vid (Step 17 Gameplay.py)               ║
-║  [IMPROVE] Indentasi 4-space standard                               ║
+║  [FIX]  split tidak ada di STATUS dict → ditambahkan                 ║
+║  [FIX]  '쪼Splitting Video' karakter Korean → emoji ✂️               ║
+║  [FIX]  STATUS_* string tanpa emoji → ditambahkan emoji              ║
+║  [NEW]  ytupload, autoclip, movierecap (Step 14-16)                  ║
+║  [NEW]  top, review, short_vid (Step 17 Gameplay.py)                 ║
+║  [IMPROVE] Indentasi 4-space standard                                ║
 ╚══════════════════════════════════════════════════════════════════════╝
 """
 
@@ -50,12 +50,12 @@ class Names:
     rclone         = "Rclone"
 
     # ── [NEW] Proses Video Production (Step 14-17) ───────────────────
-    ytupload       = "YouTubeUpload"   # YTUpload.py
-    autoclip       = "AutoClip"        # AutoClip.py
-    movierecap     = "MovieRecap"      # MovieRecap.py
-    top            = "Top"             # Gameplay.py /top
-    review         = "Review"          # Gameplay.py /review
-    short_vid      = "Short"           # Gameplay.py /short
+    ytupload       = "YouTubeUpload" 
+    autoclip       = "AutoClip"       
+    movierecap     = "MovieRecap"      
+    top            = "Top"            
+    review         = "Review"         
+    short_vid      = "Short"           
 
     # ── Status Map (process_type → label UI) ─────────────────────────
     # Keys = nilai string dari attribute di atas (bukan nama attribute)
@@ -69,7 +69,7 @@ class Names:
         convert:        "🚜 Mengonversi Video",
         hardmux:        "🚍 HardMux Subtitle",
         trim:           "✂️ Memotong Video",
-        split:          "✂️ Memisah Video",       # [FIX] ditambahkan — sebelumnya tidak ada
+        split:          "✂️ Memisah Video",  
         cut:            "🔪 Memotong Segmen",
         crop:           "✂️ Crop Video",
         autocrop:       "✨ Autocrop Video",
@@ -110,7 +110,6 @@ class Names:
     ]
 
     # ── Status Labels (dipakai Aria2, Process_Status, UI) ────────────
-    # [FIX] Ditambahkan emoji agar konsisten dengan STATUS dict
     STATUS_UPLOADING   = "🔼 Mengunggah"
     STATUS_CLONING     = "🧬 Mengkloning"
     STATUS_DOWNLOADING = "🔽 Mengunduh"
@@ -119,7 +118,7 @@ class Names:
     STATUS_EXTRACTING  = "📂 Mengekstrak"
     STATUS_SPLITTING   = "✂️ Memisah"
     STATUS_SYNCING     = "🔄 Menyinkronkan"
-    STATUS_WAITING     = "⏳ Antrian"      # [FIX] sebelumnya "Queue" tanpa emoji
-    STATUS_PAUSED      = "⏸ Dijeda"       # [FIX] sebelumnya "Pause" tanpa emoji
-    STATUS_CHECKING    = "🔍 Memeriksa"   # [FIX] sebelumnya "CheckUp" tanpa emoji
-    STATUS_SEEDING     = "🌱 Seeding"     # [FIX] sebelumnya "Seed" tanpa emoji
+    STATUS_WAITING     = "⏳ Antrian" 
+    STATUS_PAUSED      = "⏸ Dijeda"
+    STATUS_CHECKING    = "🔍 Memeriksa"
+    STATUS_SEEDING     = "🌱 Seeding"
