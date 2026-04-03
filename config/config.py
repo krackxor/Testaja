@@ -4,16 +4,16 @@
 ║                    Encoder1 Bot — v3.1                               ║
 ╠══════════════════════════════════════════════════════════════════════╣
 ║  CHANGELOG dari versi lama:                                          ║
-║  [SECURITY] Hapus semua eval() — ganti json.loads() & bool parse    ║
-║  [SECURITY] Ganti os.system(wget) → requests.get() (no inject risk) ║
-║  [FIX]      Semua int() sekarang punya default value & try/except   ║
-║  [FIX]      SUDO_USERS parsing tidak crash jika kosong              ║
+║  [SECURITY] Hapus semua eval() — ganti json.loads() & bool parse     ║
+║  [SECURITY] Ganti os.system(wget) → requests.get() (no inject risk)  ║
+║  [FIX]      Semua int() sekarang punya default value & try/except    ║
+║  [FIX]      SUDO_USERS parsing tidak crash jika kosong               ║
 ║  [FIX]      MongoDB connection pakai timeout                         ║
-║  [FIX]      get_mongo_data() return dict, bukan string              ║
-║  [FIX]      aria.sh error tidak langsung crash bot                  ║
-║  [FIX]      rmtree pakai ignore_errors=True                         ║
-║  [IMPROVE]  Log file lebih hemat disk (10MB x5 bukan 50MB x10)     ║
-║  [IMPROVE]  Semua env var punya default value yang masuk akal       ║
+║  [FIX]      get_mongo_data() return dict, bukan string               ║
+║  [FIX]      aria.sh error tidak langsung crash bot                   ║
+║  [FIX]      rmtree pakai ignore_errors=True                          ║
+║  [IMPROVE]  Log file lebih hemat disk (10MB x5 bukan 50MB x10)       ║
+║  [IMPROVE]  Semua env var punya default value yang masuk akal        ║
 ╚══════════════════════════════════════════════════════════════════════╝
 """
 
