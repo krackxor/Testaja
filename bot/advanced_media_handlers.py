@@ -40,7 +40,7 @@ from bot_helper.Process.Running_Tasks import add_task, working_task
 from bot_helper.Telegram.Telegram_Client import Telegram
 from config.config import Config
 
-from bot_helper.Handlers.shared import (
+from .shared import (
     CMD_SUFFIX, LOGGER, SAVE_TO_DATABASE,
     build_task, get_link, get_thumbnail, get_username,
     safe_reply, submit_task, update_status_message, user_auth_checker, vip_check,
