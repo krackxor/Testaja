@@ -37,7 +37,7 @@ from bot_helper.Telegram.Telegram_Client import Telegram
 from config.config import Config
 
 # Memanggil fitur "Inline Waiter" dari shared.py
-from bot_helper.Handlers.shared import wait_for_message
+from .shared import wait_for_message
 
 SAVE_TO_DATABASE = Config.SAVE_TO_DATABASE
 LOGGER           = Config.LOGGER
