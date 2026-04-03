@@ -1,12 +1,13 @@
 # ═══════════════════════════════════════════════════════════════════════
-#  bot/Gameplay.py — v4.1 (STABLE RAM + FIX NONE_TYPE + ULTRAFAST)
+#  bot/Gameplay.py — v4.3 (NETFLIX LORE EDITION - INTERNATIONAL)
 #  Studio Khoirul: Core Engine Video Production Bot
 #  
-#  CHANGELOG v4.1:
-#  ✅ FIX: Dihapusnya raw.close() prematur penyebab NoneType Error (Crash FFMPEG)
-#  ✅ FIX: Penanganan RAM tingkat tinggi dengan Strict Context Management
-#  ✅ NEW: Smart RAM Adaptor (Otomatis atur paralel berdasarkan sisa RAM)
-#  ✅ NEW: Incremental Chunking (Aman render 150+ scene tanpa OOM)
+#  CHANGELOG v4.3:
+#  ✅ UPGRADE: Default Voice English Thriller (SteffanNeural)
+#  ✅ UPGRADE: Multi-Voice Support [ARCHIVE] (British Female)
+#  ✅ UPGRADE: Advanced Emotion Tags ([WHISPER], [PANIC], [DRAMATIC])
+#  ✅ UPGRADE: Engine Edge-TTS dengan kontrol Volume.
+#  ✅ STABLE: Smart Subtitle Splitter + Ultrafast FFmpeg Chunking.
 # ═══════════════════════════════════════════════════════════════════════
 
 # ── Standard Library ──────────────────────────────────────────────────
@@ -75,7 +76,8 @@ CMD_SUFFIX = Config.CMD_SUFFIX
 # ═══════════════════════════════════════════════════════════════════════
 #  KONFIGURASI GLOBAL
 # ═══════════════════════════════════════════════════════════════════════
-VOICE        = "en-US-GuyNeural"  
+# Voice English yang lebih berat/dalam untuk Netflix style
+VOICE        = "en-US-SteffanNeural"  
 GAMEPLAY_DIR = "./gameplay/"
 TEMP_DIR     = "./temp/"
 THUMB_DIR    = "./thumbs/"
@@ -344,7 +346,6 @@ def _merge_with_ffmpeg_ultrafast(video_paths: list, output_path: str, ffmpeg_par
 
     bgm_path = os.path.abspath("./audio/bgm.mp3")
     
-    # CRITICAL FIX: Only apply BGM on the FINAL merge, not chunk parts
     if apply_bgm and os.path.exists(bgm_path):
         probe_cmd = [
             "ffprobe", "-v", "error", "-show_entries", 
@@ -600,7 +601,12 @@ def parse_studio_txt(path: str) -> dict:
 def get_segment_theme(segment_name):
     nu = segment_name.upper()
     if nu == "THE ARCHIVES": return {"title_color": ARCHIVE_AMBER, "subtitle_color": ARCHIVE_AMBER, "sub_bar_color": (0, 0, 0, 200), "font_bold": False}
-    if nu == "LORE & CONSPIRACIES": return {"title_color": (255, 255, 255), "title_glow": LORE_PURPLE, "subtitle_color": LORE_GREEN, "sub_bar_color": (0, 0, 0, 200), "font_bold": True}
+    
+    # ─── UPGRADE: TEMA LORE JADI NETFLIX DOCU STYLE ───
+    if nu == "LORE & CONSPIRACIES": 
+        return {"title_color": (229, 9, 20), "title_glow": (150, 0, 0), "subtitle_color": (255, 255, 255), "sub_bar_color": (15, 15, 15, 240), "font_bold": True} 
+    # ──────────────────────────────────────────────────
+    
     if nu == "TOP TIER": return {"title_color": ARCADE_GOLD, "subtitle_color": ARCADE_GOLD, "sub_bar_color": (0,0,0,180), "font_bold": True}
     if nu == "ON THE RADAR": return {"title_color": (255,255,255), "title_glow": RADAR_CYAN, "subtitle_color": (255,255,255), "sub_bar_color": (*RADAR_ORANGE, 200), "font_bold": False}
     if nu == "THE LATEST PATCH": return {"title_color": (255,255,255), "subtitle_color": PATCH_YELLOW, "sub_bar_color": (*PATCH_RED, 230), "font_bold": True}
@@ -621,17 +627,62 @@ async def render_studio_clip(scene_dict, segment_name, output_name, game_title, 
 
     try:
         dur = 3.0
+        
+        # ─── SMART SUBTITLE SPLITTER & EMOTION (NETFLIX HACK) ───
+        tts_text = narr 
+        
+        # Deteksi Tag Emosi & Volume & Voice
+        pitch_setting = "+0Hz"
+        rate_setting = "+0%"
+        volume_setting = "+0%"
+        current_voice = VOICE
+        
+        if "[DEEP]" in tts_text:
+            tts_text = tts_text.replace("[DEEP]", "").strip()
+            pitch_setting = "-10Hz"; rate_setting = "-15%"
+        elif "[SLOW]" in tts_text:
+            tts_text = tts_text.replace("[SLOW]", "").strip()
+            rate_setting = "-20%"
+        elif "[FAST]" in tts_text:
+            tts_text = tts_text.replace("[FAST]", "").strip()
+            rate_setting = "+15%"
+            
+        # Tag Intonasi Lanjutan
+        elif "[WHISPER]" in tts_text: 
+            tts_text = tts_text.replace("[WHISPER]", "").strip()
+            pitch_setting = "-5Hz"; rate_setting = "-10%"; volume_setting = "-40%"
+        elif "[PANIC]" in tts_text: 
+            tts_text = tts_text.replace("[PANIC]", "").strip()
+            pitch_setting = "+15Hz"; rate_setting = "+25%"; volume_setting = "+20%"
+        elif "[DRAMATIC]" in tts_text: 
+            tts_text = tts_text.replace("[DRAMATIC]", "").strip()
+            pitch_setting = "-15Hz"; rate_setting = "-5%"; volume_setting = "+40%"
+            
+        # Fitur Multi-Voice (British Female untuk Kutipan Dokumen)
+        elif "[ARCHIVE]" in tts_text: 
+            tts_text = tts_text.replace("[ARCHIVE]", "").strip()
+            current_voice = "en-GB-SoniaNeural"
+            pitch_setting = "+0Hz"; rate_setting = "-10%"; volume_setting = "-20%"
+
+        # Bersihkan teks untuk tampilan di video (Hilangkan titik, strip, dan semua tag)
+        visual_text = re.sub(r'\[.*?\]', '', narr)
+        visual_text = re.sub(r'[\.\-\~]+', '', visual_text).strip()
+        if not visual_text: visual_text = narr 
+        # ────────────────────────────────────────────────────────
+
         if narr.strip() and narr != "-":
             ap = output_name.replace(".mp4", ".mp3"); temp.append(ap)
-            await edge_tts.Communicate(narr, VOICE).save(ap)
+            # Render Voice dengan paramater custom
+            await edge_tts.Communicate(tts_text, current_voice, rate=rate_setting, pitch=pitch_setting, volume=volume_setting).save(ap) 
             if os.path.exists(ap) and os.path.getsize(ap) > 512:
                 vo = AudioFileClip(ap); dur = max(vo.duration, 1.0)
         else: dur = 3.0; subtitles_on = False 
         
+        # ─── TAMBAHAN SFX UNTUK TAG CLIMAX & MIDPOINT ───
         sfx_map = {
-            "HOOK": "sfx_impact.mp3", "DROP": "sfx_impact.mp3", "FACT": "sfx_impact.mp3", "TITLE": "sfx_impact.mp3",
+            "HOOK": "sfx_impact.mp3", "DROP": "sfx_impact.mp3", "FACT": "sfx_impact.mp3", "TITLE": "sfx_impact.mp3", "CLIMAX": "sfx_impact.mp3",
             "CHAPTER": "sfx_whoosh.mp3", "SECTION": "sfx_whoosh.mp3", "INTRO": "sfx_whoosh.mp3", "CONCLUSION": "sfx_whoosh.mp3", "OUTRO": "sfx_whoosh.mp3",
-            "THEORY": "sfx_glitch.mp3", "UPDATE": "sfx_glitch.mp3",
+            "THEORY": "sfx_glitch.mp3", "UPDATE": "sfx_glitch.mp3", "MIDPOINT": "sfx_glitch.mp3",
             "RATING": "sfx_rating.mp3"
         }
         sfx_file = sfx_map.get(stype)
@@ -664,8 +715,10 @@ async def render_studio_clip(scene_dict, segment_name, output_name, game_title, 
         else:
             text_dur = min(3.5, dur); SAFE_M = PROG_H + int(H * 0.08)
             if show_badge: clips += [make_burst_section_badge(seg, text_dur, W, H)] if is_portrait else [make_gradient_bar(W, int(H*0.44), text_dur, 0, 240, (5,5,10)).with_effects([FadeIn(0.4),FadeOut(0.4)]), make_cinema_game_badge(seg, text_dur, W, H)]
-            if subtitles_on and narr.strip() and narr != "-":
-                words = narr.split(); chunks = [" ".join(words[i:i+15]) for i in range(0, len(words), 15)]; tot_w = len(words); tc = 0.0
+            
+            # Subtitle kini di-render dari visual_text yang sudah dibersihkan
+            if subtitles_on and visual_text.strip() and visual_text != "-":
+                words = visual_text.split(); chunks = [" ".join(words[i:i+15]) for i in range(0, len(words), 15)]; tot_w = len(words); tc = 0.0
                 for chunk in chunks:
                     cd = min(max(1.5, dur * len(chunk.split()) / max(tot_w, 1)), dur - tc)
                     if cd <= 0.1: break
@@ -978,7 +1031,7 @@ async def delete_gameplay_handler(event) -> None:
 
 @Telegram.TELETHON_CLIENT.on(events.NewMessage(pattern=rf"/help{CMD_SUFFIX}"))
 async def help_handler(event) -> None:
-    await event.respond(_dash("📖","STUDIO KHOIRUL — Panduan",[("","─── 🎮 MEDIA ───"),(f"/addgameplay{CMD_SUFFIX}", "Balas video → simpan gameplay"),(f"/addsfx{CMD_SUFFIX}", "Balas MP3 → simpan SFX"),(f"/listgameplay{CMD_SUFFIX}","Lihat semua gameplay"),("","─── 🎬 PRODUKSI UNIVERSAL ───"),(f"/verdict",  "Ulasan (Cinematic Red)"),(f"/toptier",  "Peringkat (Arcade Gold)"),(f"/archives", "Sejarah (Retro Amber)"),(f"/lore",     "Teori & Fakta (Neon Purple)"),(f"/radar",    "Game Baru (Cyber Cyan)"),(f"/patch",    "Berita Kilat (News Red)"),("","─── ⚙️ LAINNYA ───"),(f"/settings{CMD_SUFFIX}","Konfigurasi bot"),(f"/help{CMD_SUFFIX}",   "Panduan ini")]), buttons=[[Button.inline("🎮 Gameplay", b"help_gameplay"), Button.inline("🎬 Produksi", b"help_produksi")], [Button.inline("🛠 Tools", b"help_tools"), Button.inline("⚙️ Settings", b"help_settings")]])
+    await event.respond(_dash("📖","STUDIO KHOIRUL — Panduan",[("","─── 🎮 MEDIA ───"),(f"/addgameplay{CMD_SUFFIX}", "Balas video → simpan gameplay"),(f"/addsfx{CMD_SUFFIX}", "Balas MP3 → simpan SFX"),(f"/listgameplay{CMD_SUFFIX}","Lihat semua gameplay"),("","─── 🎬 PRODUKSI UNIVERSAL ───"),(f"/verdict",  "Ulasan (Cinematic Red)"),(f"/toptier",  "Peringkat (Arcade Gold)"),(f"/archives", "Sejarah (Retro Amber)"),(f"/lore",     "Teori & Fakta (Netflix Red)"),(f"/radar",    "Game Baru (Cyber Cyan)"),(f"/patch",    "Berita Kilat (News Red)"),("","─── ⚙️ LAINNYA ───"),(f"/settings{CMD_SUFFIX}","Konfigurasi bot"),(f"/help{CMD_SUFFIX}",   "Panduan ini")]), buttons=[[Button.inline("🎮 Gameplay", b"help_gameplay"), Button.inline("🎬 Produksi", b"help_produksi")], [Button.inline("🛠 Tools", b"help_tools"), Button.inline("⚙️ Settings", b"help_settings")]])
 
 @Telegram.TELETHON_CLIENT.on(events.CallbackQuery(pattern=b"help_gameplay"))
 async def help_gameplay_cb(event) -> None: await event.answer(); await event.respond(_dash("🎮","GAMEPLAY — Cara Pakai",[("Simpan",  f"Balas video → /addgameplay{CMD_SUFFIX} Nama"),("List", f"/listgameplay{CMD_SUFFIX}"),("Hapus", f"/deletegameplay{CMD_SUFFIX} nama.mp4"),("Format", "Nama file = nama game di .txt"),("Lokasi", "./gameplay/")]))
@@ -1016,3 +1069,4 @@ async def set_yt_cb(event) -> None: await event.answer(); await event.respond(_d
 if hasattr(Telegram, 'TELETHON_CLIENT') and Telegram.TELETHON_CLIENT:
     try: Telegram.TELETHON_CLIENT.loop.create_task(auto_clean_temp_dir(TEMP_DIR, max_age_hours=24))
     except Exception as e: pass
+    
