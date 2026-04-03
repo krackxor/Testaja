@@ -23,7 +23,7 @@ from os.path import exists
 # ── Aiogram ───────────────────────────────────────────────────────────
 from aiogram import Bot, Dispatcher
 from aiogram.types import BotCommand, Message
-from aiogram.middlewares.base import BaseMiddleware
+from aiogram import BaseMiddleware
 
 # ── Internal ──────────────────────────────────────────────────────────
 from config.config import Config
