@@ -1,13 +1,19 @@
 """
 ╔══════════════════════════════════════════════════════════════════════╗
-║       bot_helper/Handlers/admin_handlers.py — v3.1                  ║
-║       Admin & System Command Handlers                                ║
+║       bot_helper/Handlers/admin_handlers.py — v3.1                   ║
+║       Admin & System Command Handlers (Aiogram 3.x)                  ║
 ╠══════════════════════════════════════════════════════════════════════╣
-║  Commands: /start /time /restart /herokurestart /log /logs          ║
-║            /stats /speedtest /tasklimit /cancel /ffmpeg             ║
-║            /saveconfig /savewatermark /savethumb /changeconfig      ║
-║            /clearconfigs /checksudo /addsudo /delsudo /renew        ║
-║            /resetdb /changeconfig                                    ║
+║  Commands: /start /time /restart /herokurestart /log /logs           ║
+║            /stats /speedtest /tasklimit /cancel /ffmpeg              ║
+║            /saveconfig /savewatermark /savethumb /changeconfig       ║
+║            /clearconfigs /checksudo /addsudo /delsudo /renew         ║
+║            /resetdb /changeconfig /settings                          ║
+╠══════════════════════════════════════════════════════════════════════╣
+║  CHANGELOG:                                                          ║
+║  [NEW] Migrasi ke Aiogram Router & Message objects                   ║
+║  [FIX] Tombol diubah menjadi InlineKeyboardMarkup & InlineKeyboardButton║
+║  [FIX] Pengiriman log & file menggunakan FSInputFile                 ║
+║  [FIX] event.reply_to_msg_id diubah ke message.reply_to_message      ║
 ╚══════════════════════════════════════════════════════════════════════╝
 """
 
@@ -18,8 +24,10 @@ from os.path import exists
 from subprocess import run as srun
 from sys import argv, executable
 
-# ── Third Party ───────────────────────────────────────────────────────
-from telethon import Button, events
+# ── Aiogram ───────────────────────────────────────────────────────────
+from aiogram import Router
+from aiogram.types import Message, InlineKeyboardMarkup, InlineKeyboardButton, FSInputFile
+from aiogram.filters import Command
 
 # ── Internal ──────────────────────────────────────────────────────────
 from bot_helper.Aria2.Aria2_Engine import Aria2, getDownloadByGid
@@ -40,9 +48,9 @@ from bot_helper.Telegram.Telegram_Client import Telegram
 from config.config import Config
 
 from .shared import (
-    CMD_SUFFIX, LOGGER, SAVE_TO_DATABASE, TELETHON_CLIENT,
-    ask_text, ask_watermark, ask_thumbnail_file, command, dw_file_from_url,
-    get_mention, get_sudo_user_id, get_username, owner_checker,
+    CMD_SUFFIX, LOGGER, SAVE_TO_DATABASE,
+    ask_text, ask_watermark, ask_thumbnail_file, dw_file_from_url,
+    get_mention, get_username, owner_checker,
     safe_reply, sudo_user_checker_event, sudo_users, user_auth_checker,
 )
 
@@ -54,85 +62,103 @@ except ImportError:
     HEROKU_AVAILABLE = False
     LOGGER.warning("heroku3 tidak terinstall — /herokurestart tidak tersedia")
 
+# Inisialisasi Router Aiogram
+router = Router()
+
+# Helper untuk mendapatkan ID yang di-reply (Aiogram)
+async def get_sudo_user_id(message: Message) -> int | bool:
+    if message.reply_to_message and message.reply_to_message.from_user:
+        return message.reply_to_message.from_user.id
+    return False
+
 
 # ═══════════════════════════════════════════════════════════════════════
 #  SYSTEM COMMANDS
 # ═══════════════════════════════════════════════════════════════════════
 
-@TELETHON_CLIENT.on(events.NewMessage(incoming=True, pattern=command("start")))
-async def _startmsg(event):
-    text = f"Hai {get_mention(event)}, Saya Aktif! 🎬"
-    await event.reply(text, buttons=[
-        [Button.url("📢 Channel Resmi", "https://t.me/nik66x")],
-        [Button.url("👨‍💻 Developer", "https://t.me/nik66")],
+@router.message(Command("start"))
+async def _startmsg(message: Message):
+    text = f"Hai {get_mention(message)}, Saya Aktif! 🎬"
+    kb = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="📢 Channel Resmi", url="https://t.me/nik66x")],
+        [InlineKeyboardButton(text="👨‍💻 Developer", url="https://t.me/nik66")],
     ])
+    await message.reply(text, reply_markup=kb)
 
 
-@TELETHON_CLIENT.on(events.NewMessage(incoming=True, pattern=command("time"),
-                                       func=lambda e: sudo_user_checker_event(e)))
-async def _timecmd(event):
-    await event.reply(f"♻ Bot Aktif Selama **{getbotuptime()}**")
+@router.message(Command("time"))
+async def _timecmd(message: Message):
+    if not sudo_user_checker_event(message):
+        return
+    await message.reply(f"♻ Bot Aktif Selama **{getbotuptime()}**")
 
 
-@TELETHON_CLIENT.on(events.NewMessage(incoming=True, pattern=command("stats"),
-                                       func=lambda e: sudo_user_checker_event(e)))
-async def _stats_msg(event):
+@router.message(Command("stats"))
+async def _stats_msg(message: Message):
+    if not sudo_user_checker_event(message):
+        return
     from bot_helper.Others.Helper_Functions import get_host_stats
-    await event.reply(str(await get_host_stats()), parse_mode="html")
+    await message.reply(str(await get_host_stats()), parse_mode="HTML")
 
 
-@TELETHON_CLIENT.on(events.NewMessage(incoming=True, pattern=command("speedtest"),
-                                       func=lambda e: sudo_user_checker_event(e)))
-async def _speed_test(event):
-    chat_id = event.message.chat.id
-    reply   = await event.reply("⏳ Menjalankan Tes Kecepatan, Harap Tunggu...")
-    # [FIX] speedtest() sekarang return dict — bukan tuple
-    result  = await speedtest()
+@router.message(Command("speedtest"))
+async def _speed_test(message: Message):
+    if not sudo_user_checker_event(message):
+        return
+    reply = await message.reply("⏳ Menjalankan Tes Kecepatan, Harap Tunggu...")
+    result = await speedtest()
     await reply.delete()
+    
     if result["success"]:
         if result["image_url"]:
             try:
-                await TELETHON_CLIENT.send_file(
-                    chat_id, file=result["image_url"],
-                    caption=result["text"], reply_to=event.message,
-                    allow_cache=False, parse_mode="html",
+                await message.reply_photo(
+                    photo=result["image_url"],
+                    caption=result["text"],
+                    parse_mode="HTML"
                 )
                 return
             except Exception:
                 pass
-        await event.reply(result["text"], parse_mode="html")
+        await message.reply(result["text"], parse_mode="HTML")
     else:
-        await event.reply(result["text"])
+        await message.reply(result["text"])
 
 
-@TELETHON_CLIENT.on(events.NewMessage(incoming=True, pattern=command("restart"),
-                                       func=lambda e: owner_checker(e)))
-async def _restart(event):
-    chat_id = event.message.chat.id
-    reply   = await event.reply("♻ Memulai Ulang...")
+@router.message(Command("restart"))
+async def _restart(message: Message):
+    if not owner_checker(message):
+        return
+    chat_id = message.chat.id
+    reply   = await message.reply("♻ Memulai Ulang...")
     srun(["pkill", "-f", "aria2c|ffmpeg|rclone"])
     srun(["python3", "update.py"])
+    
     with open(".restartmsg", "w") as f:
         f.truncate(0)
-        f.write(f"{chat_id}\n{reply.id}\n")
+        f.write(f"{chat_id}\n{reply.message_id}\n")
     execl(executable, executable, *argv)
 
 
-@TELETHON_CLIENT.on(events.NewMessage(incoming=True, pattern=command("herokurestart"),
-                                       func=lambda e: owner_checker(e)))
-async def _heroku_restart(event):
+@router.message(Command("herokurestart"))
+async def _heroku_restart(message: Message):
+    if not owner_checker(message):
+        return
     if not HEROKU_AVAILABLE:
-        await event.reply("❗ heroku3 tidak terinstall.")
+        await message.reply("❗ heroku3 tidak terinstall.")
         return
     if not (Config.HEROKU_APP_NAME and Config.HEROKU_API_KEY):
-        await event.reply("❗ HEROKU_APP_NAME atau HEROKU_API_KEY tidak ditemukan.")
+        await message.reply("❗ HEROKU_APP_NAME atau HEROKU_API_KEY tidak ditemukan.")
         return
-    chat_id    = event.message.chat.id
+        
+    chat_id    = message.chat.id
     heroku_con = heroku_from_key(Config.HEROKU_API_KEY)
-    reply      = await event.reply("♻ Memulai Ulang Dyno Heroku...")
+    reply      = await message.reply("♻ Memulai Ulang Dyno Heroku...")
+    
     with open(".restartmsg", "w") as f:
         f.truncate(0)
-        f.write(f"{chat_id}\n{reply.id}\n")
+        f.write(f"{chat_id}\n{reply.message_id}\n")
+        
     for dyno in heroku_con.app(Config.HEROKU_APP_NAME).dynos():
         dyno.restart()
 
@@ -141,59 +167,66 @@ async def _heroku_restart(event):
 #  LOG COMMANDS
 # ═══════════════════════════════════════════════════════════════════════
 
-@TELETHON_CLIENT.on(events.NewMessage(incoming=True, pattern=command("log"),
-                                       func=lambda e: sudo_user_checker_event(e)))
-async def _log(event):
-    user_id  = event.message.sender.id
+@router.message(Command("log"))
+async def _log(message: Message):
+    if not sudo_user_checker_event(message):
+        return
+    user_id = message.from_user.id
     if user_id not in get_data():
         await new_user(user_id, SAVE_TO_DATABASE)
+        
     log_file = "Logging.txt"
     if exists(log_file):
-        await event.reply(str(get_logs_msg(log_file)))
+        await message.reply(str(get_logs_msg(log_file)))
     else:
-        await event.reply("❗ Berkas Log Tidak Ditemukan")
+        await message.reply("❗ Berkas Log Tidak Ditemukan")
 
 
-@TELETHON_CLIENT.on(events.NewMessage(incoming=True, pattern=command("logs"),
-                                       func=lambda e: sudo_user_checker_event(e)))
-async def _logs(event):
-    chat_id  = event.message.chat.id
-    user_id  = event.message.sender.id
+@router.message(Command("logs"))
+async def _logs(message: Message):
+    if not sudo_user_checker_event(message):
+        return
+    chat_id = message.chat.id
+    user_id = message.from_user.id
     if user_id not in get_data():
         await new_user(user_id, SAVE_TO_DATABASE)
+        
     log_file = "Logging.txt"
     if exists(log_file):
         try:
-            await TELETHON_CLIENT.send_file(chat_id, file=log_file, allow_cache=False)
+            # Menggunakan FSInputFile untuk mengirim dokumen lokal
+            await Telegram.AIOGRAM_BOT.send_document(chat_id, document=FSInputFile(log_file))
         except Exception as e:
-            await event.reply(str(e))
+            await message.reply(str(e))
     else:
-        await event.reply("❗ Berkas Log Tidak Ditemukan")
+        await message.reply("❗ Berkas Log Tidak Ditemukan")
 
 
 # ═══════════════════════════════════════════════════════════════════════
 #  TASK MANAGEMENT
 # ═══════════════════════════════════════════════════════════════════════
 
-@TELETHON_CLIENT.on(events.NewMessage(incoming=True, pattern=command("tasklimit"),
-                                       func=lambda e: owner_checker(e)))
-async def _changetasklimit(event):
-    chat_id = event.message.chat.id
-    user_id = event.message.sender.id
-    limit   = await ask_text(chat_id, user_id, event, 120, "Kirim Batas Tugas Baru", int)
+@router.message(Command("tasklimit"))
+async def _changetasklimit(message: Message):
+    if not owner_checker(message):
+        return
+    chat_id = message.chat.id
+    user_id = message.from_user.id
+    limit   = await ask_text(chat_id, user_id, message, 120, "Kirim Batas Tugas Baru", int)
     if limit:
         change_task_limit(int(limit))
         await refresh_tasks()
-        await event.reply(f"✅ Batas Tugas Baru: **{get_task_limit()}**")
+        await message.reply(f"✅ Batas Tugas Baru: **{get_task_limit()}**")
 
 
-@TELETHON_CLIENT.on(events.NewMessage(incoming=True, pattern=command("cancel"),
-                                       func=lambda e: user_auth_checker(e)))
-async def _cancel(event):
-    user_id  = event.message.sender.id
-    commands = event.message.message.split(" ")
+@router.message(Command("cancel"))
+async def _cancel(message: Message):
+    if not await user_auth_checker(message):
+        return
+    user_id  = message.from_user.id
+    commands = (message.text or "").split(" ")
     if len(commands) != 3:
-        await safe_reply(event, "❗ Format: `/cancel aria|process <ID>`")
+        await safe_reply(message, "❗ Format: `/cancel aria|process <ID>`")
         return
 
     processx   = commands[1]
@@ -206,11 +239,11 @@ async def _cancel(event):
                 if dl.listener().user_id == user_id or user_id == owner_id:
                     await Aria2.cancel_download(process_id)
                     await remove_from_working_task(dl.listener().process_id)
-                    await safe_reply(event, "✅ Berhasil Dibatalkan.")
+                    await safe_reply(message, "✅ Berhasil Dibatalkan.")
                 else:
-                    await safe_reply(event, "❗ Anda tidak punya izin membatalkan tugas ini.")
+                    await safe_reply(message, "❗ Anda tidak punya izin membatalkan tugas ini.")
             else:
-                await safe_reply(event, "❗ Tidak ada unduhan dengan ID ini.")
+                await safe_reply(message, "❗ Tidak ada unduhan dengan ID ini.")
             return
 
         if processx == "process":
@@ -218,48 +251,52 @@ async def _cancel(event):
             if add_uid and (add_uid == user_id or user_id == owner_id):
                 ok = await remove_running_process(process_id)
                 await remove_from_working_task(process_id)
-                await safe_reply(event, "✅ Berhasil Dibatalkan." if ok else "❗ Proses tidak ditemukan.")
+                await safe_reply(message, "✅ Berhasil Dibatalkan." if ok else "❗ Proses tidak ditemukan.")
             elif user_id == owner_id:
                 ok = await remove_running_process(process_id)
                 await remove_from_working_task(process_id)
-                await safe_reply(event, "✅ Berhasil Dibatalkan." if ok else "❗ Proses tidak ditemukan.")
+                await safe_reply(message, "✅ Berhasil Dibatalkan." if ok else "❗ Proses tidak ditemukan.")
             else:
-                await safe_reply(event, "❗ Anda tidak punya izin membatalkan tugas ini.")
+                await safe_reply(message, "❗ Anda tidak punya izin membatalkan tugas ini.")
 
     except Exception as e:
-        await safe_reply(event, str(e))
+        await safe_reply(message, str(e))
 
 
-@TELETHON_CLIENT.on(events.NewMessage(incoming=True, pattern=command("ffmpeg"),
-                                       func=lambda e: user_auth_checker(e)))
-async def _ffmpeg_log(event):
-    chat_id  = event.message.chat.id
-    commands = event.message.message.split(" ")
-    if len(commands) != 3 or commands[1] != "log":
-        await safe_reply(event, "❗ Format: `/ffmpeg log <process_id>`")
+@router.message(Command("ffmpeg"))
+async def _ffmpeg_log(message: Message):
+    if not await user_auth_checker(message):
         return
+    chat_id  = message.chat.id
+    commands = (message.text or "").split(" ")
+    if len(commands) != 3 or commands[1] != "log":
+        await safe_reply(message, "❗ Format: `/ffmpeg log <process_id>`")
+        return
+        
     process_id = commands[2]
     try:
         log_file = await get_ffmpeg_log_file(process_id)
         if log_file:
-            await TELETHON_CLIENT.send_file(chat_id, file=log_file, allow_cache=False)
+            await Telegram.AIOGRAM_BOT.send_document(chat_id, document=FSInputFile(log_file))
         else:
-            await safe_reply(event, "❗ Berkas Log Tidak Ditemukan")
+            await safe_reply(message, "❗ Berkas Log Tidak Ditemukan")
     except Exception as e:
-        await safe_reply(event, str(e))
+        await safe_reply(message, str(e))
 
 
 # ═══════════════════════════════════════════════════════════════════════
 #  CONFIG & MEDIA SAVE
 # ═══════════════════════════════════════════════════════════════════════
 
-@TELETHON_CLIENT.on(events.NewMessage(incoming=True, pattern=command("saveconfig"),
-                                       func=lambda e: user_auth_checker(e)))
-async def _saverclone(event):
-    user_id  = event.message.sender.id
-    chat_id  = event.message.chat.id
+@router.message(Command("saveconfig"))
+async def _saverclone(message: Message):
+    if not await user_auth_checker(message):
+        return
+    user_id = message.from_user.id
+    chat_id = message.chat.id
     if user_id not in get_data():
         await new_user(user_id, SAVE_TO_DATABASE)
+        
     r_config = f"./userdata/{user_id}_rclone.conf"
     text     = (
         "Konfigurasi Rclone Sudah Ada\n\nKirim Konfigurasi Baru untuk Mengganti."
@@ -267,145 +304,162 @@ async def _saverclone(event):
         else "Konfigurasi Rclone Belum Ada\n\nKirim Konfigurasi untuk Disimpan."
     )
     link = False
-    new_event = await ask_media_OR_url_local(event, chat_id, user_id, r_config, text)
-    if not new_event:
+    new_msg = await ask_media_OR_url_local(message, chat_id, user_id, r_config, text)
+    if not new_msg:
         return
 
-    if new_event.message.file:
-        await new_event.download_media(file=r_config)
+    if new_msg.document:
+        await Telegram.AIOGRAM_BOT.download(new_msg.document, destination=r_config)
     else:
-        link = str(new_event.message.message)
+        link = str(new_msg.text)
         ok = await dw_file_from_url(link, r_config)
         if ok:
             await saveoptions(user_id, "rclone_config_link", link, SAVE_TO_DATABASE)
 
     if not exists(r_config):
-        await safe_reply(new_event, "❌ Gagal Mengunduh Berkas Konfigurasi.")
+        await safe_reply(new_msg, "❌ Gagal Mengunduh Berkas Konfigurasi.")
         return
 
     accounts = await get_config(r_config)
     if not accounts:
         from bot_helper.Others.Helper_Functions import delete_trash
         await delete_trash(r_config)
-        await safe_reply(new_event, "❌ Berkas Konfigurasi Tidak Valid Atau Kosong.")
+        await safe_reply(new_msg, "❌ Berkas Konfigurasi Tidak Valid Atau Kosong.")
         return
 
     await saveoptions(user_id, "drive_name", accounts[0], SAVE_TO_DATABASE)
     if link:
         await saveoptions(user_id, "rclone_config_link", link, SAVE_TO_DATABASE)
     drive = get_data().get(user_id, {}).get("drive_name", accounts[0])
-    await safe_reply(new_event,
+    await safe_reply(new_msg,
         f"✅ Konfigurasi Berhasil Disimpan\n\n🔶 Menggunakan Drive **{drive}** untuk Mengunggah.")
 
 
-async def ask_media_OR_url_local(event, chat_id, user_id, r_config, text):
-    """Local wrapper untuk saveconfig."""
+async def ask_media_OR_url_local(message: Message, chat_id, user_id, r_config, text):
     from .shared import ask_media_OR_url
-    new_event = await ask_media_OR_url(
-        event, chat_id, user_id,
-        [f"/saveconfig{CMD_SUFFIX}", "stop"], text, 120, "text/", True, False,
+    new_msg = await ask_media_OR_url(
+        message, chat_id, user_id,
+        [f"/saveconfig{CMD_SUFFIX}", "stop"], text, 120, "text/", True, False, False,
     )
-    if new_event and new_event not in ["cancelled", "stopped"]:
-        return new_event
+    if new_msg and new_msg not in ["cancelled", "stopped"]:
+        return new_msg
     return None
 
 
-@TELETHON_CLIENT.on(events.NewMessage(incoming=True, pattern=command("savewatermark"),
-                                       func=lambda e: user_auth_checker(e)))
-async def _savewatermark(event):
-    chat_id = event.message.chat.id
-    user_id = event.message.sender.id
+@router.message(Command("savewatermark"))
+async def _savewatermark(message: Message):
+    if not await user_auth_checker(message):
+        return
+    chat_id = message.chat.id
+    user_id = message.from_user.id
     if user_id not in get_data():
         await new_user(user_id, SAVE_TO_DATABASE)
-    ok = await ask_watermark(event, chat_id, user_id, "savewatermark", False)
-    await safe_reply(event, "✅ Watermark berhasil disimpan." if ok else "❗ Gagal Mendapatkan Watermark.")
+    ok = await ask_watermark(message, chat_id, user_id, "savewatermark", False)
+    await safe_reply(message, "✅ Watermark berhasil disimpan." if ok else "❗ Gagal Mendapatkan Watermark.")
 
 
-@TELETHON_CLIENT.on(events.NewMessage(incoming=True, pattern=command("savethumb"),
-                                       func=lambda e: user_auth_checker(e)))
-async def _savethumb(event):
-    chat_id = event.message.chat.id
-    user_id = event.message.sender.id
+@router.message(Command("savethumb"))
+async def _savethumb(message: Message):
+    if not await user_auth_checker(message):
+        return
+    chat_id = message.chat.id
+    user_id = message.from_user.id
     if user_id not in get_data():
         await new_user(user_id, SAVE_TO_DATABASE)
-    ok = await ask_thumbnail_file(event, chat_id, user_id, "savethumb")
-    await safe_reply(event, "✅ Thumbnail berhasil disimpan." if ok else "❗ Gagal Mendapatkan Thumbnail.")
+    ok = await ask_thumbnail_file(message, chat_id, user_id, "savethumb")
+    await safe_reply(message, "✅ Thumbnail berhasil disimpan." if ok else "❗ Gagal Mendapatkan Thumbnail.")
 
 
 # ═══════════════════════════════════════════════════════════════════════
 #  ENV & BOT CONFIG
 # ═══════════════════════════════════════════════════════════════════════
 
-@TELETHON_CLIENT.on(events.NewMessage(incoming=True, pattern=command("changeconfig"),
-                                       func=lambda e: owner_checker(e)))
-async def _changeconfig(event):
+@router.message(Command("changeconfig"))
+async def _changeconfig(message: Message):
+    if not owner_checker(message):
+        return
     if not exists("config.env"):
-        await safe_reply(event, "❗ Berkas `config.env` Tidak Ditemukan")
+        await safe_reply(message, "❗ Berkas `config.env` Tidak Ditemukan")
         return
     keys = get_env_keys("config.env")
     if not keys:
-        await safe_reply(event, "❗ Tidak Ada Variabel Dalam Berkas `config.env`")
+        await safe_reply(message, "❗ Tidak Ada Variabel Dalam Berkas `config.env`")
         return
-    buttons = [[Button.inline(k, f"env_{k}")] for k in keys]
-    buttons.append([Button.inline("⭕ Tutup", "close_settings")])
-    await event.reply("Pilih Variabel untuk Diubah", buttons=buttons)
+        
+    kb_layout = []
+    for k in keys:
+        kb_layout.append([InlineKeyboardButton(text=k, callback_data=f"env_{k}")])
+    kb_layout.append([InlineKeyboardButton(text="⭕ Tutup", callback_data="close_settings")])
+    
+    kb = InlineKeyboardMarkup(inline_keyboard=kb_layout)
+    await message.reply("Pilih Variabel untuk Diubah", reply_markup=kb)
 
 
-@TELETHON_CLIENT.on(events.NewMessage(incoming=True, pattern=command("clearconfigs"),
-                                       func=lambda e: owner_checker(e)))
-async def _clearconfig(event):
+@router.message(Command("clearconfigs"))
+async def _clearconfig(message: Message):
+    if not owner_checker(message):
+        return
     path = "./userdata/botconfig.env"
     if exists(path):
         remove(path)
-        await safe_reply(event, "✅ Berhasil Dihapus")
+        await safe_reply(message, "✅ Berhasil Dihapus")
     else:
-        await safe_reply(event, "❗ Konfigurasi Tidak Ditemukan")
+        await safe_reply(message, "❗ Konfigurasi Tidak Ditemukan")
 
 
 # ═══════════════════════════════════════════════════════════════════════
 #  SUDO MANAGEMENT
 # ═══════════════════════════════════════════════════════════════════════
 
-@TELETHON_CLIENT.on(events.NewMessage(incoming=True, pattern=command("checksudo"),
-                                       func=lambda e: owner_checker(e)))
-async def _checksudo(event):
-    await event.reply(f"**Sudo Users:**\n`{sudo_users}`")
+@router.message(Command("checksudo"))
+async def _checksudo(message: Message):
+    if not owner_checker(message):
+        return
+    await message.reply(f"**Sudo Users:**\n`{sudo_users}`")
 
 
-@TELETHON_CLIENT.on(events.NewMessage(incoming=True, pattern=command("addsudo"),
-                                       func=lambda e: owner_checker(e)))
-async def _addsudo(event):
-    chat_id  = event.message.chat.id
-    user_id  = event.message.sender.id
-    sudo_id  = await get_sudo_user_id(event)
+@router.message(Command("addsudo"))
+async def _addsudo(message: Message):
+    if not owner_checker(message):
+        return
+    chat_id  = message.chat.id
+    user_id  = message.from_user.id
+    sudo_id  = await get_sudo_user_id(message)
+    
     if not sudo_id:
-        sudo_id = await ask_text(chat_id, user_id, event, 120, "Kirim ID Pengguna", int)
+        sudo_id = await ask_text(chat_id, user_id, message, 120, "Kirim ID Pengguna", int)
         if not sudo_id:
             return
+            
     if sudo_id in sudo_users:
-        await safe_reply(event, f"❗ ID sudah ada di Sudo.\n\n`{sudo_users}`")
+        await safe_reply(message, f"❗ ID sudah ada di Sudo.\n\n`{sudo_users}`")
         return
+        
     sudo_users.append(sudo_id)
     _save_sudo_list()
-    await safe_reply(event, f"✅ Berhasil Ditambahkan.\n\n`{sudo_users}`")
+    await safe_reply(message, f"✅ Berhasil Ditambahkan.\n\n`{sudo_users}`")
 
 
-@TELETHON_CLIENT.on(events.NewMessage(incoming=True, pattern=command("delsudo"),
-                                       func=lambda e: owner_checker(e)))
-async def _delsudo(event):
-    chat_id  = event.message.chat.id
-    user_id  = event.message.sender.id
-    sudo_id  = await get_sudo_user_id(event)
+@router.message(Command("delsudo"))
+async def _delsudo(message: Message):
+    if not owner_checker(message):
+        return
+    chat_id  = message.chat.id
+    user_id  = message.from_user.id
+    sudo_id  = await get_sudo_user_id(message)
+    
     if not sudo_id:
-        sudo_id = await ask_text(chat_id, user_id, event, 120, "Kirim ID Pengguna", int)
+        sudo_id = await ask_text(chat_id, user_id, message, 120, "Kirim ID Pengguna", int)
         if not sudo_id:
             return
+            
     if sudo_id not in sudo_users:
-        await safe_reply(event, f"❗ ID Tidak Ditemukan.\n\n`{sudo_users}`")
+        await safe_reply(message, f"❗ ID Tidak Ditemukan.\n\n`{sudo_users}`")
         return
+        
     sudo_users.remove(sudo_id)
     _save_sudo_list()
-    await safe_reply(event, f"✅ Berhasil Dihapus.\n\n`{sudo_users}`")
+    await safe_reply(message, f"✅ Berhasil Dihapus.\n\n`{sudo_users}`")
 
 
 def _save_sudo_list() -> None:
@@ -424,47 +478,46 @@ def _save_sudo_list() -> None:
 #  DATABASE & CLEANUP
 # ═══════════════════════════════════════════════════════════════════════
 
-@TELETHON_CLIENT.on(events.NewMessage(incoming=True, pattern=command("resetdb"),
-                                       func=lambda e: owner_checker(e)))
-async def _resetdb(event):
-    await event.reply(
-        "*️⃣ Anda yakin?\n\n🚫 Ini akan mereset seluruh basis data 🚫",
-        buttons=[
-            [Button.inline("Ya 🚫", "resetdb_True")],
-            [Button.inline("Tidak 😓", "resetdb_False")],
-            [Button.inline("⭕ Tutup", "close_settings")],
-        ],
-    )
+@router.message(Command("resetdb"))
+async def _resetdb(message: Message):
+    if not owner_checker(message):
+        return
+    kb = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="Ya 🚫", callback_data="resetdb_True")],
+        [InlineKeyboardButton(text="Tidak 😓", callback_data="resetdb_False")],
+        [InlineKeyboardButton(text="⭕ Tutup", callback_data="close_settings")],
+    ])
+    await message.reply("*️⃣ Anda yakin?\n\n🚫 Ini akan mereset seluruh basis data 🚫", reply_markup=kb)
 
 
-@TELETHON_CLIENT.on(events.NewMessage(incoming=True, pattern=command("renew"),
-                                       func=lambda e: owner_checker(e)))
-async def _renew(event):
-    user_id = event.message.sender.id
+@router.message(Command("renew"))
+async def _renew(message: Message):
+    if not owner_checker(message):
+        return
+    user_id = message.from_user.id
     if user_id not in get_data():
         await new_user(user_id, SAVE_TO_DATABASE)
-    await event.reply(
-        "*️⃣ Anda yakin?\n\n🚫 Ini akan menghapus semua unduhan & watermark lokal 🚫",
-        buttons=[
-            [Button.inline("Ya 🚫", "renew_True")],
-            [Button.inline("Tidak 😓", "renew_False")],
-            [Button.inline("⭕ Tutup", "close_settings")],
-        ],
-    )
+        
+    kb = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="Ya 🚫", callback_data="renew_True")],
+        [InlineKeyboardButton(text="Tidak 😓", callback_data="renew_False")],
+        [InlineKeyboardButton(text="⭕ Tutup", callback_data="close_settings")],
+    ])
+    await message.reply("*️⃣ Anda yakin?\n\n🚫 Ini akan menghapus semua unduhan & watermark lokal 🚫", reply_markup=kb)
 
 
-@TELETHON_CLIENT.on(events.NewMessage(incoming=True, pattern=command("settings"),
-                                       func=lambda e: user_auth_checker(e)))
-async def _settings(event):
-    user_id = event.message.sender.id
+@router.message(Command("settings"))
+async def _settings(message: Message):
+    if not await user_auth_checker(message):
+        return
+    user_id = message.from_user.id
     if user_id not in get_data():
         await new_user(user_id, SAVE_TO_DATABASE)
-    await event.reply(
-        f"⚙️ Hai {get_mention(event)} — Pilih Pengaturan Anda",
-        buttons=[
-            [Button.inline("👤 Profil Pengaturan", "profile_main")],
-            [Button.inline("🎬 Pengaturan Media",   "settings_media")],
-            [Button.inline("🤖 Pengaturan Umum & Tampilan", "settings_bot")],
-            [Button.inline("⭕ Tutup Pengaturan", "close_settings")],
-        ],
-    )
+        
+    kb = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="👤 Profil Pengaturan", callback_data="profile_main")],
+        [InlineKeyboardButton(text="🎬 Pengaturan Media",   callback_data="settings_media")],
+        [InlineKeyboardButton(text="🤖 Pengaturan Umum & Tampilan", callback_data="settings_bot")],
+        [InlineKeyboardButton(text="⭕ Tutup Pengaturan", callback_data="close_settings")],
+    ])
+    await message.reply(f"⚙️ Hai {get_mention(message)} — Pilih Pengaturan Anda", reply_markup=kb)
