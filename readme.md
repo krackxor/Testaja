@@ -25,37 +25,85 @@ To configure this bot add the environment variables stated below. Or add them in
 
 ### Commands
 ```
-compress - Compress Video
-merge - Merge Video
-watermark - Add Watermark To Video
-convert - Convert Video
-hardmux - Hardmux Video
-softmux - Softmux Video
-softremux - Softremux Video
-gensample - Generate Sample Video
-genss - Generate Screenshots
-changemetadata - Change Video Metadata
-changeindex - Change Index Or Remove Stream
-savewatermark - Save Watermark Image
-savethumb - Save Static Thumbnail
-saveconfig - Save Rclone Config
-tasklimit - Change Task Limit
-status - Check Process Status
-log - Get Log Message
-logs - Get Log File
-renew - Renew Storage
-resetdb - Reset Database
-changeconfig - Change Bot Config
-clearconfigs - Restore To Default Config
-addsudo - Add Sudo User
-delsudo - Delete Sudo User
-checksudo - Check Sudo Users
-time - Get Bot Uptime
-stats - Get Stats
-speedtest - SpeedTest
-settings - Settings Section
-restart - Restart Bot
-herokurestart - Restart Heroku Dyno
+# ═══ 🎬 STUDIO PRODUKSI & AI ═══
+recap - Rangkum film otomatis dgn AI & Voiceover
+clip - Potong video jadi Shorts/Reels dari file .txt
+verdict - Buat video ulasan game/film (Tema Merah)
+toptier - Buat video peringkat/tier list (Tema Emas)
+lore - Buat video teori & fakta (Tema Netflix)
+radar - Buat video game/film baru (Tema Cyber)
+patch - Buat video berita/update kilat
+archives - Buat video sejarah/arsip (Tema Retro)
+ytupload - Upload video langsung ke YouTube
+
+# ═══ 🎮 MANAJEMEN ASET STUDIO ═══
+addgameplay - Simpan video gameplay ke server bot
+listgameplay - Lihat daftar gameplay yang tersimpan
+deletegameplay - Hapus gameplay dari server
+addsfx - Tambahkan efek suara (SFX) kustom
+
+# ═══ ✂️ MANIPULASI VIDEO LANJUTAN ═══
+trim - Pangkas durasi awal dan akhir video
+split - Bagi video berdasarkan durasi/ukuran/jumlah
+cut - Buang bagian tengah video yang tidak diinginkan
+crop - Potong rasio layar video (16:9, 9:16, dll)
+autocrop - Otomatis buang black bar pada video
+rotate - Putar atau balikkan arah video
+
+# ═══ 🛠 PEMROSESAN MEDIA DASAR ═══
+compress - Kompres ukuran video
+merge - Gabungkan beberapa video menjadi satu
+watermark - Tambahkan gambar/teks watermark ke video
+convert - Ubah format video tanpa ubah resolusi
+hardmux - Tanam subtitle permanen ke dalam video
+softmux - Tambahkan subtitle sebagai stream
+softremux - Hapus sub lama & tambahkan yang baru
+extension - Ubah ekstensi file (contoh: mkv ke mp4)
+extract - Ekstrak audio atau subtitle dari video
+gensample - Buat cuplikan video pendek
+genss - Buat kolase screenshot dari video
+changemetadata - Ubah judul dan metadata video/audio
+changeindex - Ubah susunan stream audio/subtitle
+mediainfo - Cek informasi resolusi & bitrate file
+
+# ═══ 📥 UNDUH & CLOUD ═══
+leech - Unduh dari tautan lalu kirim ke Telegram
+mirror - Unduh dari tautan lalu upload ke Google Drive
+
+# ═══ ⚙️ PENGATURAN PENGGUNA ═══
+settings - Buka menu pengaturan bot
+savewatermark - Simpan gambar watermark default
+savethumb - Simpan gambar thumbnail default
+saveconfig - Simpan konfigurasi rclone Google Drive
+
+# ═══ 👑 SISTEM VIP & DONASI ═══
+myvip - Cek masa aktif VIP Anda
+verify - Verifikasi donasi Trakteer untuk klaim VIP
+
+# ═══ 💻 SISTEM & ADMIN BOT ═══
+status - Cek proses antrian yang sedang berjalan
+cancel - Batalkan proses upload/render
+time - Cek waktu aktif bot (Uptime)
+stats - Cek statistik CPU, RAM, & Disk server
+speedtest - Tes kecepatan internet server bot
+tasklimit - Ubah batas antrian maksimal bot
+log - Lihat log error singkat bot
+logs - Unduh file log lengkap bot
+renew - Bersihkan file sampah di server
+resetdb - Hapus semua data dari database
+changeconfig - Ubah variabel environment bot
+clearconfigs - Kembalikan pengaturan bot ke default
+checksudo - Lihat daftar admin bot
+addsudo - Tambahkan admin baru
+delsudo - Hapus hak admin
+add_vip - Tambah akses VIP manual ke user
+delete_vip - Cabut akses VIP user
+view_vip - Lihat daftar semua user VIP
+yttoken - Update token rahasia YouTube API
+restart - Mulai ulang mesin bot
+herokurestart - Mulai ulang Dyno Heroku
+help - Buka panduan lengkap bot
+start - Mulai interaksi bot
 ```
 
 
