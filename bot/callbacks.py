@@ -1,14 +1,13 @@
 """
 ╔══════════════════════════════════════════════════════════════════════╗
-║           bot_helper/callbacks.py — v3.1                            ║
-║           Callback Query Handler (Settings, Profiles, Actions)      ║
+║           bot_helper/callbacks.py — v3.1                             ║
+║           Callback Query Handler (Aiogram 3.x)                       ║
 ╠══════════════════════════════════════════════════════════════════════╣
 ║  FIXES dari versi lama:                                              ║
-║  [FIX HIGH]  eval() pada callback data → ast.literal_eval + guard  ║
-║  [FIX HIGH]  db global NameError → lazy getter                      ║
-║  [FIX]       Tidak ada auth check di callback → user_id guard       ║
-║  [FIX]       bare except → typed exception                         ║
-║  [FIX]       get_data()[user_id]['drive_name'] → .get()            ║
+║  [NEW] Migrasi total dari Telethon CallbackQuery ke Aiogram          ║
+║  [NEW] Menggunakan sistem wait_for_message dari shared.py            ║
+║  [FIX] Button.inline → InlineKeyboardButton                          ║
+║  [FIX] TelegramBadRequest untuk handle MessageNotModifiedError       ║
 ╚══════════════════════════════════════════════════════════════════════╝
 """
 
@@ -20,9 +19,10 @@ from ast import literal_eval
 from os import remove
 from os.path import exists, splitext
 
-# ── Third Party ───────────────────────────────────────────────────────
-from telethon import Button, events
-from telethon.errors.rpcerrorlist import MessageNotModifiedError
+# ── Aiogram ───────────────────────────────────────────────────────────
+from aiogram import Router, F
+from aiogram.types import CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton
+from aiogram.exceptions import TelegramBadRequest
 
 # ── Internal ──────────────────────────────────────────────────────────
 from bot_helper.Database.User_Data import (
@@ -36,30 +36,26 @@ from bot_helper.Process.Running_Tasks import get_ffmpeg_log_file
 from bot_helper.Telegram.Telegram_Client import Telegram
 from config.config import Config
 
-TELETHON_CLIENT  = Telegram.TELETHON_CLIENT
+# Memanggil fitur "Inline Waiter" dari shared.py
+from bot_helper.Handlers.shared import wait_for_message
+
 SAVE_TO_DATABASE = Config.SAVE_TO_DATABASE
 LOGGER           = Config.LOGGER
 
+router = Router()
 
 def _get_db():
-    """Lazy DB getter — tidak crash jika SAVE_TO_DATABASE=False."""
     if not SAVE_TO_DATABASE:
         return None
     from bot_helper.Database.DB_Handler import Database
     return Database()
 
-
 def _safe_eval_bool(s: str) -> bool | None:
-    """
-    [FIX HIGH] eval() → safe parse bool dari callback data.
-    Hanya menerima 'True' atau 'False' — bukan arbitrary code.
-    """
     if s == "True":
         return True
     if s == "False":
         return False
     return None
-
 
 # ── Pengaturan Lists ──────────────────────────────────────────────────
 encoders_list      = ["libx265", "libx264"]
@@ -97,12 +93,7 @@ audio_downmix_list = ["Off","stereo","mono"]
 bool_list          = [True, False]
 
 
-def get_mention(event) -> str:
-    return f"[{event.sender.first_name}](tg://user?id={event.sender.id})"
-
-
 def gen_keyboard(values_list, current_value, callvalue, items, hide):
-    """Build inline keyboard rows dari list nilai."""
     boards = []
     if len(values_list) > 6 and items > 3:
         items = 3
@@ -126,24 +117,22 @@ def gen_keyboard(values_list, current_value, callvalue, items, hide):
         else:
             text = display
 
-        row.append(Button.inline(text, f"{callvalue}_{x}"))
+        row.append(InlineKeyboardButton(text=text, callback_data=f"{callvalue}_{x}"))
     if row:
         boards.append(row)
     return boards
 
 
-async def get_text_data(chat_id, user_id, event, timeout, message):
-    """Tanya input teks dari user di conversation."""
+async def get_text_data(chat_id, user_id, call: CallbackQuery, timeout, message_text):
+    """Integrasi dengan sistem Inline Waiter dari shared.py"""
+    ask_msg = await call.message.reply(f"*️⃣ {message_text} [{timeout} detik]")
     try:
-        async with TELETHON_CLIENT.conversation(chat_id, timeout=timeout) as conv:
-            ask_msg = await conv.send_message(f"*️⃣ {message} [{timeout} detik]")
-            resp    = await conv.get_response()
-            await ask_msg.delete()
-            return resp
+        resp = await wait_for_message(chat_id, user_id, timeout)
+        await ask_msg.delete()
+        return resp
     except asyncio.TimeoutError:
         try:
-            await event.client.edit_message(event.chat_id, event.message.id,
-                                             "🔃 Waktu Habis! Tugas Telah Dibatalkan.")
+            await ask_msg.edit_text("🔃 Waktu Habis! Tugas Telah Dibatalkan.")
         except Exception:
             pass
         return False
@@ -175,7 +164,7 @@ async def apply_settings_from_profile(user_id: int, profile_data: dict) -> None:
 #  SUB-CALLBACKS
 # ═══════════════════════════════════════════════════════════════════════
 
-async def audio_callback(event, txt: str, user_id: int) -> None:
+async def audio_callback(call: CallbackQuery, txt: str, user_id: int) -> None:
     try:
         new_position = txt.split("_", 1)[1]
     except IndexError:
@@ -185,66 +174,66 @@ async def audio_callback(event, txt: str, user_id: int) -> None:
         val = _safe_eval_bool(new_position)
         if val is not None:
             await saveconfig(user_id, "audio", "enabled", val, SAVE_TO_DATABASE)
-            await event.answer(f"✅ Audio {'Aktif' if val else 'Nonaktif'}")
+            await call.answer(f"✅ Audio {'Aktif' if val else 'Nonaktif'}")
     elif txt.startswith("audiocodec_"):
         await saveconfig(user_id, "audio", "codec", new_position, SAVE_TO_DATABASE)
-        await event.answer(f"✅ Codec: {new_position.upper()}")
+        await call.answer(f"✅ Codec: {new_position.upper()}")
     elif txt.startswith("audioprofile_"):
         await saveconfig(user_id, "audio", "codec_profile", new_position, SAVE_TO_DATABASE)
-        await event.answer(f"✅ Profil AAC: {new_position.upper()}")
+        await call.answer(f"✅ Profil AAC: {new_position.upper()}")
     elif txt.startswith("audiobitrate_"):
         await saveconfig(user_id, "audio", "bitrate", new_position, SAVE_TO_DATABASE)
-        await event.answer(f"✅ Bitrate: {new_position}")
+        await call.answer(f"✅ Bitrate: {new_position}")
     elif txt.startswith("audiochannels_"):
         await saveconfig(user_id, "audio", "channels", new_position, SAVE_TO_DATABASE)
-        await event.answer(f"✅ Channel: {new_position}")
+        await call.answer(f"✅ Channel: {new_position}")
     elif txt.startswith("audiosamplerate_"):
         await saveconfig(user_id, "audio", "samplerate", new_position, SAVE_TO_DATABASE)
-        await event.answer(f"✅ Sample Rate: {int(new_position)/1000}kHz")
+        await call.answer(f"✅ Sample Rate: {int(new_position)/1000}kHz")
     elif txt.startswith("audionorm_"):
         await saveconfig(user_id, "audio", "normalization", new_position, SAVE_TO_DATABASE)
-        await event.answer(f"✅ Normalisasi: {new_position}")
+        await call.answer(f"✅ Normalisasi: {new_position}")
     elif txt.startswith("audiofilter_"):
         await saveconfig(user_id, "audio", "filter", new_position, SAVE_TO_DATABASE)
-        await event.answer(f"✅ Filter: {new_position}")
+        await call.answer(f"✅ Filter: {new_position}")
     elif txt.startswith("audiodownmix_"):
         await saveconfig(user_id, "audio", "downmix", new_position, SAVE_TO_DATABASE)
-        await event.answer(f"✅ Downmix: {new_position}")
+        await call.answer(f"✅ Downmix: {new_position}")
 
     audio = get_data().get(user_id, {}).get("audio", {})
     enabled = audio.get("enabled", True)
     KB = []
-    KB.append([Button.inline(f'Status Audio — {"ON" if enabled else "OFF"}', "nik66bots")])
+    KB.append([InlineKeyboardButton(text=f'Status Audio — {"ON" if enabled else "OFF"}', callback_data="nik66bots")])
     KB.extend(gen_keyboard(bool_list, enabled, "audioenable", 2, False))
     if enabled:
-        KB.append([Button.inline(f"Codec — {audio.get('codec','Auto').upper()}", "nik66bots")])
+        KB.append([InlineKeyboardButton(text=f"Codec — {audio.get('codec','Auto').upper()}", callback_data="nik66bots")])
         KB.extend(gen_keyboard(audio_codec_list, audio.get("codec","Auto"), "audiocodec", 4, False))
         if audio.get("codec") == "aac":
-            KB.append([Button.inline(f"Profil AAC — {audio.get('codec_profile','Auto')}", "nik66bots")])
+            KB.append([InlineKeyboardButton(text=f"Profil AAC — {audio.get('codec_profile','Auto')}", callback_data="nik66bots")])
             KB.extend(gen_keyboard(aac_profile_list, audio.get("codec_profile","Auto"), "audioprofile", 3, False))
         if audio.get("codec") not in ["pcm","flac","Auto","copy"]:
-            KB.append([Button.inline(f"Bitrate — {audio.get('bitrate','Auto')}", "nik66bots")])
+            KB.append([InlineKeyboardButton(text=f"Bitrate — {audio.get('bitrate','Auto')}", callback_data="nik66bots")])
             KB.extend(gen_keyboard(audio_bitrate_list, audio.get("bitrate","Auto"), "audiobitrate", 4, False))
-        KB.append([Button.inline(f"Channel — {audio.get('channels','Auto')}", "nik66bots")])
+        KB.append([InlineKeyboardButton(text=f"Channel — {audio.get('channels','Auto')}", callback_data="nik66bots")])
         KB.extend(gen_keyboard(audio_channels_list, audio.get("channels","Auto"), "audiochannels", 3, False))
         sr = audio.get("samplerate","Auto")
         sr_display = sr if sr == "Auto" else f"{int(sr)/1000}kHz"
-        KB.append([Button.inline(f"Sample Rate — {sr_display}", "nik66bots")])
+        KB.append([InlineKeyboardButton(text=f"Sample Rate — {sr_display}", callback_data="nik66bots")])
         KB.extend(gen_keyboard(audio_samplerate_list, sr, "audiosamplerate", 3, False))
-        KB.append([Button.inline(f"Normalisasi — {audio.get('normalization','Off')}", "nik66bots")])
+        KB.append([InlineKeyboardButton(text=f"Normalisasi — {audio.get('normalization','Off')}", callback_data="nik66bots")])
         KB.extend(gen_keyboard(audio_norm_list, audio.get("normalization","Off"), "audionorm", 3, False))
-        KB.append([Button.inline(f"Filter — {audio.get('filter','Off')}", "nik66bots")])
+        KB.append([InlineKeyboardButton(text=f"Filter — {audio.get('filter','Off')}", callback_data="nik66bots")])
         KB.extend(gen_keyboard(audio_filter_list, audio.get("filter","Off"), "audiofilter", 4, False))
-        KB.append([Button.inline(f"Downmix — {audio.get('downmix','Off')}", "nik66bots")])
+        KB.append([InlineKeyboardButton(text=f"Downmix — {audio.get('downmix','Off')}", callback_data="nik66bots")])
         KB.extend(gen_keyboard(audio_downmix_list, audio.get("downmix","Off"), "audiodownmix", 3, False))
-    KB.append([Button.inline("↩️ Kembali", "settings_media")])
+    KB.append([InlineKeyboardButton(text="↩️ Kembali", callback_data="settings_media")])
     try:
-        await event.edit("🎧 Pengaturan Audio", buttons=KB)
+        await call.message.edit_text("🎧 Pengaturan Audio", reply_markup=InlineKeyboardMarkup(inline_keyboard=KB))
     except Exception:
         pass
 
 
-async def video_callback(event, txt: str, user_id: int, edit: bool, chat_id: int) -> None:
+async def video_callback(call: CallbackQuery, txt: str, user_id: int, edit: bool, chat_id: int) -> None:
     new_pos = txt.split("_", 1)[1] if "_" in txt else ""
 
     if txt.startswith("videoenable_"):
@@ -261,7 +250,7 @@ async def video_callback(event, txt: str, user_id: int, edit: bool, chat_id: int
         if val is not None: await saveconfig(user_id, "video", "map", val, SAVE_TO_DATABASE)
     elif txt.startswith("videocrf_"):
         if new_pos == "Custom":
-            resp = await get_text_data(chat_id, user_id, event, 120, "Kirim nilai CRF (0-51)")
+            resp = await get_text_data(chat_id, user_id, call, 120, "Kirim nilai CRF (0-51)")
             if resp:
                 try:
                     crf = int(resp.text)
@@ -282,14 +271,14 @@ async def video_callback(event, txt: str, user_id: int, edit: bool, chat_id: int
         val = _safe_eval_bool(new_pos)
         if val is not None: await saveconfig(user_id, "video", "sync", val, SAVE_TO_DATABASE)
     elif txt.startswith("videoextension_"):   await saveconfig(user_id, "video", "extension",   new_pos, SAVE_TO_DATABASE)
-    elif txt.startswith("videotune_"):        await saveconfig(user_id, "video", "tune",         new_pos, SAVE_TO_DATABASE)
-    elif txt.startswith("videocabac_"):       await saveconfig(user_id, "video", "cabac",        new_pos, SAVE_TO_DATABASE)
-    elif txt.startswith("videofast_start_"):  await saveconfig(user_id, "video", "fast_start",   new_pos, SAVE_TO_DATABASE)
-    elif txt.startswith("videobit_depth_"):   await saveconfig(user_id, "video", "bit_depth",    new_pos, SAVE_TO_DATABASE)
+    elif txt.startswith("videotune_"):        await saveconfig(user_id, "video", "tune",        new_pos, SAVE_TO_DATABASE)
+    elif txt.startswith("videocabac_"):       await saveconfig(user_id, "video", "cabac",       new_pos, SAVE_TO_DATABASE)
+    elif txt.startswith("videofast_start_"):  await saveconfig(user_id, "video", "fast_start",  new_pos, SAVE_TO_DATABASE)
+    elif txt.startswith("videobit_depth_"):   await saveconfig(user_id, "video", "bit_depth",   new_pos, SAVE_TO_DATABASE)
     elif txt.startswith("videopixel_format_"):await saveconfig(user_id, "video", "pixel_format", new_pos, SAVE_TO_DATABASE)
     elif txt.startswith("videoresolution_"):
         if new_pos == "Custom":
-            resp = await get_text_data(chat_id, user_id, event, 120, "Kirim resolusi (contoh: 1280x720)")
+            resp = await get_text_data(chat_id, user_id, call, 120, "Kirim resolusi (contoh: 1280x720)")
             if resp:
                 await saveconfig(user_id, "video", "resolution", resp.text, SAVE_TO_DATABASE)
                 await resp.reply(f"✅ Resolusi kustom: {resp.text}")
@@ -301,58 +290,58 @@ async def video_callback(event, txt: str, user_id: int, edit: bool, chat_id: int
     enab = vs.get("enabled", True)
     enc  = vs.get("encoder", "libx264")
     KB   = []
-    KB.append([Button.inline(f'Status Video — {"ON" if enab else "OFF"}', "nik66bots")])
+    KB.append([InlineKeyboardButton(text=f'Status Video — {"ON" if enab else "OFF"}', callback_data="nik66bots")])
     KB.extend(gen_keyboard(bool_list, enab, "videoenable", 2, False))
     if enab:
-        KB.append([Button.inline(f"Encoder — {enc}", "nik66bots")])
+        KB.append([InlineKeyboardButton(text=f"Encoder — {enc}", callback_data="nik66bots")])
         KB.extend(gen_keyboard(encoders_list, enc, "videoencoder", 2, False))
-        KB.append([Button.inline(f"Preset — {vs.get('preset','medium')}", "nik66bots")])
+        KB.append([InlineKeyboardButton(text=f"Preset — {vs.get('preset','medium')}", callback_data="nik66bots")])
         KB.extend(gen_keyboard(presets_list, vs.get("preset","medium"), "videopreset", 3, False))
-        KB.append([Button.inline(f"CRF — {vs.get('crf','23')}", "nik66bots")])
+        KB.append([InlineKeyboardButton(text=f"CRF — {vs.get('crf','23')}", callback_data="nik66bots")])
         KB.extend(gen_keyboard(crf_list, vs.get("crf","23"), "videocrf", 4, False))
-        KB.append([Button.inline(f"Tune — {vs.get('tune','None')}", "nik66bots")])
+        KB.append([InlineKeyboardButton(text=f"Tune — {vs.get('tune','None')}", callback_data="nik66bots")])
         KB.extend(gen_keyboard(tune_list, vs.get("tune","None"), "videotune", 3, False))
-        KB.append([Button.inline(f"Format Piksel — {vs.get('pixel_format','Auto')}", "nik66bots")])
+        KB.append([InlineKeyboardButton(text=f"Format Piksel — {vs.get('pixel_format','Auto')}", callback_data="nik66bots")])
         KB.extend(gen_keyboard(pixel_format_list, vs.get("pixel_format","Auto"), "videopixel_format", 3, False))
-        KB.append([Button.inline(f"Resolusi — {vs.get('resolution','Auto')}", "nik66bots")])
+        KB.append([InlineKeyboardButton(text=f"Resolusi — {vs.get('resolution','Auto')}", callback_data="nik66bots")])
         KB.extend(gen_keyboard(resolution_list, vs.get("resolution","Auto"), "videoresolution", 5, False))
-        KB.append([Button.inline(f"Ekstensi — {vs.get('extension','MKV')}", "nik66bots")])
+        KB.append([InlineKeyboardButton(text=f"Ekstensi — {vs.get('extension','MKV')}", callback_data="nik66bots")])
         KB.extend(gen_keyboard(extension_list, vs.get("extension","MKV"), "videoextension", 3, False))
         if enc == "libx264":
-            KB.append([Button.inline(f"CABAC — {vs.get('cabac','On')}", "nik66bots")])
+            KB.append([InlineKeyboardButton(text=f"CABAC — {vs.get('cabac','On')}", callback_data="nik66bots")])
             KB.extend(gen_keyboard(cabac_list, vs.get("cabac","On"), "videocabac", 2, False))
         if vs.get("extension","MKV") == "MP4":
-            KB.append([Button.inline(f"Fast Start — {vs.get('fast_start','Yes')}", "nik66bots")])
+            KB.append([InlineKeyboardButton(text=f"Fast Start — {vs.get('fast_start','Yes')}", callback_data="nik66bots")])
             KB.extend(gen_keyboard(fast_start_list, vs.get("fast_start","Yes"), "videofast_start", 2, False))
-        KB.append([Button.inline(f"Salin Subtitle — {vs.get('copy_sub',True)}", "nik66bots")])
+        KB.append([InlineKeyboardButton(text=f"Salin Subtitle — {vs.get('copy_sub',True)}", callback_data="nik66bots")])
         KB.extend(gen_keyboard(bool_list, vs.get("copy_sub",True), "videocopysub", 2, False))
-        KB.append([Button.inline(f"Peta — {vs.get('map',True)}", "nik66bots")])
+        KB.append([InlineKeyboardButton(text=f"Peta — {vs.get('map',True)}", callback_data="nik66bots")])
         KB.extend(gen_keyboard(bool_list, vs.get("map",True), "videomap", 2, False))
         qs = vs.get("use_queue_size", False)
-        KB.append([Button.inline(f"Gunakan Queue Size — {qs}", "nik66bots")])
+        KB.append([InlineKeyboardButton(text=f"Gunakan Queue Size — {qs}", callback_data="nik66bots")])
         if qs:
-            KB.append([Button.inline(f"Queue Size — {vs.get('queue_size','1M')} (Klik Ubah)", "change_video_queue_size")])
+            KB.append([InlineKeyboardButton(text=f"Queue Size — {vs.get('queue_size','1M')} (Klik Ubah)", callback_data="change_video_queue_size")])
         KB.extend(gen_keyboard(bool_list, qs, "videousequeuesize", 2, False))
-        KB.append([Button.inline(f"SYNC — {vs.get('sync',False)}", "nik66bots")])
+        KB.append([InlineKeyboardButton(text=f"SYNC — {vs.get('sync',False)}", callback_data="nik66bots")])
         KB.extend(gen_keyboard(bool_list, vs.get("sync",False), "videosync", 2, False))
-    KB.append([Button.inline("↩️ Kembali", "settings_media")])
+    KB.append([InlineKeyboardButton(text="↩️ Kembali", callback_data="settings_media")])
 
+    markup = InlineKeyboardMarkup(inline_keyboard=KB)
     if edit:
         try:
-            await event.edit("🎬 Pengaturan Video Global", buttons=KB)
+            await call.message.edit_text("🎬 Pengaturan Video Global", reply_markup=markup)
         except Exception:
             pass
     else:
         try:
-            await event.delete()
+            await call.message.delete()
         except Exception:
             pass
-        await TELETHON_CLIENT.send_message(event.chat.id, "🎬 Pengaturan Video Global", buttons=KB)
+        await call.message.answer("🎬 Pengaturan Video Global", reply_markup=markup)
 
 
-async def general_callback(event, txt: str, user_id: int, chat_id: int) -> None:
+async def general_callback(call: CallbackQuery, txt: str, user_id: int, chat_id: int) -> None:
     new_pos = txt.split("_", 1)[1] if "_" in txt else ""
-    # [FIX] .get() dengan fallback
     r_config    = f"./userdata/{user_id}_rclone.conf"
     check_cfg   = exists(r_config)
     drive_name  = get_data().get(user_id, {}).get("drive_name", "")
@@ -372,7 +361,7 @@ async def general_callback(event, txt: str, user_id: int, chat_id: int) -> None:
         val = _safe_eval_bool(new_pos)
         if val is not None:
             if not val and not (check_cfg and drive_name):
-                await event.answer("❗ Simpan Konfigurasi Rclone Terlebih Dahulu", alert=True)
+                await call.answer("❗ Simpan Konfigurasi Rclone Terlebih Dahulu", show_alert=True)
                 return
             await saveoptions(user_id, "upload_tg", val, SAVE_TO_DATABASE)
     elif txt.startswith("generaldrivename"): await saveoptions(user_id, "drive_name", new_pos, SAVE_TO_DATABASE)
@@ -380,7 +369,7 @@ async def general_callback(event, txt: str, user_id: int, chat_id: int) -> None:
         val = _safe_eval_bool(new_pos)
         if val is not None:
             if val and not (check_cfg and drive_name):
-                await event.answer("❗ Simpan Konfigurasi Rclone Terlebih Dahulu", alert=True)
+                await call.answer("❗ Simpan Konfigurasi Rclone Terlebih Dahulu", show_alert=True)
                 return
             await saveoptions(user_id, "auto_drive", val, SAVE_TO_DATABASE)
     elif txt.startswith("generalgenss"):
@@ -403,7 +392,7 @@ async def general_callback(event, txt: str, user_id: int, chat_id: int) -> None:
     KB  = []
     def _row(label, key, default, opts, items):
         val = ud.get(key, default)
-        KB.append([Button.inline(f"{label} — {val}", "nik66bots")])
+        KB.append([InlineKeyboardButton(text=f"{label} — {val}", callback_data="nik66bots")])
         KB.extend(gen_keyboard(opts, val, f"general{key.replace('_','')}", items, False))
 
     _row("🥝 Pilih Audio Otomatis", "select_stream", True, bool_list, 2)
@@ -419,22 +408,21 @@ async def general_callback(event, txt: str, user_id: int, chat_id: int) -> None:
     _row("🛰 Multi Tugas",         "multi_tasks",   True,  bool_list, 2)
     _row("⏹ Unggah Tiap File",    "upload_all",    False, bool_list, 2)
 
-    # [FIX] .get() untuk drive_name
     drive_name = get_data().get(user_id, {}).get("drive_name", "")
     if check_cfg:
         accounts = await get_config(r_config)
         if accounts:
-            KB.append([Button.inline(f"🔮 Akun Rclone — {drive_name}", "nik66bots")])
+            KB.append([InlineKeyboardButton(text=f"🔮 Akun Rclone — {drive_name}", callback_data="nik66bots")])
             KB.extend(gen_keyboard(accounts, drive_name, "generaldrivename", 2, False))
 
-    KB.append([Button.inline("↩️ Kembali", "settings_bot")])
+    KB.append([InlineKeyboardButton(text="↩️ Kembali", callback_data="settings_bot")])
     try:
-        await event.edit("⚙️ Pengaturan Umum", buttons=KB)
+        await call.message.edit_text("⚙️ Pengaturan Umum", reply_markup=InlineKeyboardMarkup(inline_keyboard=KB))
     except Exception:
         pass
 
 
-async def progress_callback(event, txt: str, user_id: int) -> None:
+async def progress_callback(call: CallbackQuery, txt: str, user_id: int) -> None:
     new_pos = txt.split("_", 1)[1] if "_" in txt else ""
     if txt.startswith("progressdetailedprogress"):
         val = _safe_eval_bool(new_pos)
@@ -459,7 +447,7 @@ async def progress_callback(event, txt: str, user_id: int) -> None:
     KB = []
     def _row(label, key, default, opts, items):
         val = ud.get(key, default)
-        KB.append([Button.inline(f"{label} — {val}", "nik66bots")])
+        KB.append([InlineKeyboardButton(text=f"{label} — {val}", callback_data="nik66bots")])
         KB.extend(gen_keyboard(opts, val, f"progress{key.replace('_','')}", items, False))
 
     _row("📋 Pesan Detail",       "detailed_messages", True,  bool_list, 2)
@@ -468,16 +456,16 @@ async def progress_callback(event, txt: str, user_id: int) -> None:
     _row("⏲ Waktu Proses",        "ffmpeg_ptime",       True,  bool_list, 2)
     _row("⌚ Waktu Saat Ini",      "show_time",          False, bool_list, 2)
     ut = ud.get("update_time", 7)
-    KB.append([Button.inline(f"⏱ Waktu Update — {ut}s", "nik66bots")])
+    KB.append([InlineKeyboardButton(text=f"⏱ Waktu Update — {ut}s", callback_data="nik66bots")])
     KB.extend(gen_keyboard([5,6,7,8,9,10], ut, "progressupdatetime", 3, False))
-    KB.append([Button.inline("↩️ Kembali", "settings_bot")])
+    KB.append([InlineKeyboardButton(text="↩️ Kembali", callback_data="settings_bot")])
     try:
-        await event.edit("⚙️ Pengaturan Tampilan Progress", buttons=KB)
+        await call.message.edit_text("⚙️ Pengaturan Tampilan Progress", reply_markup=InlineKeyboardMarkup(inline_keyboard=KB))
     except Exception:
         pass
 
 
-async def telegram_callback(event, txt: str, user_id: int, chat_id: int) -> None:
+async def telegram_callback(call: CallbackQuery, txt: str, user_id: int, chat_id: int) -> None:
     new_pos = txt.split("_", 1)[1] if "_" in txt else ""
     if txt.startswith("telegramupload"):
         await saveoptions(user_id, "tgupload", new_pos, SAVE_TO_DATABASE)
@@ -487,19 +475,19 @@ async def telegram_callback(event, txt: str, user_id: int, chat_id: int) -> None
     up  = ud.get("tgupload",   "Telethon")
     dw  = ud.get("tgdownload", "Telethon")
     KB  = [
-        [Button.inline(f"🔼 Upload — {up}", "nik66bots")],
+        [InlineKeyboardButton(text=f"🔼 Upload — {up}", callback_data="nik66bots")],
         *gen_keyboard(["Telethon","Pyrogram"], up, "telegramupload", 2, False),
-        [Button.inline(f"🔽 Download — {dw}", "nik66bots")],
+        [InlineKeyboardButton(text=f"🔽 Download — {dw}", callback_data="nik66bots")],
         *gen_keyboard(["Telethon","Pyrogram"], dw, "telegramdownload", 2, False),
-        [Button.inline("↩️ Kembali", "settings_bot")],
+        [InlineKeyboardButton(text="↩️ Kembali", callback_data="settings_bot")],
     ]
     try:
-        await event.edit("✈️ Pengaturan Telegram", buttons=KB)
+        await call.message.edit_text("✈️ Pengaturan Telegram", reply_markup=InlineKeyboardMarkup(inline_keyboard=KB))
     except Exception:
         pass
 
 
-async def metadata_callback(event, txt: str, user_id: int, chat_id: int) -> None:
+async def metadata_callback(call: CallbackQuery, txt: str, user_id: int, chat_id: int) -> None:
     new_pos = txt.split("_", 1)[1] if "_" in txt else ""
     edit = True
     if txt.startswith("metadataenable_"):
@@ -509,7 +497,7 @@ async def metadata_callback(event, txt: str, user_id: int, chat_id: int) -> None
         await saveconfig(user_id, "metadata", "mode", new_pos, SAVE_TO_DATABASE)
     elif txt.startswith("metadatapreset_"):
         field = new_pos
-        resp  = await get_text_data(chat_id, user_id, event, 120, f"Kirim nilai baru untuk '{field}'")
+        resp  = await get_text_data(chat_id, user_id, call, 120, f"Kirim nilai baru untuk '{field}'")
         if resp:
             presets = get_data().get(user_id, {}).get("metadata", {}).get("preset", {})
             presets[field] = resp.text
@@ -517,7 +505,7 @@ async def metadata_callback(event, txt: str, user_id: int, chat_id: int) -> None
             await resp.reply(f"✅ Preset '{field}' diubah.")
             edit = False
     elif txt.startswith("metadatacustom_"):
-        resp = await get_text_data(chat_id, user_id, event, 300,
+        resp = await get_text_data(chat_id, user_id, call, 300,
                                     "Kirim kode metadata ffmpeg kustom.")
         if resp:
             await saveconfig(user_id, "metadata", "custom", resp.text, SAVE_TO_DATABASE)
@@ -527,36 +515,38 @@ async def metadata_callback(event, txt: str, user_id: int, chat_id: int) -> None
     md      = get_data().get(user_id, {}).get("metadata", {})
     enabled = md.get("enabled", False)
     KB      = []
-    KB.append([Button.inline(f'Status Metadata — {"ON" if enabled else "OFF"}', "nik66bots")])
+    KB.append([InlineKeyboardButton(text=f'Status Metadata — {"ON" if enabled else "OFF"}', callback_data="nik66bots")])
     KB.extend(gen_keyboard(bool_list, enabled, "metadataenable", 2, False))
     if enabled:
         mode = md.get("mode","preset")
-        KB.append([Button.inline(f"Mode — {mode.upper()}", "nik66bots")])
+        KB.append([InlineKeyboardButton(text=f"Mode — {mode.upper()}", callback_data="nik66bots")])
         KB.extend(gen_keyboard(["preset","custom"], mode, "metadatamode", 2, False))
         if mode == "preset":
             p = md.get("preset", {})
-            KB.append([Button.inline("─── PRESET METADATA ───", "nik66bots")])
+            KB.append([InlineKeyboardButton(text="─── PRESET METADATA ───", callback_data="nik66bots")])
             for field in ["title","author","year","comment","genre"]:
-                KB.append([Button.inline(f"{field.capitalize()}: {p.get(field,'')}", f"metadatapreset_{field}")])
+                KB.append([InlineKeyboardButton(text=f"{field.capitalize()}: {p.get(field,'')}", callback_data=f"metadatapreset_{field}")])
         else:
-            KB.append([Button.inline("─── KODE FFMPEG KUSTOM ───", "nik66bots")])
-            KB.append([Button.inline("Ubah Kode", "metadatacustom_change")])
-    KB.append([Button.inline("↩️ Kembali", "settings_media")])
+            KB.append([InlineKeyboardButton(text="─── KODE FFMPEG KUSTOM ───", callback_data="nik66bots")])
+            KB.append([InlineKeyboardButton(text="Ubah Kode", callback_data="metadatacustom_change")])
+    KB.append([InlineKeyboardButton(text="↩️ Kembali", callback_data="settings_media")])
+    
+    markup = InlineKeyboardMarkup(inline_keyboard=KB)
     if edit:
         try:
-            await event.edit("⚙️ Pengaturan Metadata", buttons=KB)
+            await call.message.edit_text("⚙️ Pengaturan Metadata", reply_markup=markup)
         except Exception:
             pass
     else:
-        await TELETHON_CLIENT.send_message(chat_id, "⚙️ Pengaturan Metadata", buttons=KB)
+        await call.message.answer("⚙️ Pengaturan Metadata", reply_markup=markup)
 
 
-async def convert_callback(event, txt: str, user_id: int) -> None:
+async def convert_callback(call: CallbackQuery, txt: str, user_id: int) -> None:
     current = get_data().get(user_id, {}).get("convert", {}).get("convert_list", [])
     if txt == "convert_clear_all":
         current = []
         await saveconfig(user_id, "convert", "convert_list", [], SAVE_TO_DATABASE)
-        await event.answer("✅ Pilihan dihapus semua.")
+        await call.answer("✅ Pilihan dihapus semua.")
     elif txt.startswith("convert_toggle_"):
         try:
             val = int(txt.split("_")[-1])
@@ -566,41 +556,41 @@ async def convert_callback(event, txt: str, user_id: int) -> None:
             await saveconfig(user_id, "convert", "convert_list", current, SAVE_TO_DATABASE)
         except (ValueError, IndexError):
             pass
-    KB    = [[Button.inline("Pilih satu atau lebih kualitas output", "nik66bots")]]
+    KB    = [[InlineKeyboardButton(text="Pilih satu atau lebih kualitas output", callback_data="nik66bots")]]
     row   = []
     for name, val in sorted(convert_qualities.items(), key=lambda x: x[1], reverse=True):
         txt_ = f"{name} 🟢" if val in current else name
-        row.append(Button.inline(txt_, f"convert_toggle_{val}"))
+        row.append(InlineKeyboardButton(text=txt_, callback_data=f"convert_toggle_{val}"))
         if len(row) == 3:
             KB.append(row)
             row = []
     if row:
         KB.append(row)
-    KB.append([Button.inline("❌ Hapus Semua", "convert_clear_all")])
-    KB.append([Button.inline("↩️ Kembali", "settings_media")])
+    KB.append([InlineKeyboardButton(text="❌ Hapus Semua", callback_data="convert_clear_all")])
+    KB.append([InlineKeyboardButton(text="↩️ Kembali", callback_data="settings_media")])
     try:
-        await event.edit("⚙️ Pengaturan Konversi", buttons=KB)
+        await call.message.edit_text("⚙️ Pengaturan Konversi", reply_markup=InlineKeyboardMarkup(inline_keyboard=KB))
     except Exception:
         pass
 
 
-async def mux_callback(event, txt: str, user_id: int) -> None:
+async def mux_callback(call: CallbackQuery, txt: str, user_id: int) -> None:
     new_pos = txt.split("_", 1)[1] if "_" in txt else ""
     if txt.startswith("muxsubcodec_"):
         await saveconfig(user_id, "mux", "sub_codec", new_pos, SAVE_TO_DATABASE)
     mux_codec = get_data().get(user_id, {}).get("mux", {}).get("sub_codec", "copy")
     KB = [
-        [Button.inline(f"Codec Subtitle — {mux_codec}", "nik66bots")],
+        [InlineKeyboardButton(text=f"Codec Subtitle — {mux_codec}", callback_data="nik66bots")],
         *gen_keyboard(["copy","mov_text"], mux_codec, "muxsubcodec", 2, False),
-        [Button.inline("↩️ Kembali", "settings_media")],
+        [InlineKeyboardButton(text="↩️ Kembali", callback_data="settings_media")],
     ]
     try:
-        await event.edit("⚙️ Pengaturan Mux", buttons=KB)
+        await call.message.edit_text("⚙️ Pengaturan Mux", reply_markup=InlineKeyboardMarkup(inline_keyboard=KB))
     except Exception:
         pass
 
 
-async def merge_callback(event, txt: str, user_id: int) -> None:
+async def merge_callback(call: CallbackQuery, txt: str, user_id: int) -> None:
     new_pos = txt.split("_", 1)[1] if "_" in txt else ""
     if txt.startswith("mergemap"):
         val = _safe_eval_bool(new_pos)
@@ -610,20 +600,19 @@ async def merge_callback(event, txt: str, user_id: int) -> None:
         if val is not None: await saveconfig(user_id, "merge", "fix_blank", val, SAVE_TO_DATABASE)
     mg = get_data().get(user_id, {}).get("merge", {})
     KB = [
-        [Button.inline(f"Peta — {mg.get('map',True)}", "nik66bots")],
+        [InlineKeyboardButton(text=f"Peta — {mg.get('map',True)}", callback_data="nik66bots")],
         *gen_keyboard(bool_list, mg.get("map",True), "mergemap", 2, False),
-        [Button.inline(f"Perbaiki Blank — {mg.get('fix_blank',False)}", "nik66bots")],
+        [InlineKeyboardButton(text=f"Perbaiki Blank — {mg.get('fix_blank',False)}", callback_data="nik66bots")],
         *gen_keyboard(bool_list, mg.get("fix_blank",False), "mergefixblank", 2, False),
-        [Button.inline("↩️ Kembali", "settings_media")],
+        [InlineKeyboardButton(text="↩️ Kembali", callback_data="settings_media")],
     ]
     try:
-        await event.edit("⚙️ Pengaturan Gabung", buttons=KB)
+        await call.message.edit_text("⚙️ Pengaturan Gabung", reply_markup=InlineKeyboardMarkup(inline_keyboard=KB))
     except Exception:
         pass
 
 
-async def watermark_callback(event, txt: str, user_id: int, chat_id: int) -> None:
-    """Watermark settings — delegasi ke watermark_image_menu dan watermark_text_menu."""
+async def watermark_callback(call: CallbackQuery, txt: str, user_id: int, chat_id: int) -> None:
     settings = get_data().get(user_id, {}).get("watermark", {})
 
     if txt.startswith("watermark_enable_"):
@@ -639,64 +628,66 @@ async def watermark_callback(event, txt: str, user_id: int, chat_id: int) -> Non
         txt = "watermark_settings"
 
     if txt.startswith("watermark_image"):
-        await watermark_image_menu(event, txt, user_id, chat_id)
+        await watermark_image_menu(call, txt, user_id, chat_id)
         return
     if txt.startswith("watermark_text"):
-        await watermark_text_menu(event, txt, user_id, chat_id)
+        await watermark_text_menu(call, txt, user_id, chat_id)
         return
 
     is_en   = settings.get("enabled", False)
     wm_type = settings.get("type", "image")
     KB      = [
-        [Button.inline(f'Status: {"Aktif ✅" if is_en else "Nonaktif"}', "nik66bots")],
+        [InlineKeyboardButton(text=f'Status: {"Aktif ✅" if is_en else "Nonaktif"}', callback_data="nik66bots")],
         gen_keyboard(bool_list, is_en, "watermark_enable", 2, False)[0],
     ]
     if is_en:
-        KB.append([Button.inline("Pilih Jenis Watermark", "nik66bots")])
+        KB.append([InlineKeyboardButton(text="Pilih Jenis Watermark", callback_data="nik66bots")])
         KB.append([
-            Button.inline(f'{"🖼️ Gambar 🟢" if wm_type=="image" else "🖼️ Gambar"}', "watermark_type_image"),
-            Button.inline(f'{"✍️ Teks 🟢" if wm_type=="text" else "✍️ Teks"}', "watermark_type_text"),
+            InlineKeyboardButton(text=f'{"🖼️ Gambar 🟢" if wm_type=="image" else "🖼️ Gambar"}', callback_data="watermark_type_image"),
+            InlineKeyboardButton(text=f'{"✍️ Teks 🟢" if wm_type=="text" else "✍️ Teks"}', callback_data="watermark_type_text"),
         ])
         if wm_type == "image":
-            KB.append([Button.inline("➡️ Atur Watermark Gambar", "watermark_image_menu")])
+            KB.append([InlineKeyboardButton(text="➡️ Atur Watermark Gambar", callback_data="watermark_image_menu")])
         else:
-            KB.append([Button.inline("➡️ Atur Watermark Teks", "watermark_text_menu")])
-    KB.append([Button.inline("↩️ Kembali", "settings_media")])
+            KB.append([InlineKeyboardButton(text="➡️ Atur Watermark Teks", callback_data="watermark_text_menu")])
+    KB.append([InlineKeyboardButton(text="↩️ Kembali", callback_data="settings_media")])
     try:
-        await event.edit("🛺 Pengaturan Watermark", buttons=KB)
+        await call.message.edit_text("🛺 Pengaturan Watermark", reply_markup=InlineKeyboardMarkup(inline_keyboard=KB))
     except Exception:
         pass
 
 
-async def watermark_image_menu(event, txt: str, user_id: int, chat_id: int) -> None:
+async def watermark_image_menu(call: CallbackQuery, txt: str, user_id: int, chat_id: int) -> None:
     wm_path = f"./userdata/{user_id}_watermark.jpg"
 
     if txt == "watermark_image_upload":
-        await event.delete()
-        resp = await get_text_data(chat_id, user_id, event, 120, "Kirim gambar untuk watermark.")
-        if resp and (resp.photo or (resp.document and "image" in (resp.document.mime_type or ""))):
-            await TELETHON_CLIENT.download_media(resp.media, wm_path)
+        await call.message.delete()
+        resp = await get_text_data(chat_id, user_id, call, 120, "Kirim gambar untuk watermark.")
+        if resp and (resp.photo or resp.document):
+            target_media = resp.photo[-1] if resp.photo else resp.document
+            await Telegram.AIOGRAM_BOT.download(target_media, destination=wm_path)
             await resp.reply("✅ Watermark disimpan.")
         elif resp:
             await resp.reply("❌ File bukan gambar.")
-        await event.client.send_message(chat_id, "Menu:", buttons=[[Button.inline("Buka Menu", "watermark_image_menu")]])
+        await call.message.answer("Menu:", reply_markup=InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="Buka Menu", callback_data="watermark_image_menu")]]))
         return
 
     elif txt == "watermark_image_view":
         if exists(wm_path):
-            await event.delete()
-            await TELETHON_CLIENT.send_file(chat_id, wm_path, caption="Watermark gambar saat ini.")
-            await event.client.send_message(chat_id, "Menu:", buttons=[[Button.inline("Kembali", "watermark_image_menu")]])
+            await call.message.delete()
+            from aiogram.types import FSInputFile
+            await call.message.answer_photo(FSInputFile(wm_path), caption="Watermark gambar saat ini.")
+            await call.message.answer("Menu:", reply_markup=InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="Kembali", callback_data="watermark_image_menu")]]))
         else:
-            await event.answer("❗ Belum ada watermark gambar.", alert=True)
+            await call.answer("❗ Belum ada watermark gambar.", show_alert=True)
         return
 
     elif txt == "watermark_image_delete":
         if exists(wm_path):
             remove(wm_path)
-            await event.answer("✅ Watermark dihapus.", alert=True)
+            await call.answer("✅ Watermark dihapus.", show_alert=True)
         else:
-            await event.answer("❗ Tidak ada watermark.", alert=True)
+            await call.answer("❗ Tidak ada watermark.", show_alert=True)
 
     elif txt.startswith("watermark_image_duration_"):
         parts  = txt.split("_")
@@ -705,17 +696,17 @@ async def watermark_image_menu(event, txt: str, user_id: int, chat_id: int) -> N
         if action == "mode":
             setts["image"]["duration"]["mode"] = parts[4]
         elif action == "from":
-            resp = await get_text_data(chat_id, user_id, event, 120, "Waktu mulai (HH:MM:SS):")
+            resp = await get_text_data(chat_id, user_id, call, 120, "Waktu mulai (HH:MM:SS):")
             if resp: setts["image"]["duration"]["from"] = resp.text
         elif action == "to":
-            resp = await get_text_data(chat_id, user_id, event, 120, "Waktu selesai (HH:MM:SS):")
+            resp = await get_text_data(chat_id, user_id, call, 120, "Waktu selesai (HH:MM:SS):")
             if resp: setts["image"]["duration"]["to"] = resp.text
         elif action == "interval":
-            resp = await get_text_data(chat_id, user_id, event, 120, "Interval (detik):")
+            resp = await get_text_data(chat_id, user_id, call, 120, "Interval (detik):")
             if resp and resp.text.isdigit():
                 setts["image"]["duration"]["interval"] = int(resp.text)
         await saveoptions(user_id, "watermark", setts, SAVE_TO_DATABASE)
-        await event.answer("✅ Pengaturan durasi disimpan.")
+        await call.answer("✅ Pengaturan durasi disimpan.")
 
     else:
         try:
@@ -728,11 +719,11 @@ async def watermark_image_menu(event, txt: str, user_id: int, chat_id: int) -> N
         if part_type == "position" and new_pos:
             setts["image"]["position"] = new_pos
             await saveoptions(user_id, "watermark", setts, SAVE_TO_DATABASE)
-            await event.answer("✅ Posisi diubah.")
+            await call.answer("✅ Posisi diubah.")
         elif part_type == "size" and new_pos:
             setts["image"]["size"] = new_pos
             await saveoptions(user_id, "watermark", setts, SAVE_TO_DATABASE)
-            await event.answer(f"✅ Ukuran: {new_pos}%")
+            await call.answer(f"✅ Ukuran: {new_pos}%")
 
     setts      = get_data().get(user_id, {}).get("watermark", {})
     img        = setts.get("image", {})
@@ -742,87 +733,86 @@ async def watermark_image_menu(event, txt: str, user_id: int, chat_id: int) -> N
     v2i        = {v: k for k, v in ws_image_positions.items()}
     cur_icon   = v2i.get(cur_pos, "↘️")
     KB = [
-        [Button.inline("⬆️ Unggah", "watermark_image_upload"),
-         Button.inline("🖼️ Lihat",  "watermark_image_view"),
-         Button.inline("🗑️ Hapus",  "watermark_image_delete")],
-        [Button.inline(f"Posisi: {cur_icon}", "nik66bots")],
+        [InlineKeyboardButton(text="⬆️ Unggah", callback_data="watermark_image_upload"),
+         InlineKeyboardButton(text="🖼️ Lihat",  callback_data="watermark_image_view"),
+         InlineKeyboardButton(text="🗑️ Hapus",  callback_data="watermark_image_delete")],
+        [InlineKeyboardButton(text=f"Posisi: {cur_icon}", callback_data="nik66bots")],
     ]
     row = []
     for icon, val in ws_image_positions.items():
         text = f"{icon} 🟢" if val == cur_pos else icon
-        row.append(Button.inline(text, f"watermark_image_position_{val}"))
+        row.append(InlineKeyboardButton(text=text, callback_data=f"watermark_image_position_{val}"))
         if len(row) == 3:
             KB.append(row)
             row = []
     if row:
         KB.append(row)
-    KB.append([Button.inline(f"Ukuran: {cur_size}%", "nik66bots")])
+    KB.append([InlineKeyboardButton(text=f"Ukuran: {cur_size}%", callback_data="nik66bots")])
     KB.extend(gen_keyboard(wsize_list, cur_size, "watermark_image_size", 6, False))
-    KB.append([Button.inline("─── Durasi ───", "nik66bots")])
+    KB.append([InlineKeyboardButton(text="─── Durasi ───", callback_data="nik66bots")])
     dur_mode = dur.get("mode","full")
     KB.append([
-        Button.inline(f'{"Video Penuh 🟢" if dur_mode=="full" else "Video Penuh"}', "watermark_image_duration_mode_full"),
-        Button.inline(f'{"Rentang 🟢" if dur_mode=="range" else "Rentang"}',       "watermark_image_duration_mode_range"),
-        Button.inline(f'{"Interval 🟢" if dur_mode=="interval" else "Interval"}',  "watermark_image_duration_mode_interval"),
+        InlineKeyboardButton(text=f'{"Video Penuh 🟢" if dur_mode=="full" else "Video Penuh"}', callback_data="watermark_image_duration_mode_full"),
+        InlineKeyboardButton(text=f'{"Rentang 🟢" if dur_mode=="range" else "Rentang"}',       callback_data="watermark_image_duration_mode_range"),
+        InlineKeyboardButton(text=f'{"Interval 🟢" if dur_mode=="interval" else "Interval"}',  callback_data="watermark_image_duration_mode_interval"),
     ])
     if dur_mode == "range":
-        KB.append([Button.inline(f"Dari: {dur.get('from','00:00:00')}", "watermark_image_duration_from"),
-                   Button.inline(f"Ke: {dur.get('to','00:00:00')}",   "watermark_image_duration_to")])
+        KB.append([InlineKeyboardButton(text=f"Dari: {dur.get('from','00:00:00')}", callback_data="watermark_image_duration_from"),
+                   InlineKeyboardButton(text=f"Ke: {dur.get('to','00:00:00')}",   callback_data="watermark_image_duration_to")])
     elif dur_mode == "interval":
-        KB.append([Button.inline(f"Setiap: {dur.get('interval',30)}s", "watermark_image_duration_interval")])
-    KB.append([Button.inline("↩️ Kembali", "watermark_settings")])
+        KB.append([InlineKeyboardButton(text=f"Setiap: {dur.get('interval',30)}s", callback_data="watermark_image_duration_interval")])
+    KB.append([InlineKeyboardButton(text="↩️ Kembali", callback_data="watermark_settings")])
     try:
-        await event.edit("🖼️ Pengaturan Watermark Gambar", buttons=KB)
+        await call.message.edit_text("🖼️ Pengaturan Watermark Gambar", reply_markup=InlineKeyboardMarkup(inline_keyboard=KB))
     except Exception:
         pass
 
 
-async def watermark_text_menu(event, txt: str, user_id: int, chat_id: int) -> None:
+async def watermark_text_menu(call: CallbackQuery, txt: str, user_id: int, chat_id: int) -> None:
     font_glob = f"./userdata/{user_id}_watermark_font.*"
 
     if txt == "watermark_text_input":
-        await event.delete()
-        resp = await get_text_data(chat_id, user_id, event, 120, "Kirim teks watermark:")
+        await call.message.delete()
+        resp = await get_text_data(chat_id, user_id, call, 120, "Kirim teks watermark:")
         if resp:
             setts = get_data().get(user_id, {}).get("watermark", {})
             setts["text"]["content"] = resp.text
             await saveoptions(user_id, "watermark", setts, SAVE_TO_DATABASE)
             await resp.reply("✅ Teks disimpan.")
-        await event.client.send_message(chat_id, "Menu:", buttons=[[Button.inline("Buka Menu", "watermark_text_menu")]])
+        await call.message.answer("Menu:", reply_markup=InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="Buka Menu", callback_data="watermark_text_menu")]]))
         return
 
     elif txt == "watermark_text_upload_font":
-        await event.delete()
-        resp = await get_text_data(chat_id, user_id, event, 120, "Kirim file font (.ttf/.otf):")
-        if resp and resp.media and hasattr(resp.media, "document"):
+        await call.message.delete()
+        resp = await get_text_data(chat_id, user_id, call, 120, "Kirim file font (.ttf/.otf):")
+        if resp and resp.document:
             try:
-                fname = resp.media.document.attributes[0].file_name
+                fname = resp.document.file_name
                 _, ext = splitext(fname)
                 if ext.lower() in [".ttf", ".otf"]:
                     for f in glob.glob(font_glob): remove(f)
-                    await TELETHON_CLIENT.download_media(resp.media,
-                        f"./userdata/{user_id}_watermark_font{ext.lower()}")
+                    await Telegram.AIOGRAM_BOT.download(resp.document, destination=f"./userdata/{user_id}_watermark_font{ext.lower()}")
                     await resp.reply(f"✅ Font '{fname}' disimpan.")
                 else:
                     await resp.reply("❌ Format font tidak didukung. Harap .ttf atau .otf")
             except Exception as e:
                 await resp.reply(f"❌ Error: {e}")
-        await event.client.send_message(chat_id, "Menu:", buttons=[[Button.inline("Buka Menu", "watermark_text_menu")]])
+        await call.message.answer("Menu:", reply_markup=InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="Buka Menu", callback_data="watermark_text_menu")]]))
         return
 
     elif txt == "watermark_text_view_font":
         fonts = glob.glob(font_glob)
         name  = fonts[0].split("/")[-1] if fonts else None
-        await event.answer(f"Font: {name}" if name else "Default (tidak ada font kustom).", alert=True)
+        await call.answer(f"Font: {name}" if name else "Default (tidak ada font kustom).", show_alert=True)
         return
 
     elif txt == "watermark_text_delete_font":
         fonts = glob.glob(font_glob)
         if fonts:
             for f in fonts: remove(f)
-            await event.answer("✅ Font dihapus.", alert=True)
+            await call.answer("✅ Font dihapus.", show_alert=True)
         else:
-            await event.answer("❗ Tidak ada font kustom.", alert=True)
+            await call.answer("❗ Tidak ada font kustom.", show_alert=True)
 
     elif txt.startswith("watermark_text_duration_"):
         parts  = txt.split("_")
@@ -831,17 +821,17 @@ async def watermark_text_menu(event, txt: str, user_id: int, chat_id: int) -> No
         if action == "mode":
             setts["text"]["duration"]["mode"] = parts[4]
         elif action == "from":
-            resp = await get_text_data(chat_id, user_id, event, 120, "Waktu mulai:")
+            resp = await get_text_data(chat_id, user_id, call, 120, "Waktu mulai:")
             if resp: setts["text"]["duration"]["from"] = resp.text
         elif action == "to":
-            resp = await get_text_data(chat_id, user_id, event, 120, "Waktu selesai:")
+            resp = await get_text_data(chat_id, user_id, call, 120, "Waktu selesai:")
             if resp: setts["text"]["duration"]["to"] = resp.text
         elif action == "interval":
-            resp = await get_text_data(chat_id, user_id, event, 120, "Interval (detik):")
+            resp = await get_text_data(chat_id, user_id, call, 120, "Interval (detik):")
             if resp and resp.text.isdigit():
                 setts["text"]["duration"]["interval"] = int(resp.text)
         await saveoptions(user_id, "watermark", setts, SAVE_TO_DATABASE)
-        await event.answer("✅ Durasi disimpan.")
+        await call.answer("✅ Durasi disimpan.")
 
     else:
         try:
@@ -854,15 +844,15 @@ async def watermark_text_menu(event, txt: str, user_id: int, chat_id: int) -> No
         if part == "position" and new_pos:
             setts["text"]["position"] = new_pos
             await saveoptions(user_id, "watermark", setts, SAVE_TO_DATABASE)
-            await event.answer("✅ Posisi diubah.")
+            await call.answer("✅ Posisi diubah.")
         elif part == "size" and new_pos:
             setts["text"]["font_size"] = new_pos
             await saveoptions(user_id, "watermark", setts, SAVE_TO_DATABASE)
-            await event.answer(f"✅ Ukuran: {new_pos}px")
+            await call.answer(f"✅ Ukuran: {new_pos}px")
         elif part == "color" and new_pos:
             setts["text"]["font_color"] = new_pos
             await saveoptions(user_id, "watermark", setts, SAVE_TO_DATABASE)
-            await event.answer(f"✅ Warna: {new_pos}")
+            await call.answer(f"✅ Warna: {new_pos}")
 
     setts     = get_data().get(user_id, {}).get("watermark", {})
     ts        = setts.get("text", {})
@@ -873,40 +863,40 @@ async def watermark_text_menu(event, txt: str, user_id: int, chat_id: int) -> No
     v2i       = {v: k for k, v in ws_text_positions.items()}
     cur_icon  = v2i.get(cur_pos, "↘️")
     KB = [
-        [Button.inline("✍️ Input Teks", "watermark_text_input")],
-        [Button.inline("⬆️ Upload Font", "watermark_text_upload_font"),
-         Button.inline("📄 Lihat Font", "watermark_text_view_font"),
-         Button.inline("🗑️ Hapus Font", "watermark_text_delete_font")],
-        [Button.inline(f"Teks: '{ts.get('content','')}'", "nik66bots")],
-        [Button.inline(f"Posisi: {cur_icon}", "nik66bots")],
+        [InlineKeyboardButton(text="✍️ Input Teks", callback_data="watermark_text_input")],
+        [InlineKeyboardButton(text="⬆️ Upload Font", callback_data="watermark_text_upload_font"),
+         InlineKeyboardButton(text="📄 Lihat Font", callback_data="watermark_text_view_font"),
+         InlineKeyboardButton(text="🗑️ Hapus Font", callback_data="watermark_text_delete_font")],
+        [InlineKeyboardButton(text=f"Teks: '{ts.get('content','')}'", callback_data="nik66bots")],
+        [InlineKeyboardButton(text=f"Posisi: {cur_icon}", callback_data="nik66bots")],
     ]
     row = []
     for icon, val in ws_text_positions.items():
         text = f"{icon} 🟢" if val == cur_pos else icon
-        row.append(Button.inline(text, f"watermark_text_position_{val}"))
+        row.append(InlineKeyboardButton(text=text, callback_data=f"watermark_text_position_{val}"))
         if len(row) == 3:
             KB.append(row)
             row = []
     if row: KB.append(row)
-    KB.append([Button.inline(f"Ukuran Font: {cur_size}px", "nik66bots")])
+    KB.append([InlineKeyboardButton(text=f"Ukuran Font: {cur_size}px", callback_data="nik66bots")])
     KB.extend(gen_keyboard(font_size_list, cur_size, "watermark_text_size", 4, False))
-    KB.append([Button.inline(f"Warna Font: {cur_color.capitalize()}", "nik66bots")])
+    KB.append([InlineKeyboardButton(text=f"Warna Font: {cur_color.capitalize()}", callback_data="nik66bots")])
     KB.extend(gen_keyboard(font_colors, cur_color, "watermark_text_color", 3, False))
-    KB.append([Button.inline("─── Durasi ───", "nik66bots")])
+    KB.append([InlineKeyboardButton(text="─── Durasi ───", callback_data="nik66bots")])
     dur_mode = dur.get("mode","full")
     KB.append([
-        Button.inline(f'{"Video Penuh 🟢" if dur_mode=="full" else "Video Penuh"}', "watermark_text_duration_mode_full"),
-        Button.inline(f'{"Rentang 🟢" if dur_mode=="range" else "Rentang"}',       "watermark_text_duration_mode_range"),
-        Button.inline(f'{"Interval 🟢" if dur_mode=="interval" else "Interval"}',  "watermark_text_duration_mode_interval"),
+        InlineKeyboardButton(text=f'{"Video Penuh 🟢" if dur_mode=="full" else "Video Penuh"}', callback_data="watermark_text_duration_mode_full"),
+        InlineKeyboardButton(text=f'{"Rentang 🟢" if dur_mode=="range" else "Rentang"}',       callback_data="watermark_text_duration_mode_range"),
+        InlineKeyboardButton(text=f'{"Interval 🟢" if dur_mode=="interval" else "Interval"}',  callback_data="watermark_text_duration_mode_interval"),
     ])
     if dur_mode == "range":
-        KB.append([Button.inline(f"Dari: {dur.get('from','00:00:00')}", "watermark_text_duration_from"),
-                   Button.inline(f"Ke: {dur.get('to','00:00:00')}",   "watermark_text_duration_to")])
+        KB.append([InlineKeyboardButton(text=f"Dari: {dur.get('from','00:00:00')}", callback_data="watermark_text_duration_from"),
+                   InlineKeyboardButton(text=f"Ke: {dur.get('to','00:00:00')}",   callback_data="watermark_text_duration_to")])
     elif dur_mode == "interval":
-        KB.append([Button.inline(f"Setiap: {dur.get('interval',30)}s", "watermark_text_duration_interval")])
-    KB.append([Button.inline("↩️ Kembali", "watermark_settings")])
+        KB.append([InlineKeyboardButton(text=f"Setiap: {dur.get('interval',30)}s", callback_data="watermark_text_duration_interval")])
+    KB.append([InlineKeyboardButton(text="↩️ Kembali", callback_data="watermark_settings")])
     try:
-        await event.edit("✍️ Pengaturan Watermark Teks", buttons=KB)
+        await call.message.edit_text("✍️ Pengaturan Watermark Teks", reply_markup=InlineKeyboardMarkup(inline_keyboard=KB))
     except Exception:
         pass
 
@@ -915,52 +905,52 @@ async def watermark_text_menu(event, txt: str, user_id: int, chat_id: int) -> No
 #  MAIN CALLBACK HANDLER
 # ═══════════════════════════════════════════════════════════════════════
 
-@TELETHON_CLIENT.on(events.CallbackQuery)
-async def callback(event):
-    txt     = event.data.decode("utf-8", "replace")
-    chat_id = event.chat_id
-    user_id = event.sender.id
+@router.callback_query()
+async def callback(call: CallbackQuery):
+    txt     = call.data
+    chat_id = call.message.chat.id
+    user_id = call.from_user.id
 
     try:
         await ensure_user_data_structure(user_id)
 
         # ── Settings Navigation ──────────────────────────────────────
         if txt == "settings":
-            await event.edit(
+            await call.message.edit_text(
                 "⚙️ Pengaturan Bot\n\nPilih kategori:",
-                buttons=[
-                    [Button.inline("👤 Profil Pengaturan",     "profile_main")],
-                    [Button.inline("🎬 Pengaturan Media",       "settings_media")],
-                    [Button.inline("🤖 Pengaturan Umum & Tampilan", "settings_bot")],
-                    [Button.inline("⭕ Tutup",                   "close_settings")],
-                ],
+                reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+                    [InlineKeyboardButton(text="👤 Profil Pengaturan",      callback_data="profile_main")],
+                    [InlineKeyboardButton(text="🎬 Pengaturan Media",       callback_data="settings_media")],
+                    [InlineKeyboardButton(text="🤖 Pengaturan Umum & Tampilan", callback_data="settings_bot")],
+                    [InlineKeyboardButton(text="⭕ Tutup",                  callback_data="close_settings")],
+                ])
             )
 
         elif txt == "settings_media":
-            await event.edit(
+            await call.message.edit_text(
                 "🎬 Pengaturan Media",
-                buttons=[
-                    [Button.inline("🎬 Video",    "video_settings"),  Button.inline("🎧 Audio",  "audio_settings")],
-                    [Button.inline("🛺 Watermark","watermark_settings"), Button.inline("🚜 Konversi","convert_settings")],
-                    [Button.inline("🍧 Gabung",   "merge_settings"),  Button.inline("⚙️ Mux",    "mux_settings")],
-                    [Button.inline("🎞️ Metadata", "metadata_settings")],
-                    [Button.inline("↩️ Kembali ke Menu Utama", "settings")],
-                ],
+                reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+                    [InlineKeyboardButton(text="🎬 Video",    callback_data="video_settings"),  InlineKeyboardButton(text="🎧 Audio",  callback_data="audio_settings")],
+                    [InlineKeyboardButton(text="🛺 Watermark",callback_data="watermark_settings"), InlineKeyboardButton(text="🚜 Konversi",callback_data="convert_settings")],
+                    [InlineKeyboardButton(text="🍧 Gabung",   callback_data="merge_settings"),  InlineKeyboardButton(text="⚙️ Mux",    callback_data="mux_settings")],
+                    [InlineKeyboardButton(text="🎞️ Metadata", callback_data="metadata_settings")],
+                    [InlineKeyboardButton(text="↩️ Kembali ke Menu Utama", callback_data="settings")],
+                ])
             )
 
         elif txt == "settings_bot":
-            await event.edit(
+            await call.message.edit_text(
                 "🤖 Pengaturan Umum & Tampilan",
-                buttons=[
-                    [Button.inline("#️⃣ Umum",              "general_settings")],
-                    [Button.inline("🖥️ Tampilan Progress",  "progress_settings")],
-                    [Button.inline("✈️ Telegram",           "telegram_settings")],
-                    [Button.inline("↩️ Kembali ke Menu Utama", "settings")],
-                ],
+                reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+                    [InlineKeyboardButton(text="#️⃣ Umum",              callback_data="general_settings")],
+                    [InlineKeyboardButton(text="🖥️ Tampilan Progress", callback_data="progress_settings")],
+                    [InlineKeyboardButton(text="✈️ Telegram",           callback_data="telegram_settings")],
+                    [InlineKeyboardButton(text="↩️ Kembali ke Menu Utama", callback_data="settings")],
+                ])
             )
 
         elif txt == "close_settings":
-            await event.delete()
+            await call.message.delete()
 
         # ── Profile Management ───────────────────────────────────────
         elif txt.startswith("profile_"):
@@ -971,50 +961,52 @@ async def callback(event):
 
             if action == "main":
                 active = user_data.get("active_profile", "Default")
-                await event.edit(
+                await call.message.edit_text(
                     f"👤 Profil Pengaturan\nAktif: **{active}**",
-                    buttons=[
-                        [Button.inline("💾 Simpan Profil Saat Ini", "profile_save")],
-                        [Button.inline("📂 Muat & Kelola",          "profile_manage")],
-                        [Button.inline("🚀 Profil Cepat",           "profile_quick")],
-                        [Button.inline("↩️ Kembali",                "settings")],
-                    ],
+                    reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+                        [InlineKeyboardButton(text="💾 Simpan Profil Saat Ini", callback_data="profile_save")],
+                        [InlineKeyboardButton(text="📂 Muat & Kelola",          callback_data="profile_manage")],
+                        [InlineKeyboardButton(text="🚀 Profil Cepat",           callback_data="profile_quick")],
+                        [InlineKeyboardButton(text="↩️ Kembali",                callback_data="settings")],
+                    ])
                 )
 
             elif action == "save":
-                resp = await get_text_data(chat_id, user_id, event, 120, "Masukkan nama profil baru:")
+                resp = await get_text_data(chat_id, user_id, call, 120, "Masukkan nama profil baru:")
                 if resp and 0 < len(resp.text) < 32:
                     user_data.setdefault("profiles", {})[resp.text] = get_current_settings_copy(user_id)
                     await saveoptions(user_id, "profiles", user_data["profiles"], SAVE_TO_DATABASE)
                     await resp.reply(f"✅ Profil '{resp.text}' disimpan.")
                 elif resp:
                     await resp.reply("❌ Nama tidak valid (1-31 karakter).")
-                await event.delete()
-                await event.client.send_message(chat_id, "Menu:", buttons=[[Button.inline("Buka Menu", "profile_main")]])
+                await call.message.delete()
+                await call.message.answer("Menu:", reply_markup=InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="Buka Menu", callback_data="profile_main")]]))
 
             elif action == "manage":
                 profiles = user_data.get("profiles", {})
                 active   = user_data.get("active_profile", "Default")
-                btns     = [[Button.inline("✨ Reset ke Default", "profile_reset_default")]]
+                btns     = [[InlineKeyboardButton(text="✨ Reset ke Default", callback_data="profile_reset_default")]]
                 for name in profiles:
                     if name == "Default":
                         continue
                     lbl = f"✅ {name}" if name == active else name
-                    btns.append([Button.inline(lbl, f"profile_load_{name}"),
-                                  Button.inline("🗑️", f"profile_delete_{name}")])
-                btns.append([Button.inline("↩️ Kembali", "profile_main")])
-                await event.edit(f"📂 Kelola Profil\nAktif: **{active}**", buttons=btns)
+                    btns.append([InlineKeyboardButton(text=lbl, callback_data=f"profile_load_{name}"),
+                                  InlineKeyboardButton(text="🗑️", callback_data=f"profile_delete_{name}")])
+                btns.append([InlineKeyboardButton(text="↩️ Kembali", callback_data="profile_main")])
+                await call.message.edit_text(f"📂 Kelola Profil\nAktif: **{active}**", reply_markup=InlineKeyboardMarkup(inline_keyboard=btns))
 
             elif action == "load" and profile_name:
                 profiles = user_data.get("profiles", {})
                 if profile_name in profiles:
                     await apply_settings_from_profile(user_id, profiles[profile_name])
                     await saveoptions(user_id, "active_profile", profile_name, SAVE_TO_DATABASE)
-                    await event.answer(f"✅ Profil '{profile_name}' dimuat.", alert=True)
+                    await call.answer(f"✅ Profil '{profile_name}' dimuat.", show_alert=True)
                 else:
-                    await event.answer("❌ Profil tidak ditemukan.", alert=True)
-                event.data = b"profile_manage"
-                await callback(event)
+                    await call.answer("❌ Profil tidak ditemukan.", show_alert=True)
+                
+                # Trick to reload profile manage
+                call.data = "profile_manage"
+                await callback(call)
 
             elif action == "delete" and profile_name:
                 profiles = user_data.get("profiles", {})
@@ -1024,30 +1016,31 @@ async def callback(event):
                         await apply_settings_from_profile(user_id, profiles.get("Default", {}))
                         await saveoptions(user_id, "active_profile", "Default", SAVE_TO_DATABASE)
                     await saveoptions(user_id, "profiles", profiles, SAVE_TO_DATABASE)
-                    await event.answer(f"✅ Profil '{profile_name}' dihapus.", alert=True)
+                    await call.answer(f"✅ Profil '{profile_name}' dihapus.", show_alert=True)
                 else:
-                    await event.answer("❌ Tidak bisa menghapus.", alert=True)
-                event.data = b"profile_manage"
-                await callback(event)
+                    await call.answer("❌ Tidak bisa menghapus.", show_alert=True)
+                
+                call.data = "profile_manage"
+                await callback(call)
 
             elif action == "reset" and profile_name == "default":
                 defaults = _get_default_user_data()
                 exclude  = {"profiles", "active_profile"}
                 await apply_settings_from_profile(user_id, {k: v for k, v in defaults.items() if k not in exclude})
                 await saveoptions(user_id, "active_profile", "Default", SAVE_TO_DATABASE)
-                await event.answer("✅ Reset ke default berhasil.", alert=True)
+                await call.answer("✅ Reset ke default berhasil.", show_alert=True)
 
             elif action == "quick":
                 profile_type = parts[2] if len(parts) > 2 else None
                 if not profile_type:
-                    await event.edit(
+                    await call.message.edit_text(
                         "🚀 Profil Cepat",
-                        buttons=[
-                            [Button.inline("🏆 Kualitas Tinggi", "profile_quick_quality")],
-                            [Button.inline("⚡ Ukuran Kecil",    "profile_quick_size")],
-                            [Button.inline("⚖️ Seimbang",        "profile_quick_balance")],
-                            [Button.inline("↩️ Kembali",         "profile_main")],
-                        ],
+                        reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+                            [InlineKeyboardButton(text="🏆 Kualitas Tinggi", callback_data="profile_quick_quality")],
+                            [InlineKeyboardButton(text="⚡ Ukuran Kecil",    callback_data="profile_quick_size")],
+                            [InlineKeyboardButton(text="⚖️ Seimbang",        callback_data="profile_quick_balance")],
+                            [InlineKeyboardButton(text="↩️ Kembali",         callback_data="profile_main")],
+                        ])
                     )
                 else:
                     presets = {
@@ -1058,34 +1051,32 @@ async def callback(event):
                     preset, crf = presets.get(profile_type, ("medium","23"))
                     await saveconfig(user_id, "video", "preset", preset, SAVE_TO_DATABASE)
                     await saveconfig(user_id, "video", "crf",    crf,    SAVE_TO_DATABASE)
-                    await event.answer(f"✅ Profil '{profile_type}' diterapkan.", alert=True)
+                    await call.answer(f"✅ Profil '{profile_type}' diterapkan.", show_alert=True)
 
         # ── Action Callbacks ─────────────────────────────────────────
-
-        elif txt == "close_settings":
-            await event.delete()
 
         elif txt.startswith("send_log_"):
             process_id = txt.split("_", 2)[2]
             log_file   = await get_ffmpeg_log_file(process_id)
             if log_file and exists(log_file):
-                await event.client.send_file(chat_id, log_file,
+                from aiogram.types import FSInputFile
+                await Telegram.AIOGRAM_BOT.send_document(chat_id, document=FSInputFile(log_file),
                     caption=f"Log error proses `{process_id}`.")
-                await event.edit("✅ Log terkirim.", buttons=None)
+                await call.message.edit_text("✅ Log terkirim.", reply_markup=None)
             else:
-                await event.answer("❗ Log tidak ditemukan.", alert=True)
+                await call.answer("❗ Log tidak ditemukan.", show_alert=True)
 
         elif txt.startswith("resetdb"):
             val = _safe_eval_bool(txt.split("_", 1)[1])
             if val:
                 ok = await resetdatabase(SAVE_TO_DATABASE)
-                await event.answer(f"✔ Reset {'Berhasil' if ok else 'Gagal'}", alert=True)
+                await call.answer(f"✔ Reset {'Berhasil' if ok else 'Gagal'}", show_alert=True)
             else:
-                await event.answer("Dibatalkan.", alert=True)
+                await call.answer("Dibatalkan.", show_alert=True)
 
         elif txt.startswith("env_"):
             key  = txt.split("_", 1)[1]
-            resp = await get_text_data(chat_id, user_id, event, 120, f"Kirim nilai baru untuk `{key}`")
+            resp = await get_text_data(chat_id, user_id, call, 120, f"Kirim nilai baru untuk `{key}`")
             if resp:
                 from bot_helper.Others.Helper_Functions import export_env_file, get_env_dict
                 d = get_env_dict("./userdata/botconfig.env") or get_env_dict("config.env") or {}
@@ -1098,38 +1089,38 @@ async def callback(event):
             if val:
                 if exists(Config.DOWNLOAD_DIR):
                     await delete_all(Config.DOWNLOAD_DIR)
-                    await event.answer(f"✔ Berhasil hapus {Config.DOWNLOAD_DIR}", alert=True)
+                    await call.answer(f"✔ Berhasil hapus {Config.DOWNLOAD_DIR}", show_alert=True)
                 else:
-                    await event.answer("Tidak ada yang perlu dihapus.", alert=True)
+                    await call.answer("Tidak ada yang perlu dihapus.", show_alert=True)
             else:
-                await event.answer("Dibatalkan.", alert=True)
+                await call.answer("Dibatalkan.", show_alert=True)
 
         # ── Settings Sub-Dispatchers ─────────────────────────────────
-        elif txt.startswith("general"):    await general_callback(event, txt, user_id, chat_id)
-        elif txt.startswith("telegram"):   await telegram_callback(event, txt, user_id, chat_id)
-        elif txt.startswith("progress"):   await progress_callback(event, txt, user_id)
-        elif txt.startswith("metadata"):   await metadata_callback(event, txt, user_id, chat_id)
-        elif txt.startswith("video"):      await video_callback(event, txt, user_id, True, chat_id)
-        elif txt.startswith("audio"):      await audio_callback(event, txt, user_id)
-        elif txt.startswith("convert"):    await convert_callback(event, txt, user_id)
-        elif txt.startswith("mux"):        await mux_callback(event, txt, user_id)
-        elif txt.startswith("merge"):      await merge_callback(event, txt, user_id)
-        elif txt.startswith("watermark"):  await watermark_callback(event, txt, user_id, chat_id)
+        elif txt.startswith("general"):    await general_callback(call, txt, user_id, chat_id)
+        elif txt.startswith("telegram"):   await telegram_callback(call, txt, user_id, chat_id)
+        elif txt.startswith("progress"):   await progress_callback(call, txt, user_id)
+        elif txt.startswith("metadata"):   await metadata_callback(call, txt, user_id, chat_id)
+        elif txt.startswith("video"):      await video_callback(call, txt, user_id, True, chat_id)
+        elif txt.startswith("audio"):      await audio_callback(call, txt, user_id)
+        elif txt.startswith("convert"):    await convert_callback(call, txt, user_id)
+        elif txt.startswith("mux"):        await mux_callback(call, txt, user_id)
+        elif txt.startswith("merge"):      await merge_callback(call, txt, user_id)
+        elif txt.startswith("watermark"):  await watermark_callback(call, txt, user_id, chat_id)
 
         elif txt == "nik66bots":
-            await event.answer("⚡ Bot Oleh Sahil ⚡", alert=True)
+            await call.answer("⚡ Bot Oleh Sahil ⚡", show_alert=True)
 
         elif txt == "change_video_queue_size":
-            resp = await get_text_data(chat_id, user_id, event, 120, "Kirim Ukuran Queue (contoh: 1M, 512k)")
+            resp = await get_text_data(chat_id, user_id, call, 120, "Kirim Ukuran Queue (contoh: 1M, 512k)")
             if resp:
                 await saveconfig(user_id, "video", "queue_size", resp.text.strip(), SAVE_TO_DATABASE)
-                await video_callback(event, "video_settings", user_id, False, chat_id)
+                await video_callback(call, "video_settings", user_id, False, chat_id)
 
         elif txt == "custom_metedata":
             title = get_data().get(user_id, {}).get("metadata", {}).get("preset", {}).get("title", "")
-            await event.answer(f"Judul Metadata: {title}", alert=True)
+            await call.answer(f"Judul Metadata: {title}", show_alert=True)
 
-    except MessageNotModifiedError:
+    except TelegramBadRequest:
         pass
     except Exception as e:
         LOGGER.exception(f"Callback error [{txt}]: {e}")
