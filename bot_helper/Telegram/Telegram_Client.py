@@ -1,21 +1,22 @@
 """
 ╔══════════════════════════════════════════════════════════════════════╗
-║           bot_helper/Telegram/Telegram_Client.py                     ║
-║           Encoder1 Bot — v3.1                                        ║
+║            bot_helper/Telegram/Telegram_Client.py                    ║
+║            Encoder1 Bot — v3.1 (Trinity Update)                      ║
 ╠══════════════════════════════════════════════════════════════════════╣
 ║  CHANGELOG dari versi lama:                                          ║
+║  [NEW]       Integrasi Aiogram 3.x (Trinity Clients Architecture)    ║
 ║  [FIX HIGH]  USE_SESSION_STRING comparison string→bool               ║
 ║  [FIX HIGH]  Lambda closure bug di loop — pakai functools.partial    ║
-║  [FIX HIGH]  Bare except → except AttributeError                    ║
-║  [FIX]       get_data() di-cache di awal loop, bukan tiap akses     ║
-║  [FIX]       PYROGRAM_CLIENT kondisional (jika USE_PYROGRAM=False)  ║
-║  [FIX]       msg.copy() crash jika Telethon client — pakai helper   ║
-║  [FIX]       uploaded_file None check sebelum send_file             ║
-║  [FIX]       thumbnail exists() check                               ║
-║  [FIX]       Tambah retry logic untuk upload (max 3x)               ║
+║  [FIX HIGH]  Bare except → except AttributeError                     ║
+║  [FIX]       get_data() di-cache di awal loop, bukan tiap akses      ║
+║  [FIX]       PYROGRAM_CLIENT kondisional (jika USE_PYROGRAM=False)   ║
+║  [FIX]       msg.copy() crash jika Telethon client — pakai helper    ║
+║  [FIX]       uploaded_file None check sebelum send_file              ║
+║  [FIX]       thumbnail exists() check                                ║
+║  [FIX]       Tambah retry logic untuk upload (max 3x)                ║
 ║  [IMPROVE]   @staticmethod decorator untuk semua class method        ║
-║  [IMPROVE]   DocumentAttributeVideo ambil w/h dari metadata         ║
-║  [IMPROVE]   Cancel check terintegrasi di progress callback         ║
+║  [IMPROVE]   DocumentAttributeVideo ambil w/h dari metadata          ║
+║  [IMPROVE]   Cancel check terintegrasi di progress callback          ║
 ╚══════════════════════════════════════════════════════════════════════╝
 """
 
@@ -26,13 +27,18 @@ from os import makedirs
 from os.path import exists, getsize, isdir
 from time import time
 
-# ── Telethon ──────────────────────────────────────────────────────────
+# ── Aiogram (Frontend & UI) ───────────────────────────────────────────
+from aiogram import Bot, Dispatcher
+from aiogram.client.default import DefaultBotProperties
+from aiogram.enums import ParseMode
+
+# ── Telethon (Backend & Logic) ────────────────────────────────────────
 from telethon import TelegramClient
 from telethon.sessions import StringSession
 from telethon.tl.custom import Button
 from telethon.tl.types import DocumentAttributeVideo
 
-# ── Pyrogram (opsional) ───────────────────────────────────────────────
+# ── Pyrogram (Fast Data Transfer) ─────────────────────────────────────
 try:
     from pyrogram import Client as PyrogramClient
     from pyrogram.errors import UserIsBlocked, PeerIdInvalid
@@ -133,7 +139,6 @@ def _make_progress_callback(
     saat callback dipanggil nilai variabel sudah berubah ke iterasi terakhir.
     
     Sekarang: functools.partial atau default args untuk capture by value.
-    
     Bonus: cancel check terintegrasi di sini.
     """
     def _callback(
@@ -186,21 +191,27 @@ async def get_split_size(user_id: int) -> int | bool:
 
 
 # ═══════════════════════════════════════════════════════════════════════
-#  TELEGRAM CLASS
+#  TELEGRAM CLASS (TRINITY MANAGER)
 # ═══════════════════════════════════════════════════════════════════════
 
 class Telegram:
 
-    # ── Telethon Bot Client ────────────────────────────────────────────
+    # ── 1. Aiogram Client (UI, Tombol, FSM, State) ─────────────────────
+    # Ini akan menjadi wajah baru bot kita untuk membalas pesan dan klik tombol
+    AIOGRAM_BOT = Bot(
+        token=Config.TOKEN,
+        default=DefaultBotProperties(parse_mode=ParseMode.MARKDOWN)
+    )
+    AIOGRAM_DP = Dispatcher()
+
+    # ── 2. Telethon Bot Client (Logika, Scraping, Fallback) ────────────
     TELETHON_CLIENT = TelegramClient(
         Config.NAME,
         Config.API_ID,
         Config.API_HASH,
     )
 
-    # ── Pyrogram Client (opsional) ─────────────────────────────────────
-    # [FIX] Tidak lagi dibuat jika USE_PYROGRAM=False
-    # Sebelumnya: selalu dibuat — buat session file & koneksi tidak perlu
+    # ── 3. Pyrogram Client (Turbo Upload / Download Opsional) ──────────
     if Config.USE_PYROGRAM and PYROGRAM_AVAILABLE:
         PYROGRAM_CLIENT = PyrogramClient(
             f"Pyrogram_{Config.NAME}",
@@ -213,9 +224,7 @@ class Telegram:
         if Config.USE_PYROGRAM and not PYROGRAM_AVAILABLE:
             LOGGER.warning("⚠️  USE_PYROGRAM=True tapi pyrogram tidak terinstall")
 
-    # ── Telethon User Client (opsional, untuk file >2GB) ──────────────
-    # [FIX] Sebelumnya: if Config.USE_SESSION_STRING=="True" — string comparison
-    # Config.USE_SESSION_STRING sekarang bool (dari Step 2), jadi langsung cek
+    # ── Telethon User Client (opsional, khusus upload 4GB) ─────────────
     if Config.USE_SESSION_STRING and Config.SESSION_STRING:
         TELETHON_USER_CLIENT = TelegramClient(
             StringSession(Config.SESSION_STRING),
@@ -229,17 +238,7 @@ class Telegram:
 
     @staticmethod
     async def upload_videos_on_telegram(process_status) -> None:
-        """
-        Upload satu atau lebih file video ke Telegram.
-        
-        [FIX] @staticmethod decorator ditambahkan
-        [FIX] get_data() di-cache di awal, bukan dipanggil tiap akses
-        [FIX] Lambda closure bug diperbaiki dengan _make_progress_callback()
-        [FIX] Retry logic ditambahkan (max 3x)
-        [FIX] _forward_to_log() untuk handle Telethon vs Pyrogram forward
-        [FIX] uploaded_file None check sebelum send_file
-        [FIX] thumbnail exists() check
-        """
+        """Upload satu atau lebih file video ke Telegram (via Telethon/Pyrogram)."""
         total_files   = len(process_status.send_files)
         files         = process_status.send_files
         user_id       = process_status.user_id
@@ -250,12 +249,10 @@ class Telegram:
         process_id    = process_status.process_id
         log_channel_id = Config.LOG_CHANNEL_ID
 
-        # [FIX] Ambil thumbnail dengan validasi exists()
         thumbnail = _get_thumbnail(
             process_status.thumbnail if hasattr(process_status, "thumbnail") else None
         )
 
-        # [FIX] Cache user_data sekali di awal — tidak panggil get_data() tiap iterasi
         user_data = get_data().get(user_id, {})
         upload_method = user_data.get("tgupload", "Telethon")
 
@@ -269,14 +266,11 @@ class Telegram:
             file_size  = getsize(file_path)
             size_limit = await check_size_limit()
 
-            # Build caption
             file_caption = (
                 f"**Nama Berkas**: `{filename}`\n{str(caption).strip()}"
-                if caption
-                else f"**Nama Berkas**: `{filename}`"
+                if caption else f"**Nama Berkas**: `{filename}`"
             )
 
-            # [FIX] Progress callback dengan closure bug fix + cancel terintegrasi
             progress_cb = _make_progress_callback(
                 process_status=process_status,
                 label="Diunggah",
@@ -288,7 +282,7 @@ class Telegram:
             )
 
             try:
-                # ── CASE 1: File terlalu besar untuk Telegram ──────────
+                # ── CASE 1: File terlalu besar (Upload ke Cloud/Drive) ──
                 if file_size > size_limit:
                     r_config   = f"./userdata/{user_id}_rclone.conf"
                     drive_name = user_data.get("drive_name", "")
@@ -305,16 +299,15 @@ class Telegram:
                         await event.reply(
                             f"❌ Ukuran berkas `{filename}` ({get_human_size(file_size)}) "
                             f"melebihi batas upload Telegram ({get_human_size(size_limit)}).\n"
-                            f"Aktifkan **Auto Drive** untuk upload otomatis ke cloud."
+                            f"Aktifkan **Auto Drive** untuk upload ke cloud."
                         )
                         files_sent_successfully = False
 
-                # ── CASE 2: File ≤ 2GB — upload via bot client ─────────
+                # ── CASE 2: File ≤ 2GB (Upload via Bot Client) ──────────
                 elif file_size <= MAX_TG_SIZE_FREE:
                     msg_in_pm = None
 
                     if upload_method == "Telethon":
-                        # Telethon upload dengan retry
                         uploaded_file = await _upload_with_retry(
                             client=Telegram.TELETHON_CLIENT,
                             file_path=file_path,
@@ -322,13 +315,11 @@ class Telegram:
                             process_id=process_id,
                             progress_cb=progress_cb,
                         )
-                        # [FIX] Cek None sebelum send_file
                         if uploaded_file is None:
                             LOGGER.error(f"❌ Upload {filename} gagal setelah {MAX_UPLOAD_RETRY}x retry")
                             files_sent_successfully = False
                             continue
 
-                        # Ambil dimensi video untuk attribute yang benar
                         duration, width, height = _get_video_meta(file_path)
                         msg_in_pm = await Telegram.TELETHON_CLIENT.send_file(
                             user_pm_id,
@@ -363,11 +354,10 @@ class Telegram:
                         files_sent_successfully = False
                         continue
 
-                    # [FIX] Forward ke log channel dengan helper yang handle kedua client
                     if log_channel_id and msg_in_pm:
                         await _forward_to_log(msg_in_pm, log_channel_id, upload_method)
 
-                # ── CASE 3: File > 2GB — upload via user client ────────
+                # ── CASE 3: File > 2GB (Upload via User Client Premium) ─
                 else:
                     if Telegram.TELETHON_USER_CLIENT:
                         uploaded_file = await _upload_with_retry(
@@ -397,7 +387,7 @@ class Telegram:
                     else:
                         await event.reply(
                             f"❌ File `{filename}` ({get_human_size(file_size)}) melebihi 2GB.\n"
-                            f"Tambahkan SESSION_STRING untuk upload file besar."
+                            f"Tambahkan SESSION_STRING premium untuk upload file besar."
                         )
                         files_sent_successfully = False
 
@@ -434,7 +424,7 @@ class Telegram:
                 await event.reply(f"❗ Terjadi kesalahan saat mengunggah `{filename}`:\n`{e}`")
                 break
 
-        # ── Notifikasi di group jika semua file berhasil ───────────────
+        # ── Notifikasi akhir ──
         if (
             files_sent_successfully
             and hasattr(event, "is_group")
@@ -468,18 +458,11 @@ class Telegram:
 
     @staticmethod
     async def download_tg_file(process_status, variables, dw_index) -> bool:
-        """
-        Download file dari Telegram.
-        
-        [FIX] Bare except → except AttributeError
-        [FIX] get_data() di-cache
-        """
+        """Download file dari Telegram menggunakan Telethon atau Pyrogram."""
         start_time = time()
         status     = f"{Names.STATUS_DOWNLOADING} [{dw_index}]"
         new_event  = variables[0]
 
-        # [FIX] Bare except → except AttributeError
-        # Sebelumnya: semua exception ditangkap termasuk KeyboardInterrupt
         try:
             file_name     = new_event.message.file.name
             file_location = new_event.message.document
@@ -494,7 +477,6 @@ class Telegram:
                 await new_event.reply("❗ Tidak bisa membaca informasi file dari pesan ini.")
                 return False
 
-        # Fallback nama file jika None
         if not file_name:
             file_name = f"download_{int(time())}.mp4"
 
@@ -502,11 +484,9 @@ class Telegram:
         download_location = f"{process_status.dir}/{file_name}"
         process_status.append_dw_files(file_name)
 
-        # [FIX] Cache user_data
         user_data        = get_data().get(process_status.user_id, {})
         download_method  = user_data.get("tgdownload", "Telethon")
 
-        # Progress callback untuk download
         progress_cb = _make_progress_callback(
             process_status=process_status,
             label="Diunduh",
@@ -572,9 +552,7 @@ class Telegram:
 
     @staticmethod
     async def upload_videos(process_status) -> None:
-        """
-        Upload video dengan auto-split jika diperlukan.
-        """
+        """Upload video dengan auto-split jika diperlukan."""
         user_data = get_data().get(process_status.user_id, {})
 
         if user_data.get("split_video"):
@@ -612,10 +590,7 @@ async def _upload_with_retry(
     progress_cb: callable,
     max_retry: int = MAX_UPLOAD_RETRY,
 ) -> object | None:
-    """
-    [NEW] Upload file dengan retry logic (exponential backoff).
-    Return uploaded_file jika berhasil, None jika semua retry gagal.
-    """
+    """Upload file dengan retry logic (exponential backoff)."""
     for attempt in range(1, max_retry + 1):
         try:
             with open(file_path, "rb") as f:
@@ -643,20 +618,11 @@ async def _upload_with_retry(
 
 
 def _get_video_meta(file_path: str) -> tuple[int, int, int]:
-    """
-    [FIX] Ambil duration, width, height dari video.
-    Sebelumnya: DocumentAttributeVideo(duration, 0, 0) — width/height hardcoded 0
-    yang membuat video tidak tampil sebagai preview di Telegram.
-    
-    Return: (duration_detik, width_px, height_px)
-    """
+    """Ambil duration, width, height dari video."""
     try:
-        # get_video_duration mungkin return hanya duration
-        # Coba panggil dengan extended=True jika didukung
         result = get_video_duration(file_path)
         if isinstance(result, (tuple, list)) and len(result) >= 3:
             return int(result[0]), int(result[1]), int(result[2])
-        # Fallback: hanya duration, width/height dari ffprobe
         duration = int(result) if result else 0
         width, height = _get_dimensions_ffprobe(file_path)
         return duration, width, height
