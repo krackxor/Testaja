@@ -1,5 +1,5 @@
 # ╔══════════════════════════════════════════════════════════════════════╗
-# ║            REQUIREMENTS.TXT — Encoder Bot                            ║
+# ║            REQUIREMENTS.TXT — Encoder Bot (Trinity Version)          ║
 # ║            Last updated: 2026 — Python 3.11+                         ║
 # ╚══════════════════════════════════════════════════════════════════════╝
 #
@@ -12,22 +12,24 @@
 #
 # Install: pip install -r requirements.txt
 
-# ── TELEGRAM ──────────────────────────────────────────────────────────
-# Telethon: upgrade 1.26.1 → 1.36.0
+# ── TELEGRAM (TRINITY CLIENTS) ────────────────────────────────────────
+# Aiogram: Framework UI modern untuk Tombol, Menu, dan FSM (Frontend)
+aiogram>=3.4.0
+
+# Telethon: upgrade 1.26.1 → 1.36.0 (Logic & Scraping / Backend)
 #   - Fix: FloodWait handling lebih robust
 #   - Fix: File upload/download API diperbaiki
-#   - Fix: Connection retry logic lebih baik
 #   - New: Support for newer MTProto features
 Telethon==1.36.0
 
 # Crypto accelerator untuk Telethon (enkripsi MTProto lebih cepat)
 cryptg==0.4.0
 
+# Pyrogram: Dipakai sebagai bridge paralel upload/download yang sangat cepat
+pyrogram==2.0.106
+
 # TgCrypto: crypto backend untuk Pyrogram (Fast Download)
 TgCrypto==1.2.5
-
-# Pyrogram: Dipakai sebagai bridge paralel download yang sangat cepat
-pyrogram==2.0.106
 
 # ── DATABASE ──────────────────────────────────────────────────────────
 # Motor: async MongoDB driver — upgrade 3.1.1 → 3.5.1
