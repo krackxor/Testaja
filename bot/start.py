@@ -30,7 +30,7 @@ from bot import (   # noqa: F401
 
 # ── Re-export untuk backward compatibility ────────────────────────────
 # Kode lain yang import dari start.py langsung masih bisa berjalan.
-from bot.shared import (   # noqa: F401
+from .shared import (   # noqa: F401
     command,
     user_auth_checker,
     sudo_user_checker_event,
