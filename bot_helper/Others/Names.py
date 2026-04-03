@@ -1,15 +1,12 @@
 """
 ╔══════════════════════════════════════════════════════════════════════╗
-║           bot_helper/Others/Names.py — v3.1                          ║
+║           bot_helper/Others/Names.py — v3.2                          ║
 ║                    Konstanta Nama Proses Bot                         ║
 ╠══════════════════════════════════════════════════════════════════════╣
-║  CHANGELOG:                                                          ║
-║  [FIX]  split tidak ada di STATUS dict → ditambahkan                 ║
-║  [FIX]  '쪼Splitting Video' karakter Korean → emoji ✂️               ║
-║  [FIX]  STATUS_* string tanpa emoji → ditambahkan emoji              ║
-║  [NEW]  ytupload, autoclip, movierecap (Step 14-16)                  ║
-║  [NEW]  top, review, short_vid (Step 17 Gameplay.py)                 ║
-║  [IMPROVE] Indentasi 4-space standard                                ║
+║  CHANGELOG v3.2:                                                     ║
+║  [NEW]  fast_trim, video_speed, mute (Saran Optimasi)                ║
+║  [NEW]  Mendaftarkan proses baru ke STATUS & FFMPEG_PROCESSES        ║
+║  [FIX]  Konsistensi emoji pada kategori proses baru                  ║
 ╚══════════════════════════════════════════════════════════════════════╝
 """
 
@@ -24,11 +21,14 @@ class Names:
     convert        = "Convert"
     hardmux        = "Hardmux"
     trim           = "Trim"
+    fast_trim      = "FastTrim"     # [NEW] Cut tanpa re-encode
     split          = "Split"
     cut            = "Cut"
     crop           = "Crop"
     autocrop       = "Autocrop"
     rotate         = "Rotate"
+    video_speed    = "VideoSpeed"   # [NEW] Ubah kecepatan video
+    mute           = "MuteVideo"    # [NEW] Hapus audio
     extension      = "Extension"
     extract        = "Extract"
     mediainfo      = "MediaInfo"
@@ -49,16 +49,15 @@ class Names:
     pyrogram       = "Pyrogram"
     rclone         = "Rclone"
 
-    # ── [NEW] Proses Video Production (Step 14-17) ───────────────────
+    # ── Proses Video Production ──────────────────────────────────────
     ytupload       = "YouTubeUpload" 
-    autoclip       = "AutoClip"       
-    movierecap     = "MovieRecap"      
-    top            = "Top"            
-    review         = "Review"         
-    short_vid      = "Short"           
+    autoclip       = "AutoClip"      
+    movierecap     = "MovieRecap"    
+    top            = "Top"           
+    review         = "Review"        
+    short_vid      = "Short"         
 
     # ── Status Map (process_type → label UI) ─────────────────────────
-    # Keys = nilai string dari attribute di atas (bukan nama attribute)
     STATUS = {
         # FFmpeg processes
         compress:       "🏮 Mengompresi",
@@ -69,17 +68,21 @@ class Names:
         convert:        "🚜 Mengonversi Video",
         hardmux:        "🚍 HardMux Subtitle",
         trim:           "✂️ Memotong Video",
+        fast_trim:      "⚡ Memotong Cepat",    # [NEW]
         split:          "✂️ Memisah Video",  
         cut:            "🔪 Memotong Segmen",
         crop:           "✂️ Crop Video",
         autocrop:       "✨ Autocrop Video",
         rotate:         "🔄 Memutar Video",
+        video_speed:    "🏃 Mengubah Kecepatan", # [NEW]
+        mute:           "🔇 Membisukan Video",   # [NEW]
         extension:      "🔀 Ganti Container",
         extract:        "📤 Ekstrak Stream",
         mediainfo:      "🔍 Media Info",
         changeMetadata: "🪀 Ubah Metadata",
         changeindex:    "🎨 Ubah Index",
-        # [NEW] Video production processes
+        
+        # Video production processes
         "YouTubeUpload": "⬆️ Mengunggah YouTube",
         "AutoClip":      "✂️ Memotong Clip",
         "MovieRecap":    "🎬 Merangkum Film",
@@ -98,11 +101,14 @@ class Names:
         convert,
         hardmux,
         trim,
+        fast_trim,      # [NEW]
         split,
         cut,
         crop,
         autocrop,
         rotate,
+        video_speed,    # [NEW]
+        mute,           # [NEW]
         extension,
         extract,
         changeMetadata,
