@@ -1,6 +1,6 @@
 """
 ╔══════════════════════════════════════════════════════════════════════╗
-║            bot_helper/callbacks.py — v3.3                            ║
+║            bot/callbacks.py                                          ║
 ║            Callback Query Handler (Aiogram 3.x)                      ║
 ╠══════════════════════════════════════════════════════════════════════╣
 ║  FIXES dari versi lama:                                              ║
