@@ -1,6 +1,6 @@
 """
 ╔══════════════════════════════════════════════════════════════════════╗
-║    bot_helper/Handlers/advanced_media_handlers.py — v3.3             ║
+║    bot/advanced_media_handlers.py                                    ║
 ║    Advanced Media Handlers (Aiogram 3.x / Inline Waiter)             ║
 ╠══════════════════════════════════════════════════════════════════════╣
 ║  Commands: /trim /split /cut /rotate /crop /autocrop                 ║
