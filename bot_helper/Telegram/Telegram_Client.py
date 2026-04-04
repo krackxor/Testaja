@@ -19,6 +19,7 @@
 ║  [IMPROVE]   DocumentAttributeVideo ambil w/h dari metadata          ║
 ║  [IMPROVE]   Cancel check terintegrasi di progress callback          ║
 ║  [FIX HIGH]  Support ekstraksi Aiogram Message untuk Download        ║
+║  [FIX CRIT]  Hapus Non-breaking Spaces & Tambah _safe_reply Fallback ║
 ╚══════════════════════════════════════════════════════════════════════╝
 """
 
@@ -77,6 +78,27 @@ MAX_UPLOAD_RETRY = 3               # Retry maksimum untuk upload
 # ═══════════════════════════════════════════════════════════════════════
 #  HELPER FUNCTIONS
 # ═══════════════════════════════════════════════════════════════════════
+
+async def _safe_reply(event_obj, text: str, **kwargs):
+    """
+    [FIX] Kirim pesan secara aman. Jika user sudah menghapus pesan asli,
+    bot tidak akan crash (Bad Request: message to be replied not found),
+    melainkan fallback menggunakan metode send_message biasa.
+    """
+    try:
+        return await event_obj.reply(text, **kwargs)
+    except Exception as e:
+        LOGGER.warning(f"Reply langsung gagal ({e}), mencoba fallback send_message...")
+        try:
+            # Fallback jika event_obj adalah Aiogram Message
+            if hasattr(event_obj, "bot") and hasattr(event_obj, "chat"):
+                return await event_obj.bot.send_message(chat_id=event_obj.chat.id, text=text, **kwargs)
+            # Fallback jika event_obj adalah Telethon Event
+            elif hasattr(event_obj, "client") and hasattr(event_obj, "chat_id"):
+                return await event_obj.client.send_message(entity=event_obj.chat_id, message=text, **kwargs)
+        except Exception as e2:
+            LOGGER.error(f"Fallback send_message juga gagal: {e2}")
+        return None
 
 def create_direc(direc: str) -> None:
     """Buat direktori jika belum ada."""
@@ -258,7 +280,7 @@ class Telegram:
         user_data = get_data().get(user_id, {})
         upload_method = user_data.get("tgupload", "Telethon")
 
-        files_sent_successfully     = True
+        files_sent_successfully      = True
         is_user_blocked_or_not_started = False
 
         for i, file_path in enumerate(files):
@@ -298,7 +320,7 @@ class Telegram:
                             r_config, drive_name, filename,
                         )
                     else:
-                        await event.reply(
+                        await _safe_reply(event, 
                             f"❌ Ukuran berkas `{filename}` ({get_human_size(file_size)}) "
                             f"melebihi batas upload Telegram ({get_human_size(size_limit)}).\n"
                             f"Aktifkan **Auto Drive** untuk upload ke cloud."
@@ -355,7 +377,7 @@ class Telegram:
                             ),
                         )
                     else:
-                        await event.reply("❌ Metode upload tidak valid atau Pyrogram tidak aktif.")
+                        await _safe_reply(event, "❌ Metode upload tidak valid atau Pyrogram tidak aktif.")
                         files_sent_successfully = False
                         continue
 
@@ -390,21 +412,21 @@ class Telegram:
                         if log_channel_id and msg_in_pm:
                             await _forward_to_log(msg_in_pm, log_channel_id, "Telethon")
                     else:
-                        await event.reply(
+                        await _safe_reply(event, 
                             f"❌ File `{filename}` ({get_human_size(file_size)}) melebihi 2GB.\n"
                             f"Tambahkan SESSION_STRING premium untuk upload file besar."
                         )
                         files_sent_successfully = False
 
             except asyncio.CancelledError:
-                await event.reply("🔒 Tugas dibatalkan oleh pengguna.")
+                await _safe_reply(event, "🔒 Tugas dibatalkan oleh pengguna.")
                 files_sent_successfully = False
                 break
 
             except UserIsBlocked:
                 is_user_blocked_or_not_started = True
                 files_sent_successfully = False
-                await event.reply(
+                await _safe_reply(event, 
                     "‼️ **Anda telah memblokir saya.**\n\n"
                     "Silakan buka blokir di chat pribadi agar saya bisa mengirimkan berkas."
                 )
@@ -414,11 +436,12 @@ class Telegram:
             except PeerIdInvalid:
                 is_user_blocked_or_not_started = True
                 files_sent_successfully = False
-                start_button = [Button.url("Mulai Bot", f"https://t.me/{Config.BOT_USERNAME}?start=start")]
-                await event.reply(
+                # Peringatan: jika event di aiogram, kita tidak mengirim button inline telethon di sini.
+                # Karena ini edge case Telethon, kita cukup kirim teks yang jelas.
+                await _safe_reply(event, 
                     "‼️ **Anda belum memulai bot.**\n\n"
-                    "Klik tombol di bawah dan tekan `START` di chat pribadi, lalu coba lagi.",
-                    buttons=start_button,
+                    f"Silakan buka link ini: https://t.me/{Config.BOT_USERNAME}?start=start "
+                    "dan tekan `START` di chat pribadi, lalu coba lagi."
                 )
                 LOGGER.info(f"User {user_pm_id} belum mulai bot")
                 break
@@ -426,7 +449,7 @@ class Telegram:
             except Exception as e:
                 files_sent_successfully = False
                 LOGGER.error(f"❌ Upload error untuk {filename}: {e}", exc_info=True)
-                await event.reply(f"❗ Terjadi kesalahan saat mengunggah `{filename}`:\n`{e}`")
+                await _safe_reply(event, f"❗ Terjadi kesalahan saat mengunggah `{filename}`:\n`{e}`")
                 break
 
         # ── Notifikasi akhir ──
@@ -454,7 +477,7 @@ class Telegram:
                     original_chat_id,
                     notif_message,
                     buttons=pm_button,
-                    reply_to=event.message.id,
+                    reply_to=event.message_id if hasattr(event, "message_id") else getattr(event.message, "id", None),
                 )
             except Exception as e:
                 LOGGER.info(f"ℹ️  Gagal kirim notifikasi ke group: {e}")
@@ -497,7 +520,7 @@ class Telegram:
         except AttributeError as e:
             LOGGER.error(f"❌ Tidak bisa baca file dari event: {e}")
             try:
-                await new_event.reply("❗ Tidak bisa membaca informasi file dari pesan ini.")
+                await _safe_reply(new_event, "❗ Tidak bisa membaca informasi file dari pesan ini.")
             except Exception:
                 pass
             return False
@@ -536,19 +559,19 @@ class Telegram:
                         progress_callback=progress_cb,
                     )
             except asyncio.CancelledError:
-                await new_event.reply("🔒 Tugas dibatalkan oleh pengguna")
+                await _safe_reply(new_event, "🔒 Tugas dibatalkan oleh pengguna")
                 return False
             except Exception as e:
                 if str(e) == "Cancelled":
-                    await new_event.reply("🔒 Tugas dibatalkan oleh pengguna")
+                    await _safe_reply(new_event, "🔒 Tugas dibatalkan oleh pengguna")
                 else:
-                    await new_event.reply(f"❗ Error unduhan Telethon: `{e}`")
+                    await _safe_reply(new_event, f"❗ Error unduhan Telethon: `{e}`")
                     LOGGER.error(f"Telethon download error: {e}", exc_info=True)
                 return False
 
         else:  # Pyrogram
             if not Telegram.PYROGRAM_CLIENT:
-                await new_event.reply("❌ Pyrogram client tidak aktif. Set USE_PYROGRAM=True di config.")
+                await _safe_reply(new_event, "❌ Pyrogram client tidak aktif. Set USE_PYROGRAM=True di config.")
                 return False
             try:
                 # ── [FIX HIGH] Sinkronisasi Loop Pyrogram sebelum Download ──
@@ -571,10 +594,10 @@ class Telegram:
                     ),
                 )
                 if not check_running_process(process_status.process_id):
-                    await new_event.reply("🔒 Tugas dibatalkan oleh pengguna")
+                    await _safe_reply(new_event, "🔒 Tugas dibatalkan oleh pengguna")
                     return False
             except Exception as e:
-                await new_event.reply(f"❗ Error unduhan Pyrogram: `{e}`")
+                await _safe_reply(new_event, f"❗ Error unduhan Pyrogram: `{e}`")
                 LOGGER.error(f"Pyrogram download error: {e}", exc_info=True)
                 return False
 
