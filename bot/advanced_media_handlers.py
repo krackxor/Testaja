@@ -638,6 +638,7 @@ async def _extension_changer(message: Message):
         except asyncio.TimeoutError: return await safe_reply(message, "⏱ Waktu habis.")
 
     video_event_for_task = link
+    fname = _get_fname(link, custom_file_name)
 
     file_type = "unknown"
     if not isinstance(link, str) and (link.document or link.video or link.audio):
@@ -672,7 +673,8 @@ async def _extension_changer(message: Message):
         kb_conf = _make_reply_kb(["✅ Ubah", "❌ Batal"], 2)
         conf_txt = (
             f"**📁 KONFIRMASI UBAH EKSTENSI**\n\n"
-            f"🎬 Tipe Berkas: `{file_type.capitalize()}`\n"
+            f"🎬 File Asli: `{fname}`\n"
+            f"🎯 Tipe Berkas: `{file_type.capitalize()}`\n"
             f"🔄 Perubahan: `Menjadi .{new_extension}`\n\n"
             "Lanjutkan?"
         )
@@ -731,7 +733,7 @@ async def _extract_streams(message: Message):
         import time
         temp_ps = ProcessStatus(user_id, chat_id, get_username(message), message.from_user.first_name, message, N_.pre_download)
         
-        # [FIX HIGH] Bypass antrean untuk file Telegram agar unduhan instan dan anti-stuck!
+        # Bypass antrean untuk file Telegram agar unduhan instan dan anti-stuck!
         if not isinstance(link, str):
             target = link.video or link.document
             dest = f"{temp_ps.dir}/{target.file_name or 'video.mp4'}"
@@ -852,7 +854,7 @@ async def _media_info(message: Message):
         import time
         temp_ps = ProcessStatus(user_id, chat_id, get_username(message), message.from_user.first_name, message, N_.pre_download)
         
-        # [FIX HIGH] Bypass antrean untuk file Telegram
+        # Bypass antrean untuk file Telegram
         if not isinstance(link, str):
             target = link.video or link.document or link.audio
             dest = f"{temp_ps.dir}/{target.file_name or 'media.mp4'}"
