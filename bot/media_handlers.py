@@ -1,13 +1,14 @@
 """
 ╔══════════════════════════════════════════════════════════════════════╗
-║       bot_helper/Handlers/media_handlers.py — v3.4                   ║
+║       bot_helper/Handlers/media_handlers.py — v3.5                   ║
 ║       Media Processing Command Handlers (Aiogram 3.x)                ║
 ╠══════════════════════════════════════════════════════════════════════╣
 ║  CHANGELOG dari versi lama:                                          ║
-║  [FIX HIGH] Menghapus reply_markup ilegal pada ask_text_event.       ║
-║  [FIX HIGH] Mengembalikan fungsi _generic_video_handler yang hilang. ║
-║  [UX PREMIUM] Menerapkan Auto-Delete agar chat tetap bersih & rapi.  ║
-║  [UX PREMIUM] Menerapkan Kotak Konfirmasi (Summary Box) pada fitur.  ║
+║  [FIX] Memisahkan /compress agar lebih instan (tanpa dub/sub).       ║
+║  [FIX] /convert kini menggunakan Reply Keyboard multi-pilih (240-8k).║
+║  [FIX] /watermark kini menggunakan tombol Skip yang aman dari error. ║
+║  [FIX] Menambahkan kembali perintah /hardmux yang hilang.            ║
+║  [FIX] /merge & /softmux kini menggunakan Tombol Reply, bukan teks.  ║
 ╚══════════════════════════════════════════════════════════════════════╝
 """
 
@@ -144,10 +145,10 @@ async def _generic_video_handler(message: Message, process_name: str, cmd_name: 
     await update_status_message(message)
 
 # ═══════════════════════════════════════════════════════════════════════
-#  /encode - THE FLAGSHIP COMMAND (Dubbing & Hardmux Support)
+#  /encode - DUBBING & HARDMUX SUPPORT
 # ═══════════════════════════════════════════════════════════════════════
 
-@router.message(Command(f"encode{CMD_SUFFIX}", f"compress{CMD_SUFFIX}"))
+@router.message(Command(f"encode{CMD_SUFFIX}"))
 async def _encode_video(message: Message):
     if not await vip_check(message): return
     user_id, chat_id = message.from_user.id, message.chat.id
@@ -165,22 +166,33 @@ async def _encode_video(message: Message):
     fname = _get_fname(link, custom_file_name)
 
     # Prompt Subtitle
-    sub_msg = await ask_media_OR_url(message, chat_id, user_id, ["stop", "skip"], "💬 Kirim file Subtitle (SRT/ASS) untuk di-Hardmux.\n\nKetik `skip` jika tidak ingin menambahkan subtitle.", 120, False, True)
-    if sub_msg in ["cancelled", "stopped"]: return
+    kb_skip = _make_reply_kb(["⏭ Skip", "❌ Batal"], 2)
+    ask_sub = await message.reply("💬 Kirim file Subtitle (SRT/ASS) untuk di-Hardmux.\n\nAtau tekan tombol `⏭ Skip` jika tidak perlu.", reply_markup=kb_skip)
+    sub_msg = await wait_for_message(chat_id, user_id, 120)
+    await _clean_msgs(ask_sub)
+    
+    txt_sub = (sub_msg.text or "").lower()
+    if "batal" in txt_sub: return await message.answer("❌ Dibatalkan.", reply_markup=ReplyKeyboardRemove())
+    
     sub_path = None
     sub_name_str = "Tidak Ada"
-    if sub_msg not in ["skip", "pass"] and hasattr(sub_msg, "document") and sub_msg.document:
+    if "skip" not in txt_sub and hasattr(sub_msg, "document") and sub_msg.document:
         create_direc(f"./temp/subs_{user_id}")
         sub_path = check_file(f"./temp/subs_{user_id}", sub_msg.document.file_name)
         sub_name_str = sub_msg.document.file_name
         await Telegram.AIOGRAM_BOT.download(sub_msg.document, destination=sub_path)
 
     # Prompt Audio Dubbing
-    aud_msg = await ask_media_OR_url(message, chat_id, user_id, ["stop", "skip"], "🎵 Kirim file Audio (MP3/M4A) untuk Dubbing (Membisukan suara asli).\n\nKetik `skip` jika tidak ingin dubbing.", 120, "audio/", True)
-    if aud_msg in ["cancelled", "stopped"]: return
+    ask_aud = await message.reply("🎵 Kirim file Audio (MP3/M4A) untuk Dubbing.\n\nAtau tekan tombol `⏭ Skip` jika tidak perlu.", reply_markup=kb_skip)
+    aud_msg = await wait_for_message(chat_id, user_id, 120)
+    await _clean_msgs(ask_aud)
+    
+    txt_aud = (aud_msg.text or "").lower()
+    if "batal" in txt_aud: return await message.answer("❌ Dibatalkan.", reply_markup=ReplyKeyboardRemove())
+    
     aud_path = None
     aud_name_str = "Suara Asli"
-    if aud_msg not in ["skip", "pass"]:
+    if "skip" not in txt_aud:
         aud_doc = getattr(aud_msg, "audio", None) or getattr(aud_msg, "document", None)
         if aud_doc:
             create_direc(f"./temp/auds_{user_id}")
@@ -221,6 +233,55 @@ async def _encode_video(message: Message):
 
 
 # ═══════════════════════════════════════════════════════════════════════
+#  /compress - INSTAN (TANPA SUB / AUDIO)
+# ═══════════════════════════════════════════════════════════════════════
+
+@router.message(Command(f"compress{CMD_SUFFIX}"))
+async def _compress_video(message: Message):
+    if not await vip_check(message): return
+    user_id, chat_id = message.from_user.id, message.chat.id
+    if user_id not in get_data(): await new_user(user_id, SAVE_TO_DATABASE)
+
+    link, custom_file_name = await get_link(message)
+    if link == "invalid": return await safe_reply(message, "❗ Tautan tidak valid")
+        
+    if not link:
+        ne = await ask_media_OR_url(message, chat_id, user_id, [f"/compress{CMD_SUFFIX}", "stop"], "🎬 Kirim Video atau URL untuk di-Compress", 120, "video/", True)
+        if ne and ne not in ["cancelled", "stopped"]: link = await get_url_from_message(ne)
+        else: return
+
+    link = _sanitize_link_for_db(link)
+    fname = _get_fname(link, custom_file_name)
+
+    kb_conf = _make_reply_kb(["✅ Compress", "❌ Batal"], 2)
+    conf_txt = (
+        f"**⚙️ KONFIRMASI COMPRESS VIDEO**\n\n"
+        f"🎬 File: `{fname}`\n\n"
+        "Lanjutkan?"
+    )
+    conf_msg = await message.reply(conf_txt, reply_markup=kb_conf)
+    press = await wait_for_message(chat_id, user_id, 120)
+    await _clean_msgs(conf_msg, press)
+    
+    if not press or "batal" in (press.text or "").lower():
+         return await message.answer("❌ Dibatalkan.", reply_markup=ReplyKeyboardRemove())
+         
+    await message.answer("✅ Mempersiapkan proses compress...", reply_markup=ReplyKeyboardRemove())
+
+    ps = ProcessStatus(user_id, chat_id, get_username(message), message.from_user.first_name, message, Names.compress, custom_file_name)
+
+    await get_thumbnail(ps, [f"/compress{CMD_SUFFIX}", "pass"], 120)
+    task = build_task(ps, link)
+
+    if get_data().get(user_id, {}).get("multi_tasks"):
+        if not await multi_tasks(ps, f"/compress{CMD_SUFFIX}"): del ps; return
+        finalize_multi_tasks(ps)
+
+    await submit_task(task)
+    await update_status_message(message)
+
+
+# ═══════════════════════════════════════════════════════════════════════
 #  /convert - MANDIRI & INTERAKTIF (Bisa multi-resolusi)
 # ═══════════════════════════════════════════════════════════════════════
 
@@ -240,22 +301,39 @@ async def _convert_video(message: Message):
 
     link = _sanitize_link_for_db(link)
     fname = _get_fname(link, custom_file_name)
-
-    kb_res = _make_reply_kb(["240", "360", "480", "720", "1080", "❌ Batal"], 3)
-    ask_res = await message.reply("📺 **Pilih Resolusi Konversi**\nKirim angka resolusi yang diinginkan. Untuk multi-resolusi, pisahkan dengan koma.\n\nContoh: `480, 720, 1080`\nPilihan: `240, 360, 480, 540, 720, 1080, 1440, 2160, 4320`", reply_markup=kb_res)
-    res_msg = await wait_for_message(chat_id, user_id, 120)
-    await _clean_msgs(ask_res, res_msg)
-    
-    if res_msg is None or "batal" in (res_msg.text or "").lower():
-        return await message.answer("❌ Dibatalkan.", reply_markup=ReplyKeyboardRemove())
-        
     resolutions = []
-    for r in (res_msg.text or "").split(","):
-        r = r.strip().lower().replace("p", "")
-        if r.isdigit(): resolutions.append(int(r))
+
+    kb_res = _make_reply_kb(["240p", "360p", "480p", "540p", "720p", "1080p", "1440p", "2160p", "4320p", "✅ Selesai", "❌ Batal"], 3)
+    ask_res = await message.reply("📺 **Pilih Resolusi Konversi**\nTekan tombol resolusi di bawah. Jika sudah memilih semua yang diinginkan, tekan **✅ Selesai**.", reply_markup=kb_res)
+    
+    while True:
+        res_msg = await wait_for_message(chat_id, user_id, 120)
+        await _clean_msgs(res_msg)
+        txt = (res_msg.text or "").lower()
         
+        if "batal" in txt:
+            await _clean_msgs(ask_res)
+            return await message.answer("❌ Dibatalkan.", reply_markup=ReplyKeyboardRemove())
+            
+        if "selesai" in txt:
+            await _clean_msgs(ask_res)
+            break
+            
+        num_str = "".join(filter(str.isdigit, txt))
+        if num_str:
+            res = int(num_str)
+            if res not in resolutions:
+                resolutions.append(res)
+            # Beri tau user resolusi apa aja yang udah masuk keranjang
+            res_list_str = ", ".join([f"{r}p" for r in sorted(resolutions, reverse=True)])
+            await ask_res.edit_text(f"📺 **Resolusi Terpilih:** `{res_list_str}`\n\nTekan opsi lain untuk menambah, atau tekan **✅ Selesai** jika sudah.", reply_markup=kb_res)
+        else:
+            err = await message.reply("❌ Input tidak valid.")
+            await asyncio.sleep(2)
+            await _clean_msgs(err)
+
     if not resolutions:
-        return await message.answer("❌ Tidak ada resolusi valid yang dipilih. Dibatalkan.", reply_markup=ReplyKeyboardRemove())
+        return await message.answer("❌ Tidak ada resolusi yang dipilih. Proses dibatalkan.", reply_markup=ReplyKeyboardRemove())
 
     res_str = ", ".join([f"{r}p" for r in sorted(resolutions, reverse=True)])
     kb_conf = _make_reply_kb(["✅ Convert", "❌ Batal"], 2)
@@ -335,17 +413,28 @@ async def _add_watermark_interactive(message: Message):
         txt_msg = await ask_text_event(chat_id, user_id, message, 60, "✍️ Kirim teks untuk Watermark:", message_hint=None)
         if not txt_msg: return await message.answer("❌ Dibatalkan.", reply_markup=ReplyKeyboardRemove())
         
-        font_msg = await ask_media_OR_url(message, chat_id, user_id, ["skip", "batal"], "🔤 Kirim file Font (.ttf/.otf)\n\nATAU ketik `skip` untuk memakai font standar.", 60, False, True)
-        if font_msg in ["stopped", "cancelled", "batal"]: return await message.answer("❌ Dibatalkan.", reply_markup=ReplyKeyboardRemove())
+        kb_skip = _make_reply_kb(["⏭ Skip", "❌ Batal"], 2)
+        font_ask = await message.reply("🔤 Kirim file Font (.ttf/.otf)\n\nATAU tekan tombol `⏭ Skip` untuk memakai font standar.", reply_markup=kb_skip)
+        font_msg = await wait_for_message(chat_id, user_id, 60)
+        await _clean_msgs(font_ask)
+        
+        txt_font = (font_msg.text or "").lower()
+        if "batal" in txt_font: return await message.answer("❌ Dibatalkan.", reply_markup=ReplyKeyboardRemove())
         
         font_path = None
-        if font_msg not in ["skip", "pass"] and getattr(font_msg, "document", None):
+        if "skip" not in txt_font and getattr(font_msg, "document", None):
             create_direc(f"./temp/wm_{user_id}")
             font_path = f"./temp/wm_{user_id}/custom_font.ttf"
             await Telegram.AIOGRAM_BOT.download(font_msg.document, destination=font_path)
             
-        color_msg = await ask_text_event(chat_id, user_id, message, 60, "🎨 Kirim warna teks (contoh: `white`, `red`, `yellow`, `#FF0000`)\n\nATAU ketik `skip` untuk warna default:", message_hint=None)
-        color = "white" if not color_msg or color_msg.text.lower() == "skip" else color_msg.text.strip()
+        color_ask = await message.reply("🎨 Kirim warna teks (contoh: `white`, `red`, `#FF0000`)\n\nATAU tekan tombol `⏭ Skip` untuk warna standar:", reply_markup=kb_skip)
+        color_msg = await wait_for_message(chat_id, user_id, 60)
+        await _clean_msgs(color_ask)
+        
+        txt_color = (color_msg.text or "").lower()
+        if "batal" in txt_color: return await message.answer("❌ Dibatalkan.", reply_markup=ReplyKeyboardRemove())
+        
+        color = "white" if "skip" in txt_color else color_msg.text.strip()
         
         custom_wm["text"] = {"content": txt_msg.text, "font_path": font_path, "color": color, "size": 32}
         wm_info_str = f"Teks: '{txt_msg.text}' ({color})"
@@ -408,21 +497,39 @@ async def _merge_videos(message: Message):
     task = {"process_status": ps, "functions": []}
     idx  = 1
 
+    kb_action = _make_reply_kb(["🛑 Selesai (Proses)", "❌ Batal"], 2)
+
     while True:
-        ne = await ask_media_OR_url(message, chat_id, user_id, [f"/merge{CMD_SUFFIX}", "stop", "cancel"], f"Kirim Video/URL No {idx}", 120, "video/", False, message_hint="🔷 `stop` untuk Proses | `cancel` untuk Batalkan", allow_command=True)
-        if ne in [None, "cancelled"]: del ps; return
-        if ne == "stopped": break
-        if ne == "pass": continue
+        ask_msg = await message.reply(f"🎬 Kirim Video/URL No {idx}\n\nTekan tombol jika sudah selesai:", reply_markup=kb_action)
+        ne = await wait_for_message(chat_id, user_id, 120)
+        await _clean_msgs(ask_msg)
+        
+        txt = (ne.text or "").lower()
+        if "batal" in txt or txt == "/cancel":
+            del ps
+            return await message.answer("❌ Dibatalkan.", reply_markup=ReplyKeyboardRemove())
+            
+        if "selesai" in txt or txt == "/stop":
+            break
             
         link = await get_url_from_message(ne)
         from bot_helper.Aria2.Aria2_Engine import Aria2
-        if isinstance(link, str): task["functions"].append(["Aria", Aria2.add_aria2c_download, [link, ps, False, False, False, False]])
-        else: task["functions"].append(["TG", [link]])
-        idx += 1
+        if isinstance(link, str) and (link.startswith("http") or link.startswith("magnet")):
+            task["functions"].append(["Aria", Aria2.add_aria2c_download, [link, ps, False, False, False, False]])
+            idx += 1
+        elif ne.video or ne.document:
+            task["functions"].append(["TG", [ne]])
+            idx += 1
+        else:
+            err = await message.reply("❗ Format tidak valid atau bukan video.")
+            await asyncio.sleep(2)
+            await _clean_msgs(err)
 
     if len(task["functions"]) < 2:
         del ps
-        return await safe_reply(message, "❗ Minimal 2 Berkas Diperlukan untuk Menggabungkan")
+        return await message.answer("❗ Minimal 2 Berkas Diperlukan untuk Menggabungkan.", reply_markup=ReplyKeyboardRemove())
+
+    await message.answer("✅ Mempersiapkan proses penggabungan...", reply_markup=ReplyKeyboardRemove())
 
     await get_thumbnail(ps, [f"/merge{CMD_SUFFIX}", "pass"], 120)
 
@@ -436,7 +543,7 @@ async def _merge_videos(message: Message):
 
 
 # ═══════════════════════════════════════════════════════════════════════
-#  SOFTMUX / SOFTREMUX (COPY STREAM)
+#  SOFTMUX / SOFTREMUX / HARDMUX (COPY STREAM/HARDCODE)
 # ═══════════════════════════════════════════════════════════════════════
 
 async def _subtitle_mux_handler(message: Message, process_name: str, cmd_name: str):
@@ -458,18 +565,32 @@ async def _subtitle_mux_handler(message: Message, process_name: str, cmd_name: s
     idx    = 1
     cancel = False
 
+    kb_action = _make_reply_kb(["🛑 Selesai (Proses)", "❌ Batal"], 2)
+
     while True:
-        ne = await ask_media_OR_url(message, chat_id, user_id, [f"/{cmd_name}{CMD_SUFFIX}", "stop", "cancel"], f"Kirim Subtitle SRT No {idx}", 120, False, False, message_hint=f"🔷 `stop` Proses | `cancel` Batalkan", allow_command=True, allow_magnet=False, allow_url=False, stop_on_url=False)
-        if ne in [None, "pass", "cancelled"]: cancel = True; break
-        if ne == "stopped": break
+        ask_msg = await message.reply(f"💬 Kirim Subtitle SRT/ASS No {idx}\n\nTekan tombol jika sudah selesai:", reply_markup=kb_action)
+        ne = await wait_for_message(chat_id, user_id, 120)
+        await _clean_msgs(ask_msg)
+        
+        txt = (ne.text or "").lower()
+        if "batal" in txt or txt == "/cancel":
+            cancel = True
+            break
+            
+        if "selesai" in txt or txt == "/stop":
+            break
             
         if ne.document:
             mime = str(ne.document.mime_type)
             if mime.startswith("video/") or mime.startswith("image/"):
-                await safe_reply(message, "❌ Saya Membutuhkan Berkas Subtitle")
+                err = await message.reply("❌ Saya Membutuhkan Berkas Subtitle")
+                await asyncio.sleep(2)
+                await _clean_msgs(err)
                 continue
             if ne.document.file_size >= 512_000:
-                await safe_reply(message, "❌ Ukuran Subtitle Lebih dari 500KB")
+                err = await message.reply("❌ Ukuran Subtitle Lebih dari 500KB")
+                await asyncio.sleep(2)
+                await _clean_msgs(err)
                 continue
                 
             sub_name   = ne.document.file_name
@@ -479,10 +600,18 @@ async def _subtitle_mux_handler(message: Message, process_name: str, cmd_name: s
             await Telegram.AIOGRAM_BOT.download(ne.document, destination=sub_dw_loc)
             ps.append_subtitles(sub_dw_loc)
             idx += 1
-        else: await safe_reply(message, "❗ Hanya Berkas Telegram yang Didukung")
+        else: 
+            err = await message.reply("❗ Hanya Berkas Telegram yang Didukung")
+            await asyncio.sleep(2)
+            await _clean_msgs(err)
 
-    if cancel: del ps; return
-    if not ps.subtitles: del ps; return await safe_reply(message, f"❗ Minimal 1 Subtitle Diperlukan untuk {process_name}")
+    if cancel: 
+        del ps
+        return await message.answer("❌ Dibatalkan.", reply_markup=ReplyKeyboardRemove())
+        
+    if not ps.subtitles: 
+        del ps
+        return await message.answer(f"❗ Minimal 1 Subtitle Diperlukan untuk {process_name}.", reply_markup=ReplyKeyboardRemove())
 
     kb_conf = _make_reply_kb(["✅ Mux", "❌ Batal"], 2)
     conf_txt = (
@@ -516,6 +645,9 @@ async def _softmux(message: Message): await _subtitle_mux_handler(message, Names
 
 @router.message(Command(f"softremux{CMD_SUFFIX}"))
 async def _softremux(message: Message): await _subtitle_mux_handler(message, Names.softremux, "softremux")
+
+@router.message(Command(f"hardmux{CMD_SUFFIX}"))
+async def _hardmux(message: Message): await _subtitle_mux_handler(message, Names.hardmux, "hardmux")
 
 # ═══════════════════════════════════════════════════════════════════════
 #  GENSAMPLE / GENSS
