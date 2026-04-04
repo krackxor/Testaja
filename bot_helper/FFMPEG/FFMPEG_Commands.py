@@ -1,23 +1,26 @@
 """
 ╔══════════════════════════════════════════════════════════════════════╗
-║           bot_helper/FFMPEG/FFMPEG_Commands.py                       ║
-║           Encoder1 Bot — v3.1                                        ║
+║            bot_helper/FFMPEG/FFMPEG_Commands.py                      ║
+║            Encoder1 Bot — v3.1                                       ║
 ╠══════════════════════════════════════════════════════════════════════╣
 ║  CHANGELOG dari versi lama:                                          ║
-║  [SECURITY] get_data()[user_id] → .get() — tidak crash KeyError     ║
-║  [SECURITY] user_data['video'] → .get({}) — tidak crash KeyError    ║
-║  [SECURITY] shlex.split(user_input) → validasi metadata key=value   ║
-║  [SECURITY] drawtext escape lebih ketat — cegah filter injection    ║
-║  [FIX HIGH] -vf select=concatdec_select dihapus — invalid filter    ║
-║  [FIX]      ffprobe timeout 10s → 30s                               ║
-║  [FIX]      Hapus basicConfig() duplikat                            ║
-║  [FIX]      subtitle path escape lebih robust                       ║
-║  [FIX]      merge file list pakai shlex.quote()                     ║
-║  [FIX]      audio-only/video-only merge dihandle eksplisit          ║
-║  [FIX]      subtitle copy return konsisten                          ║
-║  [FIX]      CRF validasi integer                                    ║
-║  [FIX]      validate_output cek file size > 0                       ║
-║  [IMPROVE]  Nama file sanitasi pakai unicodedata                    ║
+║  [NEW]      Alat cepat (/trim, /cut) menggunakan Stream Copy instan  ║
+║  [NEW]      Perintah modifikasi piksel (Watermark/Crop/Rotate) kebal ║
+║             dari settingan global agar menghindari re-encode lambat. ║
+║  [SECURITY] get_data()[user_id] → .get() — tidak crash KeyError      ║
+║  [SECURITY] user_data['video'] → .get({}) — tidak crash KeyError     ║
+║  [SECURITY] shlex.split(user_input) → validasi metadata key=value    ║
+║  [SECURITY] drawtext escape lebih ketat — cegah filter injection     ║
+║  [FIX HIGH] -vf select=concatdec_select dihapus — invalid filter     ║
+║  [FIX]      ffprobe timeout 10s → 30s                                ║
+║  [FIX]      Hapus basicConfig() duplikat                             ║
+║  [FIX]      subtitle path escape lebih robust                        ║
+║  [FIX]      merge file list pakai shlex.quote()                      ║
+║  [FIX]      audio-only/video-only merge dihandle eksplisit           ║
+║  [FIX]      subtitle copy return konsisten                           ║
+║  [FIX]      CRF validasi integer                                     ║
+║  [FIX]      validate_output cek file size > 0                        ║
+║  [IMPROVE]  Nama file sanitasi pakai unicodedata                     ║
 ╚══════════════════════════════════════════════════════════════════════╝
 """
 
@@ -160,7 +163,7 @@ def _escape_subtitle_path(path: str) -> str:
     [FIX] Escape path subtitle untuk FFmpeg subtitles filter.
     
     FFmpeg subtitles filter path escaping sangat tricky:
-    - Windows: backslash → \\\\
+    - Windows: backslash → \\
     - Colon (drive letter): C: → C\\:
     - Single quote: ' → \\\'
     
@@ -344,7 +347,7 @@ class FFmpegCommandBuilder:
 
     def build_audio_filters(self) -> None:
         """Build audio filters dengan validasi."""
-        if not self.audio_settings.get("enabled", False):
+        if not self.audio_settings.get("enabled", False) and self.ps.process_type not in [Names.cut]:
             return
 
         if self.ps.process_type == Names.cut and self.ps.cut_ranges:
@@ -367,11 +370,16 @@ class FFmpegCommandBuilder:
 
     def build_audio_codec(self) -> None:
         """Build audio codec settings dengan fallback."""
-        if not self.audio_settings.get("enabled", False):
+        if not self.audio_settings.get("enabled", False) and self.ps.process_type not in [Names.cut]:
             self.command.extend(["-c:a", "copy"])
             return
 
+        # Jika process type adalah cut, kita harus re-encode audio karena filter pemotongan frame (aselect)
         codec = self.audio_settings.get("codec", "Auto")
+        
+        # Override codec jika kita hanya melakukan operasi alat potong mandiri
+        if self.ps.process_type == Names.cut:
+            codec = "aac"
 
         if codec == "Auto":
             if self.stream_info and self.stream_info.has_audio:
@@ -380,7 +388,7 @@ class FFmpegCommandBuilder:
                 self.command.extend(["-c:a", "aac", "-b:a", DEFAULT_AUDIO_BR])
             return
 
-        if codec == "copy":
+        if codec == "copy" and self.ps.process_type != Names.cut:
             self.command.extend(["-c:a", "copy"])
             return
 
@@ -441,12 +449,14 @@ class FFmpegCommandBuilder:
         if self.ps.process_type == Names.crop and self.ps.crop_params:
             self.video_filters.append(self.ps.crop_params)
 
-        resolution = self.video_settings.get("resolution", "Auto")
-        if resolution != "Auto":
-            if "x" in resolution:
-                self.video_filters.append(f"scale={resolution}")
-            elif resolution.isdigit():
-                self.video_filters.append(f"scale=-2:{resolution}")
+        # Hanya terapkan resolusi global pada proses konversi atau kompresi
+        if self.ps.process_type in [Names.convert, Names.compress]:
+            resolution = self.video_settings.get("resolution", "Auto")
+            if resolution != "Auto":
+                if "x" in resolution:
+                    self.video_filters.append(f"scale={resolution}")
+                elif resolution.isdigit():
+                    self.video_filters.append(f"scale=-2:{resolution}")
 
     # ── Watermark ────────────────────────────────────────────────────
 
@@ -455,7 +465,8 @@ class FFmpegCommandBuilder:
         Build watermark filter.
         [SECURITY] drawtext escape lebih ketat — cegah filter injection.
         """
-        if not self.watermark_settings.get("enabled") or self.ps.process_type == Names.merge:
+        # Hentikan penambahan watermark global jika bukan untuk proses Encode Utama, Convert, atau Watermark khusus.
+        if not self.watermark_settings.get("enabled") or self.ps.process_type not in [Names.compress, Names.convert, Names.watermark]:
             return
 
         wm_type           = self.watermark_settings.get("type", "image")
@@ -601,30 +612,38 @@ class FFmpegCommandBuilder:
         needs_encode = (
             self.video_filters
             or self.use_filter_complex
-            or self.video_settings.get("enabled", True)
+            or (self.video_settings.get("enabled", True) and self.ps.process_type in [Names.compress, Names.convert])
+            or self.ps.process_type in [Names.cut, Names.crop, Names.rotate, Names.watermark, Names.hardmux]
         )
 
         if not needs_encode:
             self.command.extend(["-c:v", "copy"])
             return
 
-        encoder = self.video_settings.get("encoder", "libx264")
-        preset  = self.video_settings.get("preset", DEFAULT_PRESET)
-        # [FIX] CRF validasi integer
-        crf     = _safe_crf(self.video_settings.get("crf", DEFAULT_CRF))
+        # Jika ini adalah proses alat editing ringan (bukan kompresi/encode total), gunakan preset fast agar instan.
+        if self.ps.process_type in [Names.cut, Names.crop, Names.rotate, Names.watermark, Names.hardmux]:
+            encoder = "libx264"
+            preset  = "fast"
+            crf     = 24
+        else:
+            # Gunakan settingan database untuk proses kompresi utama (Encode/Convert)
+            encoder = self.video_settings.get("encoder", "libx264")
+            preset  = self.video_settings.get("preset", DEFAULT_PRESET)
+            crf     = _safe_crf(self.video_settings.get("crf", DEFAULT_CRF))
 
         self.command.extend(["-c:v", encoder, "-preset", preset, "-crf", str(crf)])
 
         if encoder == "libx265":
             self.command.extend(["-vtag", "hvc1"])
 
-        tune = self.video_settings.get("tune", "None")
-        if tune and tune != "None":
-            self.command.extend(["-tune", tune.lower()])
+        if self.ps.process_type in [Names.compress, Names.convert]:
+            tune = self.video_settings.get("tune", "None")
+            if tune and tune != "None":
+                self.command.extend(["-tune", tune.lower()])
 
-        pixel_format = self.video_settings.get("pixel_format", "Auto")
-        if pixel_format != "Auto":
-            self.command.extend(["-pix_fmt", pixel_format])
+            pixel_format = self.video_settings.get("pixel_format", "Auto")
+            if pixel_format != "Auto":
+                self.command.extend(["-pix_fmt", pixel_format])
 
         ext = self.video_settings.get("extension", "mp4").lower()
         if ext == "mp4" and self.video_settings.get("fast_start", "Yes") == "Yes":
@@ -693,7 +712,7 @@ class FFmpegCommandBuilder:
         return self.command, log_file, input_file, output_file, file_duration
 
     def build_trim_command(self):
-        """Build command untuk trim dengan copy codec."""
+        """Build command untuk trim dengan copy codec (INSTANT CUT)."""
         self.create_directory(f"{self.ps.dir}/trim/")
         log_file    = f"{self.ps.dir}/trim/trim_logs_{self.ps.process_id}.txt"
         output_file = f"{self.ps.dir}/trim/{self.get_output_name()}"
