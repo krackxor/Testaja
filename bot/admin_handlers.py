@@ -10,6 +10,8 @@
 ║            /resetdb /changeconfig /settings                          ║
 ╠══════════════════════════════════════════════════════════════════════╣
 ║  CHANGELOG:                                                          ║
+║  [FIX HIGH] Implementasi CMD_SUFFIX pada semua dekorator Command     ║
+║  [FIX HIGH] Gunakan asyncio.to_thread pada subprocess srun (restart) ║
 ║  [NEW] Migrasi ke Aiogram Router & Message objects                   ║
 ║  [FIX] Tombol diubah menjadi InlineKeyboardMarkup & KeyboardButton   ║
 ║  [FIX] Pengiriman log & file menggunakan FSInputFile                 ║
@@ -80,7 +82,7 @@ async def get_sudo_user_id(message: Message) -> int | bool:
 #  SYSTEM COMMANDS
 # ═══════════════════════════════════════════════════════════════════════
 
-@router.message(Command("start"))
+@router.message(Command(f"start{CMD_SUFFIX}"))
 async def _startmsg(message: Message):
     text = f"Hai {get_mention(message)}, Saya Aktif! 🎬"
     kb = InlineKeyboardMarkup(inline_keyboard=[
@@ -90,14 +92,14 @@ async def _startmsg(message: Message):
     await message.reply(text, reply_markup=kb)
 
 
-@router.message(Command("time"))
+@router.message(Command(f"time{CMD_SUFFIX}"))
 async def _timecmd(message: Message):
     if not sudo_user_checker_event(message):
         return
     await message.reply(f"♻ Bot Aktif Selama **{getbotuptime()}**")
 
 
-@router.message(Command("stats"))
+@router.message(Command(f"stats{CMD_SUFFIX}"))
 async def _stats_msg(message: Message):
     if not sudo_user_checker_event(message):
         return
@@ -105,7 +107,7 @@ async def _stats_msg(message: Message):
     await message.reply(str(await get_host_stats()), parse_mode="HTML")
 
 
-@router.message(Command("speedtest"))
+@router.message(Command(f"speedtest{CMD_SUFFIX}"))
 async def _speed_test(message: Message):
     if not sudo_user_checker_event(message):
         return
@@ -133,14 +135,16 @@ async def _speed_test(message: Message):
         await reply.edit_text(f"❗ **Gagal menjalankan Speedtest.**\nError: `{e}`\n\n💡 Pastikan modul `speedtest-cli` sudah terinstal di server Anda.")
 
 
-@router.message(Command("restart"))
+@router.message(Command(f"restart{CMD_SUFFIX}"))
 async def _restart(message: Message):
     if not owner_checker(message):
         return
     chat_id = message.chat.id
     reply   = await message.reply("♻ Memulai Ulang...")
-    srun(["pkill", "-f", "aria2c|ffmpeg|rclone"])
-    srun(["python3", "update.py"])
+    
+    # Menggunakan asyncio.to_thread agar tidak membekukan (block) event loop
+    await asyncio.to_thread(srun, ["pkill", "-f", "aria2c|ffmpeg|rclone"])
+    await asyncio.to_thread(srun, ["python3", "update.py"])
     
     with open(".restartmsg", "w") as f:
         f.truncate(0)
@@ -148,7 +152,7 @@ async def _restart(message: Message):
     execl(executable, executable, *argv)
 
 
-@router.message(Command("herokurestart"))
+@router.message(Command(f"herokurestart{CMD_SUFFIX}"))
 async def _heroku_restart(message: Message):
     if not owner_checker(message):
         return
@@ -175,7 +179,7 @@ async def _heroku_restart(message: Message):
 #  LOG COMMANDS
 # ═══════════════════════════════════════════════════════════════════════
 
-@router.message(Command("log"))
+@router.message(Command(f"log{CMD_SUFFIX}"))
 async def _log(message: Message):
     if not sudo_user_checker_event(message):
         return
@@ -190,7 +194,7 @@ async def _log(message: Message):
         await message.reply("❗ Berkas Log Tidak Ditemukan")
 
 
-@router.message(Command("logs"))
+@router.message(Command(f"logs{CMD_SUFFIX}"))
 async def _logs(message: Message):
     if not sudo_user_checker_event(message):
         return
@@ -214,7 +218,7 @@ async def _logs(message: Message):
 #  TASK MANAGEMENT
 # ═══════════════════════════════════════════════════════════════════════
 
-@router.message(Command("tasklimit"))
+@router.message(Command(f"tasklimit{CMD_SUFFIX}"))
 async def _changetasklimit(message: Message):
     if not owner_checker(message):
         return
@@ -227,14 +231,14 @@ async def _changetasklimit(message: Message):
         await message.reply(f"✅ Batas Tugas Baru: **{get_task_limit()}**")
 
 
-@router.message(Command("cancel"))
+@router.message(Command(f"cancel{CMD_SUFFIX}"))
 async def _cancel(message: Message):
     if not await user_auth_checker(message):
         return
     user_id  = message.from_user.id
     commands = (message.text or "").split(" ")
     if len(commands) != 3:
-        await safe_reply(message, "❗ Format: `/cancel aria|process <ID>`")
+        await safe_reply(message, f"❗ Format: `/cancel{CMD_SUFFIX} aria|process <ID>`")
         return
 
     processx   = commands[1]
@@ -268,14 +272,14 @@ async def _cancel(message: Message):
         await safe_reply(message, str(e))
 
 
-@router.message(Command("ffmpeg"))
+@router.message(Command(f"ffmpeg{CMD_SUFFIX}"))
 async def _ffmpeg_log(message: Message):
     if not await user_auth_checker(message):
         return
     chat_id  = message.chat.id
     commands = (message.text or "").split(" ")
     if len(commands) != 3 or commands[1] != "log":
-        await safe_reply(message, "❗ Format: `/ffmpeg log <process_id>`")
+        await safe_reply(message, f"❗ Format: `/ffmpeg{CMD_SUFFIX} log <process_id>`")
         return
         
     process_id = commands[2]
@@ -293,7 +297,7 @@ async def _ffmpeg_log(message: Message):
 #  CONFIG & MEDIA SAVE
 # ═══════════════════════════════════════════════════════════════════════
 
-@router.message(Command("saveconfig"))
+@router.message(Command(f"saveconfig{CMD_SUFFIX}"))
 async def _saverclone(message: Message):
     if not await user_auth_checker(message):
         return
@@ -351,7 +355,7 @@ async def ask_media_OR_url_local(message: Message, chat_id, user_id, r_config, t
     return None
 
 
-@router.message(Command("savewatermark"))
+@router.message(Command(f"savewatermark{CMD_SUFFIX}"))
 async def _savewatermark(message: Message):
     if not await user_auth_checker(message):
         return
@@ -363,7 +367,7 @@ async def _savewatermark(message: Message):
     await safe_reply(message, "✅ Watermark berhasil disimpan." if ok else "❗ Gagal Mendapatkan Watermark.")
 
 
-@router.message(Command("savethumb"))
+@router.message(Command(f"savethumb{CMD_SUFFIX}"))
 async def _savethumb(message: Message):
     if not await user_auth_checker(message):
         return
@@ -379,7 +383,7 @@ async def _savethumb(message: Message):
 #  ENV & BOT CONFIG
 # ═══════════════════════════════════════════════════════════════════════
 
-@router.message(Command("changeconfig"))
+@router.message(Command(f"changeconfig{CMD_SUFFIX}"))
 async def _changeconfig(message: Message):
     if not owner_checker(message):
         return
@@ -408,14 +412,14 @@ async def _changeconfig(message: Message):
     await message.reply("Pilih Variabel untuk Diubah", reply_markup=kb)
 
 
-@router.message(Command("clearconfigs"))
+@router.message(Command(f"clearconfigs{CMD_SUFFIX}"))
 async def _clearconfig(message: Message):
     if not owner_checker(message):
         return
     path = "./userdata/botconfig.env"
     if exists(path):
         remove(path)
-        await safe_reply(message, "✅ Berhasil Dihapus. Silakan jalankan `/restart` agar perubahan diterapkan.")
+        await safe_reply(message, f"✅ Berhasil Dihapus. Silakan jalankan `/restart{CMD_SUFFIX}` agar perubahan diterapkan.")
     else:
         await safe_reply(message, "❗ Konfigurasi Tidak Ditemukan")
 
@@ -424,14 +428,14 @@ async def _clearconfig(message: Message):
 #  SUDO MANAGEMENT
 # ═══════════════════════════════════════════════════════════════════════
 
-@router.message(Command("checksudo"))
+@router.message(Command(f"checksudo{CMD_SUFFIX}"))
 async def _checksudo(message: Message):
     if not owner_checker(message):
         return
     await message.reply(f"**Sudo Users:**\n`{sudo_users}`")
 
 
-@router.message(Command("addsudo"))
+@router.message(Command(f"addsudo{CMD_SUFFIX}"))
 async def _addsudo(message: Message):
     if not owner_checker(message):
         return
@@ -453,7 +457,7 @@ async def _addsudo(message: Message):
     await safe_reply(message, f"✅ Berhasil Ditambahkan.\n\n`{sudo_users}`")
 
 
-@router.message(Command("delsudo"))
+@router.message(Command(f"delsudo{CMD_SUFFIX}"))
 async def _delsudo(message: Message):
     if not owner_checker(message):
         return
@@ -491,7 +495,7 @@ def _save_sudo_list() -> None:
 #  DATABASE & CLEANUP
 # ═══════════════════════════════════════════════════════════════════════
 
-@router.message(Command("resetdb"))
+@router.message(Command(f"resetdb{CMD_SUFFIX}"))
 async def _resetdb(message: Message):
     if not owner_checker(message):
         return
@@ -503,7 +507,7 @@ async def _resetdb(message: Message):
     await message.reply("📌 Anda yakin?\n\n🚫 Ini akan mereset seluruh basis data 🚫", reply_markup=kb)
 
 
-@router.message(Command("renew"))
+@router.message(Command(f"renew{CMD_SUFFIX}"))
 async def _renew(message: Message):
     if not owner_checker(message):
         return
@@ -519,7 +523,7 @@ async def _renew(message: Message):
     await message.reply("📌 Anda yakin?\n\n🚫 Ini akan menghapus semua unduhan & watermark lokal 🚫", reply_markup=kb)
 
 
-@router.message(Command("settings"))
+@router.message(Command(f"settings{CMD_SUFFIX}"))
 async def _settings(message: Message):
     if not await user_auth_checker(message):
         return
