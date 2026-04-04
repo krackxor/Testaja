@@ -7,6 +7,8 @@
 ║            /extension /extract /mediainfo                            ║
 ╠══════════════════════════════════════════════════════════════════════╣
 ║  CHANGELOG dari versi lama:                                          ║
+║  [FIX HIGH] Implementasi CMD_SUFFIX pada semua Command filter        ║
+║  [FIX HIGH] Gunakan asyncio.to_thread pada rmtree & file I/O         ║
 ║  [NEW] Migrasi dari Telethon ke Aiogram 3.x Router                   ║
 ║  [NEW] Mengganti conv.get_response() dengan wait_for_message()       ║
 ║  [FIX] TelegramBadRequest handle saat edit_text tanpa modifikasi     ║
@@ -91,7 +93,7 @@ def parse_single_cut_range(text: str):
 #  /trim
 # ═══════════════════════════════════════════════════════════════════════
 
-@router.message(Command("trim"))
+@router.message(Command(f"trim{CMD_SUFFIX}"))
 async def _trim_video(message: Message):
     if not await vip_check(message):
         return
@@ -157,7 +159,7 @@ async def _trim_video(message: Message):
         dur_str = seconds_to_readable_str(end_sec - start_sec)
         kb = InlineKeyboardMarkup(inline_keyboard=[
             [InlineKeyboardButton(text="✅ Mulai Pangkas", callback_data="trim_confirm")],
-            [InlineKeyboardButton(text="❌ Batal",         callback_data="trim_cancel")],
+            [InlineKeyboardButton(text="❌ Batal",          callback_data="trim_cancel")],
         ])
         conf_msg = await message.reply(
             f"**✂️ KONFIRMASI PANGKAS VIDEO**\n\n"
@@ -198,7 +200,7 @@ async def _trim_video(message: Message):
 #  /split
 # ═══════════════════════════════════════════════════════════════════════
 
-@router.message(Command("split"))
+@router.message(Command(f"split{CMD_SUFFIX}"))
 async def _split_video(message: Message):
     if not await vip_check(message):
         return
@@ -239,7 +241,7 @@ async def _split_video(message: Message):
 
     try:
         kb = InlineKeyboardMarkup(inline_keyboard=[
-            [InlineKeyboardButton(text="⏱ Berdasarkan Durasi",      callback_data="duration")],
+            [InlineKeyboardButton(text="⏱ Berdasarkan Durasi",       callback_data="duration")],
             [InlineKeyboardButton(text="🔢 Berdasarkan Jumlah Bagian", callback_data="parts")],
             [InlineKeyboardButton(text="📦 Berdasarkan Ukuran Berkas", callback_data="size")],
             [InlineKeyboardButton(text="❌ Batal", callback_data="cancel")],
@@ -266,7 +268,7 @@ async def _split_video(message: Message):
         
         kb2 = InlineKeyboardMarkup(inline_keyboard=[
             [InlineKeyboardButton(text="✅ Mulai Bagi", callback_data="confirm")],
-            [InlineKeyboardButton(text="❌ Batal",        callback_data="cancel")],
+            [InlineKeyboardButton(text="❌ Batal",         callback_data="cancel")],
         ])
         conf_msg = await message.reply(
             f"**✂️ KONFIRMASI PEMBAGIAN VIDEO**\n\n"
@@ -304,7 +306,7 @@ async def _split_video(message: Message):
 #  /cut
 # ═══════════════════════════════════════════════════════════════════════
 
-@router.message(Command("cut"))
+@router.message(Command(f"cut{CMD_SUFFIX}"))
 async def _cut_video(message: Message):
     if not await vip_check(message):
         return
@@ -396,7 +398,7 @@ async def _cut_video(message: Message):
 #  /rotate
 # ═══════════════════════════════════════════════════════════════════════
 
-@router.message(Command("rotate"))
+@router.message(Command(f"rotate{CMD_SUFFIX}"))
 async def _rotate_video(message: Message):
     if not await vip_check(message):
         return
@@ -465,7 +467,7 @@ async def _rotate_video(message: Message):
 #  /crop
 # ═══════════════════════════════════════════════════════════════════════
 
-@router.message(Command("crop"))
+@router.message(Command(f"crop{CMD_SUFFIX}"))
 async def _crop_video(message: Message):
     if not await vip_check(message):
         return
@@ -527,7 +529,7 @@ async def _crop_video(message: Message):
 #  /autocrop
 # ═══════════════════════════════════════════════════════════════════════
 
-@router.message(Command("autocrop"))
+@router.message(Command(f"autocrop{CMD_SUFFIX}"))
 async def _autocrop_video(message: Message):
     if not await vip_check(message):
         return
@@ -585,63 +587,10 @@ async def _autocrop_video(message: Message):
     
 
 # ═══════════════════════════════════════════════════════════════════════
-#  /mute - BISUKAN VIDEO INSTAN
-# ═══════════════════════════════════════════════════════════════════════
-
-@router.message(Command("mute"))
-async def _mute_video(message: Message):
-    if not await vip_check(message): return
-    link, custom_name = await get_link(message)
-    if not link: return await message.reply("❗ Reply video untuk membisukan.")
-
-    ps = ProcessStatus(message.from_user.id, message.chat.id, get_username(message), 
-                       message.from_user.first_name, message, Names.mute, custom_name)
-    ps.ffmpeg_args = ["-c:v", "copy", "-an"] # Video copy, Audio none
-    
-    await submit_task(build_task(ps, link))
-    await update_status_message(message)
-    
-
-# ═══════════════════════════════════════════════════════════════════════
-#  /speed - DASHBOARD KECEPATAN
-# ═══════════════════════════════════════════════════════════════════════
-
-@router.message(Command("speed"))
-async def _speed_video(message: Message):
-    if not await vip_check(message): return
-    user_id, chat_id = message.from_user.id, message.chat.id
-    link, custom_name = await get_link(message)
-    if not link: return await message.reply("❗ Reply video untuk ubah kecepatan.")
-
-    kb = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="🐢 0.5x", callback_data=f"sp_0.5_{user_id}"),
-         InlineKeyboardButton(text="🏃 1.5x", callback_data=f"sp_1.5_{user_id}"),
-         InlineKeyboardButton(text="⚡ 2.0x", callback_data=f"sp_2.0_{user_id}")],
-        [InlineKeyboardButton(text="❌ Batal", callback_data=f"sp_cancel_{user_id}")]
-    ])
-    
-    dash = await message.reply("🚀 **Pilih Kecepatan Video:**\n_(Proses ini memerlukan render ulang)_", reply_markup=kb)
-    
-    try:
-        # Gunakan waiter untuk menangkap input teks sebagai fallback atau konfirmasi sederhana
-        resp = await wait_for_message(chat_id, user_id, 60)
-        speed_val = resp.text # Misal user ketik 1.5
-        
-        if not speed_val or "batal" in speed_val.lower(): return
-        
-        ps = ProcessStatus(user_id, chat_id, get_username(message), message.from_user.first_name, message, Names.video_speed, custom_name)
-        ps.speed_value = speed_val
-        
-        await submit_task(build_task(ps, link))
-        await update_status_message(message)
-    except: pass
-
-
-# ═══════════════════════════════════════════════════════════════════════
 #  /extension
 # ═══════════════════════════════════════════════════════════════════════
 
-@router.message(Command("extension"))
+@router.message(Command(f"extension{CMD_SUFFIX}"))
 async def _extension_changer(message: Message):
     if not await vip_check(message):
         return
@@ -715,7 +664,7 @@ async def _extension_changer(message: Message):
 #  /extract
 # ═══════════════════════════════════════════════════════════════════════
 
-@router.message(Command("extract"))
+@router.message(Command(f"extract{CMD_SUFFIX}"))
 async def _extract_streams(message: Message):
     if not await vip_check(message):
         return
@@ -767,7 +716,7 @@ async def _extract_streams(message: Message):
     if not input_file or not exists(input_file):
         await dling_msg.edit_text("❌ Gagal mengunduh berkas.")
         try:
-            rmtree(temp_ps.dir)
+            await asyncio.to_thread(rmtree, temp_ps.dir, ignore_errors=True)
         except Exception:
             pass
         return
@@ -813,7 +762,7 @@ async def _extract_streams(message: Message):
     ps.extract_maps = [f"0:{s}" for s in selected]
     ps.move_send_files(temp_ps.send_files)
     try:
-        rmtree(temp_ps.dir)
+        await asyncio.to_thread(rmtree, temp_ps.dir, ignore_errors=True)
     except Exception:
         pass
 
@@ -826,7 +775,7 @@ async def _extract_streams(message: Message):
 #  /mediainfo
 # ═══════════════════════════════════════════════════════════════════════
 
-@router.message(Command("mediainfo"))
+@router.message(Command(f"mediainfo{CMD_SUFFIX}"))
 async def _media_info(message: Message):
     if not await vip_check(message):
         return
@@ -876,7 +825,7 @@ async def _media_info(message: Message):
         await dling_msg.edit_text("❌ Gagal mengunduh berkas.")
         if temp_dir:
             try:
-                rmtree(temp_dir)
+                await asyncio.to_thread(rmtree, temp_dir, ignore_errors=True)
             except Exception:
                 pass
         return
@@ -938,8 +887,10 @@ async def _media_info(message: Message):
 
         if len(txt) > 4096:
             path = f"{temp_dir}/mediainfo.txt"
-            with open(path, "w", encoding="utf-8") as f:
-                f.write(txt.replace("**", "").replace("`", ""))
+            def write_file():
+                with open(path, "w", encoding="utf-8") as f:
+                    f.write(txt.replace("**", "").replace("`", ""))
+            await asyncio.to_thread(write_file)
             await dling_msg.delete()
             await Telegram.AIOGRAM_BOT.send_document(chat_id, document=FSInputFile(path),
                                           caption=f"📄 MediaInfo untuk `{fname}`",
@@ -953,6 +904,6 @@ async def _media_info(message: Message):
     finally:
         if temp_dir:
             try:
-                rmtree(temp_dir)
+                await asyncio.to_thread(rmtree, temp_dir, ignore_errors=True)
             except Exception:
                 pass
