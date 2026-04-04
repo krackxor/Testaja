@@ -1,6 +1,6 @@
 """
 ╔══════════════════════════════════════════════════════════════════════╗
-║       bot_helper/Handlers/media_handlers.py — v3.3                   ║
+║       bot/media_handlers.py                                          ║
 ║       Media Processing Command Handlers (Aiogram 3.x)                ║
 ╠══════════════════════════════════════════════════════════════════════╣
 ║  CHANGELOG dari versi lama:                                          ║
