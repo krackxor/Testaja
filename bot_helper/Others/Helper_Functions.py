@@ -1,20 +1,20 @@
 """
 ╔══════════════════════════════════════════════════════════════════════╗
-║           bot_helper/Others/Helper_Functions.py — v3.1              ║
-║                    Utility Functions Encoder1 Bot                    ║
+║           bot_helper/Others/Helper_Functions.py — v3.1               ║
+║                     Utility Functions Encoder1 Bot                   ║
 ╠══════════════════════════════════════════════════════════════════════╣
 ║  FIXES dari versi lama:                                              ║
-║  [FIX HIGH]  eval(ffprobe_result) → json.loads() — hapus RCE       ║
-║  [FIX HIGH]  execute(str) shlex.split → terima list args            ║
-║  [FIX HIGH]  get_host_stats pakai list args bukan string            ║
-║  [FIX]       get_event_loop() deprecated → get_running_loop()      ║
-║  [FIX]       clear_trash_list modifikasi list saat iterasi          ║
-║  [FIX]       get_human_size() tidak handle None/non-numeric         ║
-║  [FIX]       check_file_exists async → sync                         ║
-║  [FIX]       delete_trash async sync → noted + typed except        ║
-║  [FIX]       bare except di 6+ tempat → typed exception            ║
-║  [FIX]       execute() log stderr jika returncode != 0             ║
-║  [FIX]       typo sufix_list → suffix_list                         ║
+║  [FIX HIGH]  eval(ffprobe_result) → json.loads() — hapus RCE         ║
+║  [FIX HIGH]  execute(str) shlex.split → terima list args             ║
+║  [FIX HIGH]  get_host_stats pakai list args bukan string             ║
+║  [FIX]       get_event_loop() deprecated → get_running_loop()        ║
+║  [FIX]       clear_trash_list modifikasi list saat iterasi           ║
+║  [FIX]       get_human_size() tidak handle None/non-numeric          ║
+║  [FIX]       check_file_exists async → sync                          ║
+║  [FIX]       delete_trash async sync → noted + typed except          ║
+║  [FIX]       bare except di 6+ tempat → typed exception              ║
+║  [FIX]       execute() log stderr jika returncode != 0               ║
+║  [FIX]       typo sufix_list → suffix_list                           ║
 ╚══════════════════════════════════════════════════════════════════════╝
 """
 
@@ -202,7 +202,7 @@ def hrb(value, digits: int = 2, delim: str = "", postfix: str = "") -> Optional[
     chosen_unit = "B"
     for unit in ("KB", "MB", "GB", "TB"):
         if value > 1000:
-            value       /= 1024
+            value        /= 1024
             chosen_unit  = unit
         else:
             break
@@ -315,9 +315,9 @@ async def execute(cmnd, trusted: bool = False) -> str:
     Eksekusi command async dan return stdout.
 
     [FIX HIGH] Tidak lagi menerima string mentah jika tidak trusted.
-               - Jika cmnd adalah list → dipakai langsung (safe)
-               - Jika cmnd adalah string dan trusted=True → shlex.split()
-               - Jika cmnd adalah string dan trusted=False → raise ValueError
+                - Jika cmnd adalah list → dipakai langsung (safe)
+                - Jika cmnd adalah string dan trusted=True → shlex.split()
+                - Jika cmnd adalah string dan trusted=False → raise ValueError
 
     [FIX] Log stderr jika returncode != 0.
 
