@@ -962,12 +962,22 @@ async def cb_prod_go(call: CallbackQuery):
 # ═══════════════════════════════════════════════════════════════════════
 STUDIO_COMMANDS = {"verdict": "THE VERDICT", "toptier": "TOP TIER", "archives": "THE ARCHIVES", "lore": "LORE & CONSPIRACIES", "radar": "ON THE RADAR", "patch": "THE LATEST PATCH"}
 
-@router.message(Command(f"verdict{CMD_SUFFIX}", f"toptier{CMD_SUFFIX}", f"archives{CMD_SUFFIX}", f"lore{CMD_SUFFIX}", f"radar{CMD_SUFFIX}", f"patch{CMD_SUFFIX}"))
+@router.message(Command(
+    f"verdict{CMD_SUFFIX}", f"toptier{CMD_SUFFIX}", f"archives{CMD_SUFFIX}", 
+    f"lore{CMD_SUFFIX}", f"radar{CMD_SUFFIX}", f"patch{CMD_SUFFIX}"
+))
 async def master_studio_handler(message: Message) -> None:
     user_id = message.from_user.id
     if not _is_vip(user_id): return await message.reply("👑 **Fitur VIP** — Program Studio Khoirul hanya untuk member premium.")
     
-    command_used = message.text.split()[0].replace("/", "").replace(CMD_SUFFIX, "").lower()
+    # [FIX HIGH] Mengambil nama perintah dengan aman agar tidak crash
+    raw_command = message.text.split()[0].replace("/", "")
+    # Menghilangkan suffix dari akhir perintah
+    if CMD_SUFFIX and raw_command.endswith(CMD_SUFFIX):
+        command_used = raw_command[:-len(CMD_SUFFIX)].lower()
+    else:
+        command_used = raw_command.lower()
+        
     segment_name = STUDIO_COMMANDS.get(command_used, "STUDIO KHOIRUL")
     txt_path, gameplay_reply = None, None
     
