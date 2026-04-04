@@ -141,7 +141,6 @@ async def _trim_video(message: Message):
     orig_str = seconds_to_readable_str(orig_duration) if orig_duration else "Tidak Diketahui"
 
     try:
-        # Prompt Start Time
         kb_start = _make_reply_kb(["00:00", "❌ Batal"], 2)
         ask_st = await message.reply("Masukkan **Waktu Mulai** (Start Time).\nFormat: `HH:MM:SS` atau `MM:SS`", reply_markup=kb_start)
         st_res = await wait_for_message(chat_id, user_id, 300)
@@ -152,7 +151,6 @@ async def _trim_video(message: Message):
         if not is_valid_time_format(st_res.text or ""): 
             return await message.answer("❌ Format waktu mulai tidak valid. Dibatalkan.", reply_markup=ReplyKeyboardRemove())
 
-        # Prompt End Time
         kb_end = _make_reply_kb([orig_str if orig_duration else "Kustom", "❌ Batal"], 2)
         ask_et = await message.reply("Masukkan **Waktu Selesai** (End Time).\nFormat: `HH:MM:SS` atau `MM:SS`", reply_markup=kb_end)
         et_res = await wait_for_message(chat_id, user_id, 300)
@@ -181,16 +179,16 @@ async def _trim_video(message: Message):
         dur_str = seconds_to_readable_str(end_sec - start_sec)
         
         kb_conf = _make_reply_kb(["✅ Pangkas", "❌ Batal"], 2)
-        conf_msg = await message.reply(
+        conf_txt = (
             f"**✂️ KONFIRMASI PANGKAS VIDEO**\n\n"
             f"🎬 File: `{fname}`\n"
             f"⏳ Durasi Asli: `{orig_str}`\n"
             f"⏱️ Waktu Mulai: `{start_time}`\n"
             f"🏁 Waktu Selesai: `{end_time}`\n"
             f"✂️ Hasil Durasi: `{dur_str}`\n\n"
-            "Lanjutkan?",
-            reply_markup=kb_conf
+            "Lanjutkan?"
         )
+        conf_msg = await message.reply(conf_txt, reply_markup=kb_conf)
         press = await wait_for_message(chat_id, user_id, 120)
         await _clean_msgs(conf_msg, press)
         
@@ -277,16 +275,15 @@ async def _split_video(message: Message):
         info = f"Menjadi `{split_value}` bagian"
         
         kb_conf = _make_reply_kb(["✅ Bagi", "❌ Batal"], 2)
-        conf_msg = await message.reply(
+        conf_txt = (
             f"**🪓 KONFIRMASI PEMBAGIAN VIDEO**\n\n"
             f"🎬 File: `{fname}`\n"
             f"⏳ Durasi Asli: `{orig_str}`\n"
             f"⚙️ Mode: `{split_mode.capitalize()}`\n"
             f"📊 Target: `{info}`\n\n"
-            "Lanjutkan?",
-            reply_markup=kb_conf
+            "Lanjutkan?"
         )
-        
+        conf_msg = await message.reply(conf_txt, reply_markup=kb_conf)
         press2 = await wait_for_message(chat_id, user_id, 120)
         await _clean_msgs(conf_msg, press2)
         
@@ -366,7 +363,6 @@ async def _cut_video(message: Message):
                     await _clean_msgs(menu_msg)
                     return await message.answer("❌ Tidak ada segmen yang dipotong. Dibatalkan.", reply_markup=ReplyKeyboardRemove())
                 
-                # Tahap Konfirmasi Akhir
                 kb_conf = _make_reply_kb(["✅ Potong", "❌ Batal"], 2)
                 conf_txt = (
                     f"**✂️ KONFIRMASI POTONG SEGMEN**\n\n"
@@ -587,14 +583,14 @@ async def _autocrop_video(message: Message):
     fname = _get_fname(link, custom_file_name)
 
     try:
-        kb = _make_reply_kb(["✅ Autocrop", "❌ Batal"], 2)
+        kb_conf = _make_reply_kb(["✅ Autocrop", "❌ Batal"], 2)
         conf_txt = (
             f"**✨ KONFIRMASI AUTOCROP**\n\n"
             f"🎬 File: `{fname}`\n"
-            f"🗑️ Tindakan: `Deteksi dan hapus bilah hitam (black bars) secara otomatis.`\n\n"
+            f"🗑️ Tindakan: `Menghapus bilah hitam (black bars).`\n\n"
             "Lanjutkan?"
         )
-        menu_msg = await message.reply(conf_txt, reply_markup=kb)
+        menu_msg = await message.reply(conf_txt, reply_markup=kb_conf)
         resp = await wait_for_message(chat_id, user_id, 120)
         await _clean_msgs(menu_msg, resp)
         
@@ -733,7 +729,6 @@ async def _extract_streams(message: Message):
         import time
         temp_ps = ProcessStatus(user_id, chat_id, get_username(message), message.from_user.first_name, message, N_.pre_download)
         
-        # Bypass antrean untuk file Telegram agar unduhan instan dan anti-stuck!
         if not isinstance(link, str):
             target = link.video or link.document
             dest = f"{temp_ps.dir}/{target.file_name or 'video.mp4'}"
@@ -741,7 +736,6 @@ async def _extract_streams(message: Message):
             temp_ps.append_dw_files(dest)
             return dest, temp_ps
 
-        # Download jika URL menggunakan Antrean
         funcs = [["Aria", Aria2.add_aria2c_download, [link, temp_ps, False, False, False, False]]]
         await add_task({"process_status": temp_ps, "functions": funcs})
         
@@ -854,7 +848,6 @@ async def _media_info(message: Message):
         import time
         temp_ps = ProcessStatus(user_id, chat_id, get_username(message), message.from_user.first_name, message, N_.pre_download)
         
-        # Bypass antrean untuk file Telegram
         if not isinstance(link, str):
             target = link.video or link.document or link.audio
             dest = f"{temp_ps.dir}/{target.file_name or 'media.mp4'}"
