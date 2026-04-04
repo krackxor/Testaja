@@ -1,9 +1,10 @@
 """
 ╔══════════════════════════════════════════════════════════════════════╗
 ║                    bot/AutoClip.py — v3.1                            ║
-║       Auto Clip: Potong video panjang → Shorts/Reels terpisah        ║
+║        Auto Clip: Potong video panjang → Shorts/Reels terpisah       ║
 ╠══════════════════════════════════════════════════════════════════════╣
 ║  CHANGELOG: Migrasi total ke Aiogram 3.x Router & Message objects    ║
+║  [FIX HIGH] Implementasi CMD_SUFFIX pada command filter /clip        ║
 ║  [FIX] Syntax error pada pesan help /clip diperbaiki                 ║
 ║  [FIX] Penambahan fungsi callback handler yang sebelumnya terpotong  ║
 ╚══════════════════════════════════════════════════════════════════════╝
@@ -366,7 +367,7 @@ def _build_clip_dashboard(user_id: int, topic: str, mode: str, quality: str, yt_
     buttons.append([InlineKeyboardButton(text="▶️ Mulai Render", callback_data=f"ac_go_{user_id}"), InlineKeyboardButton(text="❌ Batal", callback_data=f"ac_cancel_{user_id}")])
     return dash_text, buttons
 
-@router.message(Command("clip"))
+@router.message(Command(f"clip{CMD_SUFFIX}"))
 async def autoclip_handler(message: Message, command: CommandObject) -> None:
     user_id = message.from_user.id
     if not _is_vip(user_id):
