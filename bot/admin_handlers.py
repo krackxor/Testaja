@@ -1,6 +1,6 @@
 """
 ╔══════════════════════════════════════════════════════════════════════╗
-║       bot/admin_handlers.py — v3.2                                   ║
+║       bot/admin_handlers.py                                          ║
 ║       Admin & System Command Handlers (Aiogram 3.x)                  ║
 ╠══════════════════════════════════════════════════════════════════════╣
 ║  Commands: /start /time /restart /herokurestart /log /logs           ║
