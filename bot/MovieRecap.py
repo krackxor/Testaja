@@ -1,9 +1,16 @@
 """
 ╔══════════════════════════════════════════════════════════════════════╗
-║                    bot/MovieRecap.py — v3.1                          ║
+║                    bot/MovieRecap.py — v3.2                          ║
 ║        Movie Recap: Rangkuman Film Otomatis dengan Voiceover AI      ║
 ╠══════════════════════════════════════════════════════════════════════╣
-║  CHANGELOG: Migrasi total ke Aiogram 3.x Router & Message objects    ║
+║  CHANGELOG:                                                          ║
+║  [UX PREMIUM] Migrasi Total Dashboard Inline menjadi Interactive     ║
+║               Wizard (Step-by-step) dengan Reply Keyboard Singkat!   ║
+║  [UX PREMIUM] Opsi "Kustom" ditambahkan pada pemilihan Durasi.       ║
+║  [UX PREMIUM] Auto-Delete disematkan di semua langkah setup produksi ║
+║               agar obrolan tidak dipenuhi pesan sampah.              ║
+║  [UX PREMIUM] Kotak Konfirmasi (Summary Box) diseragamkan dengan     ║
+║               desain modul admin dan advanced_media_handlers.        ║
 ║  [FIX HIGH] Implementasi CMD_SUFFIX pada semua Command filter        ║
 ╚══════════════════════════════════════════════════════════════════════╝
 """
@@ -17,7 +24,10 @@ from moviepy.video.fx import FadeIn, FadeOut
 import edge_tts
 
 from aiogram import Router, F
-from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton, FSInputFile
+from aiogram.types import (
+    Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton, FSInputFile,
+    ReplyKeyboardMarkup, KeyboardButton, ReplyKeyboardRemove
+)
 from aiogram.filters import Command, CommandObject
 from aiogram.exceptions import TelegramBadRequest
 
@@ -29,6 +39,8 @@ from bot_helper.Process.Running_Process import append_running_process, check_run
 from bot_helper.Process.Running_Tasks import working_task, working_task_lock, queued_task, queued_task_lock
 from bot_helper.Telegram.Telegram_Client import Telegram
 from config.config import Config
+
+from bot.shared import wait_for_message
 
 try:
     from bot.YTUpload import upload_to_youtube, YOUTUBE_ENABLED
@@ -60,8 +72,37 @@ QUALITY_PRESETS = {
     "balanced": {"bitrate": "6000k", "preset": "fast",      "label": "⚖️ Seimbang"},
     "hq":       {"bitrate": "8000k", "preset": "slow",      "label": "💎 HQ"},
 }
-ORIG_AUDIO_VOL, _recap_state = 0.10, {}
+ORIG_AUDIO_VOL = 0.10
 os.makedirs(TEMP_DIR, exist_ok=True)
+
+# ═══════════════════════════════════════════════════════════════════════
+#  UI & CLEANUP HELPERS
+# ═══════════════════════════════════════════════════════════════════════
+
+async def _clean_msgs(*msgs):
+    """Menghapus pesan untuk menjaga chat tetap rapi."""
+    for m in msgs:
+        if m:
+            try: await m.delete()
+            except Exception: pass
+
+def _make_reply_kb(options: list, row_width: int = 2) -> ReplyKeyboardMarkup:
+    """Membuat Reply Keyboard dengan mudah."""
+    kb = []
+    row = []
+    for opt in options:
+        row.append(KeyboardButton(text=opt))
+        if len(row) == row_width:
+            kb.append(row)
+            row = []
+    if row:
+        kb.append(row)
+    return ReplyKeyboardMarkup(keyboard=kb, resize_keyboard=True, one_time_keyboard=True)
+
+
+# ═══════════════════════════════════════════════════════════════════════
+#  CORE FUNCTIONS
+# ═══════════════════════════════════════════════════════════════════════
 
 def _is_vip(user_id: int) -> bool:
     if user_id == Config.OWNER_ID or user_id in Config.SUDO_USERS: return True
@@ -299,7 +340,6 @@ async def _recap_worker(process_status: ProcessStatus, original_message: Message
     finally:
         if txt_path: _cleanup(txt_path)
         for f in chapter_files: _cleanup(f)
-        _recap_state.pop(process_status.user_id, None)
         await remove_running_process(process_status.process_id)
         async with working_task_lock:
             for task in list(working_task):
@@ -353,118 +393,165 @@ async def _start_recap_task(process_status, original_message, reply_msg, movie_t
             async with queued_task_lock:
                 if task_wrapper in queued_task: queued_task.remove(task_wrapper)
             await _safe_edit(status_msg, "❌ **Timeout antrian (2 jam).** Coba lagi.")
-            _recap_state.pop(process_status.user_id, None)
             return
-        if not check_running_process(process_status.process_id):
-            _recap_state.pop(process_status.user_id, None); return
+        if not check_running_process(process_status.process_id): return
     await _recap_worker(process_status, original_message, reply_msg, movie_title, mode, target_min, quality, narasi_on, yt_enabled, yt_privacy, status_msg)
 
-def _build_dashboard(user_id, movie_title, mode, target_min, quality, narasi_on, yt_enabled, yt_privacy) -> tuple[str, list]:
-    dash = f"🎬 **Movie Recap — Konfirmasi**\n{'─'*32}\n  🎞️ Film      `{movie_title}`\n  🤖 Mode      `{'Auto AI Vision' if mode=='auto' else 'Chapter + Narasi'}`\n  ⏱️ Durasi    `{int(target_min)} menit`\n  ⚙️ Quality   `{QUALITY_PRESETS[quality]['label']}`\n  🎙️ Narasi    `{'Aktif' if narasi_on else 'Nonaktif'}`\n  📺 YouTube   `{'✅ Upload ('+yt_privacy+')' if yt_enabled else '❌ Skip'}`\n{'─'*32}\n_Sesuaikan pengaturan lalu tekan ▶️ Mulai_"
-    def _btn(lbl, cb): return InlineKeyboardButton(text=lbl, callback_data=cb)
-    buttons = [
-        [_btn(f"{'✅ ' if mode=='auto' else ''}🤖 Auto AI", f"rc_mode_{user_id}_auto"), _btn(f"{'✅ ' if mode=='chapter' else ''}📝 Chapter", f"rc_mode_{user_id}_chapter")],
-        [_btn(f"{'✅ ' if target_min==m else ''}{m}m", f"rc_dur_{user_id}_{m}") for m in [5, 10, 12, 15]],
-        [_btn(f"{'✅ ' if quality==q else ''}{lbl}", f"rc_qual_{user_id}_{q}") for q, lbl in zip(["fast", "balanced", "hq"], ["⚡ Cepat", "⚖️ Seimbang", "💎 HQ"])]
-    ]
-    if mode == "chapter": buttons.append([_btn("✅ Narasi Aktif" if narasi_on else "🔇 Tanpa Narasi", f"rc_narasi_{user_id}")])
-    if YOUTUBE_ENABLED and _HAS_YTUPLOAD:
-        buttons.append([_btn("✅ Upload YT" if yt_enabled else "☐ Upload YT", f"rc_yt_{user_id}")])
-        if yt_enabled: buttons.append([_btn(f"{'✅ ' if yt_privacy==p else ''} {lbl}", f"rc_prv_{user_id}_{p}") for p, lbl in zip(["private","unlisted","public"], ["🔒 Private","🔗 Unlisted","🌍 Public"])])
-    buttons.append([_btn("▶️ Mulai Recap", f"rc_go_{user_id}"), _btn("❌ Batal", f"rc_cancel_{user_id}")])
-    return dash, buttons
+
+# ═══════════════════════════════════════════════════════════════════════
+#  MASTER COMMAND HANDLER (WIZARD UI)
+# ═══════════════════════════════════════════════════════════════════════
 
 @router.message(Command(f"recap{CMD_SUFFIX}"))
 async def recap_handler(message: Message, command: CommandObject) -> None:
     user_id = message.from_user.id
-    if not _is_vip(user_id): return await message.reply("👑 **Fitur Eksklusif VIP**\nHanya untuk member Premium.", reply_markup=InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="💬 Hubungi Admin", url=f"https://t.me/{Config.BOT_USERNAME}")]]))
+    chat_id = message.chat.id
+    
+    if not _is_vip(user_id): 
+        return await message.reply(
+            "👑 **Fitur Eksklusif VIP**\nHanya untuk member Premium.", 
+            reply_markup=InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="💬 Hubungi Admin", url=f"https://t.me/{Config.BOT_USERNAME}")]])
+        )
+        
     movie_title = (command.args or "").strip()
-    reply_msg = message.reply_to_message; has_txt = False
+    reply_msg = message.reply_to_message
+    has_txt = False
+    
     if reply_msg and reply_msg.document:
         fname = reply_msg.document.file_name or ""
         if fname.lower().endswith(".txt") or "text" in (reply_msg.document.mime_type or ""):
             has_txt = True
             if not movie_title: movie_title = fname.rsplit(".", 1)[0].strip() or ""
+            
     if not movie_title:
-        avail = _list_movies(); av_text = "\n".join(f"• `{m}`" for m in avail[:8]) if avail else "_Belum ada film_"
+        avail = _list_movies()
+        av_text = "\n".join(f"• `{m}`" for m in avail[:8]) if avail else "_Belum ada film lokal._"
         return await message.reply(f"❌ **Sebutkan nama film!**\nFormat: `/recap{CMD_SUFFIX} NamaFilm`\n**Film tersedia:**\n{av_text}")
+        
     await ensure_user_data_structure(user_id)
-    default_mode = "chapter" if has_txt else "auto"
-    _recap_state[user_id] = {"reply_msg": reply_msg if has_txt else None, "movie_title": movie_title, "mode": default_mode, "target_min": 10.0, "quality": "balanced", "narasi_on": True, "yt_enabled": False, "yt_privacy": "private"}
-    dash, buttons = _build_dashboard(user_id, movie_title, default_mode, 10.0, "balanced", True, False, "private")
-    await message.reply(dash, reply_markup=InlineKeyboardMarkup(inline_keyboard=buttons))
+    
+    # ── WIZARD STEP 1: MODE ──
+    kb_mode = _make_reply_kb(["🤖 Auto AI", "📝 Chapter", "❌ Batal"], 2)
+    msg_mode = await message.reply("🤖 **Pilih Mode Recap:**", reply_markup=kb_mode)
+    resp_mode = await wait_for_message(chat_id, user_id, 60)
+    await _clean_msgs(msg_mode, resp_mode)
+    
+    if not resp_mode or "batal" in (resp_mode.text or "").lower():
+        return await message.answer("❌ Dibatalkan.", reply_markup=ReplyKeyboardRemove())
+        
+    mode = "chapter" if "chapter" in (resp_mode.text or "").lower() else "auto"
+    
+    if mode == "chapter" and not has_txt:
+        return await message.answer("❌ Mode CHAPTER butuh file .txt yang dibalas (reply). Dibatalkan.", reply_markup=ReplyKeyboardRemove())
 
-def _get_st(call, uid):
-    if uid not in _recap_state: asyncio.create_task(call.answer("⚠️ Session expired.", show_alert=True)); return None
-    return _recap_state[uid]
+    # ── WIZARD STEP 2: DURATION ──
+    kb_dur = _make_reply_kb(["5 Menit", "10 Menit", "15 Menit", "Kustom", "❌ Batal"], 3)
+    msg_dur = await message.reply("⏱️ **Pilih Target Durasi:**", reply_markup=kb_dur)
+    resp_dur = await wait_for_message(chat_id, user_id, 60)
+    await _clean_msgs(msg_dur, resp_dur)
+    
+    txt_dur = (resp_dur.text or "").lower()
+    if not resp_dur or "batal" in txt_dur:
+        return await message.answer("❌ Dibatalkan.", reply_markup=ReplyKeyboardRemove())
+        
+    target_min = 10.0
+    if "kustom" in txt_dur:
+        msg_cust = await message.reply("Ketik target durasi (dalam menit, contoh: `12`):", reply_markup=ReplyKeyboardRemove())
+        resp_cust = await wait_for_message(chat_id, user_id, 60)
+        await _clean_msgs(msg_cust, resp_cust)
+        if not resp_cust or "batal" in (resp_cust.text or "").lower():
+            return await message.answer("❌ Dibatalkan.", reply_markup=ReplyKeyboardRemove())
+        try: target_min = float(resp_cust.text.strip())
+        except: return await message.answer("❌ Input tidak valid. Dibatalkan.", reply_markup=ReplyKeyboardRemove())
+    else:
+        try: target_min = float(re.sub(r'[^\d.]', '', txt_dur))
+        except: target_min = 10.0
 
-async def _reb(call, uid):
-    st = _recap_state.get(uid)
-    if st: dash, btns = _build_dashboard(uid, st["movie_title"], st["mode"], st["target_min"], st["quality"], st["narasi_on"], st["yt_enabled"], st["yt_privacy"]); await _safe_edit(call.message, dash, buttons=btns)
+    # ── WIZARD STEP 3: QUALITY ──
+    kb_qual = _make_reply_kb(["⚡ Cepat", "⚖️ Seimbang", "💎 HQ", "❌ Batal"], 3)
+    msg_qual = await message.reply("⚙️ **Pilih Kualitas Render:**", reply_markup=kb_qual)
+    resp_qual = await wait_for_message(chat_id, user_id, 60)
+    await _clean_msgs(msg_qual, resp_qual)
+    
+    txt_qual = (resp_qual.text or "").lower()
+    if not resp_qual or "batal" in txt_qual: 
+        return await message.answer("❌ Dibatalkan.", reply_markup=ReplyKeyboardRemove())
+    quality = "fast" if "cepat" in txt_qual else "hq" if "hq" in txt_qual else "balanced"
 
-@router.callback_query(F.data.startswith("rc_mode_"))
-async def rc_mode_cb(call: CallbackQuery):
-    await call.answer(); uid = int(call.data.split("_")[2]); val = call.data.split("_")[3]
-    if call.from_user.id != uid: return await call.answer("❌ Bukan milikmu!", show_alert=True)
-    st = _get_st(call, uid)
-    if st: st["mode"] = val; st["reply_msg"] = None if val == "auto" else st["reply_msg"]; await _reb(call, uid)
+    # ── WIZARD STEP 4: NARRATION (Chapter Only) ──
+    narasi_on = True
+    if mode == "chapter":
+        kb_nar = _make_reply_kb(["✅ Aktif", "🔇 Tanpa Narasi", "❌ Batal"], 2)
+        msg_nar = await message.reply("🎙️ **Gunakan Voiceover (Narasi AI)?**", reply_markup=kb_nar)
+        resp_nar = await wait_for_message(chat_id, user_id, 60)
+        await _clean_msgs(msg_nar, resp_nar)
+        
+        txt_nar = (resp_nar.text or "").lower()
+        if not resp_nar or "batal" in txt_nar: 
+            return await message.answer("❌ Dibatalkan.", reply_markup=ReplyKeyboardRemove())
+        narasi_on = "aktif" in txt_nar
 
-@router.callback_query(F.data.startswith("rc_dur_"))
-async def rc_dur_cb(call: CallbackQuery):
-    await call.answer(); uid = int(call.data.split("_")[2]); val = float(call.data.split("_")[3])
-    if call.from_user.id != uid: return await call.answer("❌ Bukan milikmu!", show_alert=True)
-    st = _get_st(call, uid)
-    if st: st["target_min"] = val; await _reb(call, uid)
+    # ── WIZARD STEP 5: YOUTUBE ──
+    yt_enabled, yt_privacy = False, "private"
+    if YOUTUBE_ENABLED and _HAS_YTUPLOAD:
+        kb_yt = _make_reply_kb(["❌ Skip", "🌍 Public", "🔗 Unlisted", "🔒 Private", "❌ Batal"], 3)
+        msg_yt = await message.reply("📺 **Upload ke YouTube Otomatis?**", reply_markup=kb_yt)
+        resp_yt = await wait_for_message(chat_id, user_id, 60)
+        await _clean_msgs(msg_yt, resp_yt)
+        
+        txt_yt = (resp_yt.text or "").lower()
+        if not resp_yt or "batal" in txt_yt: 
+            return await message.answer("❌ Dibatalkan.", reply_markup=ReplyKeyboardRemove())
+        yt_enabled = "skip" not in txt_yt
+        if yt_enabled:
+            yt_privacy = "public" if "public" in txt_yt else "unlisted" if "unlisted" in txt_yt else "private"
 
-@router.callback_query(F.data.startswith("rc_qual_"))
-async def rc_qual_cb(call: CallbackQuery):
-    await call.answer(); uid = int(call.data.split("_")[2]); val = call.data.split("_")[3]
-    if call.from_user.id != uid: return await call.answer("❌ Bukan milikmu!", show_alert=True)
-    st = _get_st(call, uid)
-    if st: st["quality"] = val; await _reb(call, uid)
+    # ── WIZARD STEP 6: CONFIRMATION ──
+    kb_conf = _make_reply_kb(["✅ Mulai Recap", "❌ Batal"], 2)
+    conf_txt = (
+        f"**🎬 KONFIRMASI MOVIE RECAP**\n\n"
+        f"🎞️ **Film:** `{movie_title}`\n"
+        f"🤖 **Mode:** `{'Auto AI Vision' if mode=='auto' else 'Chapter + Narasi'}`\n"
+        f"⏱️ **Durasi:** `{int(target_min)} menit`\n"
+        f"⚙️ **Quality:** `{QUALITY_PRESETS[quality]['label']}`\n"
+        f"🎙️ **Narasi:** `{'Aktif' if narasi_on else 'Nonaktif'}`\n"
+        f"📺 **YouTube:** `{'✅ Upload ('+yt_privacy.capitalize()+')' if yt_enabled else '❌ Skip'}`\n\n"
+        "Lanjutkan?"
+    )
+    msg_conf = await message.reply(conf_txt, reply_markup=kb_conf)
+    resp_conf = await wait_for_message(chat_id, user_id, 60)
+    await _clean_msgs(msg_conf, resp_conf)
+    
+    if not resp_conf or "batal" in (resp_conf.text or "").lower():
+        return await message.answer("❌ Dibatalkan.", reply_markup=ReplyKeyboardRemove())
+        
+    await message.answer("✅ Menyiapkan Mesin Recap...", reply_markup=ReplyKeyboardRemove())
 
-@router.callback_query(F.data.startswith("rc_narasi_"))
-async def rc_narasi_cb(call: CallbackQuery):
-    await call.answer(); uid = int(call.data.split("_")[2])
-    if call.from_user.id != uid: return await call.answer("❌ Bukan milikmu!", show_alert=True)
-    st = _get_st(call, uid)
-    if st: st["narasi_on"] = not st["narasi_on"]; await _reb(call, uid)
+    user_name = message.from_user.username or ""
+    user_first_name = message.from_user.first_name or str(user_id)
+    ps = ProcessStatus(user_id, chat_id, user_name, user_first_name, message, getattr(Names, "movierecap", "MovieRecap"), "Telegram")
+    ps.file_name = f"{movie_title}_recap"
+    
+    init_text  = f"🎬 **Movie Recap Dimulai**\n{'─'*32}\n  🎞️ Film      `{movie_title}`\n  🤖 Mode      `{'Auto AI Vision' if mode=='auto' else 'Chapter + Narasi'}`\n  ⏱️ Durasi    `{int(target_min)} menit`\n{'─'*32}\n**ID:** `{ps.process_id}`\n`/cancel{CMD_SUFFIX} process {ps.process_id}`"
+    cancel_btn = [[InlineKeyboardButton(text="❌ Batalkan", callback_data=f"rc_cancel_{user_id}_{ps.process_id}")]]
+    
+    status_msg = await message.answer(init_text, reply_markup=InlineKeyboardMarkup(inline_keyboard=cancel_btn))
+    
+    asyncio.create_task(_start_recap_task(
+        ps, message, reply_msg, movie_title, mode, target_min, quality, narasi_on, yt_enabled, yt_privacy, status_msg
+    ))
 
-@router.callback_query(F.data.startswith("rc_yt_"))
-async def rc_yt_cb(call: CallbackQuery):
-    await call.answer(); uid = int(call.data.split("_")[2])
-    if call.from_user.id != uid: return await call.answer("❌ Bukan milikmu!", show_alert=True)
-    st = _get_st(call, uid)
-    if st: st["yt_enabled"] = not st["yt_enabled"]; await _reb(call, uid)
-
-@router.callback_query(F.data.startswith("rc_prv_"))
-async def rc_prv_cb(call: CallbackQuery):
-    await call.answer(); uid = int(call.data.split("_")[2]); val = call.data.split("_")[3]
-    if call.from_user.id != uid: return await call.answer("❌ Bukan milikmu!", show_alert=True)
-    st = _get_st(call, uid)
-    if st: st["yt_privacy"] = val; await _reb(call, uid)
 
 @router.callback_query(F.data.startswith("rc_cancel_"))
 async def rc_cancel_cb(call: CallbackQuery):
-    await call.answer("🚫 Membatalkan..."); parts = call.data.split("_"); uid = int(parts[2])
-    if call.from_user.id != uid: return await call.answer("❌ Bukan milikmu!", show_alert=True)
-    if len(parts) >= 4: await remove_running_process(parts[3])
-    _recap_state.pop(uid, None); await _safe_edit(call.message, "❌ **Movie Recap dibatalkan.**")
-
-@router.callback_query(F.data.startswith("rc_go_"))
-async def rc_go_cb(call: CallbackQuery):
-    await call.answer("⏳ Memulai..."); uid = int(call.data.split("_")[2])
-    if call.from_user.id != uid: return await call.answer("❌ Bukan milikmu!", show_alert=True)
-    if not _is_vip(uid): return await call.message.edit_text("❌ Akses VIP habis. Hubungi admin.")
-    st = _recap_state.get(uid)
-    if not st: return await call.message.edit_text("⚠️ Session expired.")
-    if st["mode"] == "chapter" and st["reply_msg"] is None: return await call.message.edit_text("❌ **Mode CHAPTER membutuhkan file .txt!**")
-
-    user_name = call.from_user.username or ""; user_first_name = call.from_user.first_name or str(uid)
-    ps = ProcessStatus(uid, call.message.chat.id, user_name, user_first_name, call.message, getattr(Names, "movierecap", "MovieRecap"), "Telegram")
-    ps.file_name = f"{st['movie_title']}_recap"
-    init_text  = f"🎬 **Movie Recap Dimulai**\n{'─'*32}\n  🎞️ Film      `{st['movie_title']}`\n  🤖 Mode      `{'Auto AI Vision' if st['mode']=='auto' else 'Chapter + Narasi'}`\n  ⏱️ Durasi    `{int(st['target_min'])} menit`\n{'─'*32}\n**ID:** `{ps.process_id}`\n`/cancel{CMD_SUFFIX} process {ps.process_id}`"
-    cancel_btn = [[InlineKeyboardButton(text="❌ Batalkan", callback_data=f"rc_cancel_{uid}_{ps.process_id}")]]
-    try: status_msg = await call.message.edit_text(init_text, reply_markup=InlineKeyboardMarkup(inline_keyboard=cancel_btn))
-    except: status_msg = await call.message.answer(init_text, reply_markup=InlineKeyboardMarkup(inline_keyboard=cancel_btn))
-    asyncio.create_task(_start_recap_task(ps, call.message, st["reply_msg"], st["movie_title"], st["mode"], st["target_min"], st["quality"], st["narasi_on"], st["yt_enabled"], st["yt_privacy"], status_msg))
+    await call.answer("🚫 Membatalkan...")
+    parts = call.data.split("_")
+    uid = int(parts[2])
+    
+    if call.from_user.id != uid: 
+        return await call.answer("❌ Bukan milikmu!", show_alert=True)
+        
+    if len(parts) >= 4: 
+        await remove_running_process(parts[3])
+        
+    await _safe_edit(call.message, "❌ **Movie Recap dibatalkan.**")
