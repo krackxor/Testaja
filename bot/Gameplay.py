@@ -1,6 +1,6 @@
 """
 ╔══════════════════════════════════════════════════════════════════════╗
-║    bot/Gameplay.py — v4.4 (NETFLIX LORE EDITION - INTERNATIONAL)     ║
+║    bot/Gameplay.py        (NETFLIX LORE EDITION - INTERNATIONAL)     ║
 ║    Studio Khoirul: Core Engine Video Production Bot (Aiogram 3.x)    ║
 ╠══════════════════════════════════════════════════════════════════════╣
 ║  CHANGELOG v4.4:                                                     ║
