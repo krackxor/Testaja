@@ -5,6 +5,7 @@
 ╠══════════════════════════════════════════════════════════════════════╣
 ║  CHANGELOG dari versi lama:                                          ║
 ║  [NEW]       Integrasi Aiogram 3.x (Trinity Clients Architecture)    ║
+║  [FIX HIGH]  Pyrogram "Attached to different loop" Crash Fixed!      ║
 ║  [FIX HIGH]  USE_SESSION_STRING comparison string→bool               ║
 ║  [FIX HIGH]  Lambda closure bug di loop — pakai functools.partial    ║
 ║  [FIX HIGH]  Bare except → except AttributeError                     ║
@@ -333,6 +334,9 @@ class Telegram:
                         )
 
                     elif upload_method == "Pyrogram" and Telegram.PYROGRAM_CLIENT:
+                        # ── [FIX HIGH] Sinkronisasi Loop Pyrogram sebelum Upload ──
+                        Telegram.PYROGRAM_CLIENT.loop = asyncio.get_running_loop()
+                        
                         duration, width, height = _get_video_meta(file_path)
                         msg_in_pm = await Telegram.PYROGRAM_CLIENT.send_video(
                             chat_id=user_pm_id,
@@ -547,6 +551,9 @@ class Telegram:
                 await new_event.reply("❌ Pyrogram client tidak aktif. Set USE_PYROGRAM=True di config.")
                 return False
             try:
+                # ── [FIX HIGH] Sinkronisasi Loop Pyrogram sebelum Download ──
+                Telegram.PYROGRAM_CLIENT.loop = asyncio.get_running_loop()
+
                 # Penentuan Chat ID yang aman untuk Aiogram / Telethon Event
                 chat_id_dl = process_status.chat_id
                 if hasattr(process_status.event, "is_group") and getattr(process_status.event, "is_group") and Config.AUTH_GROUP_ID:
