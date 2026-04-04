@@ -1,6 +1,6 @@
 """
 ╔══════════════════════════════════════════════════════════════════════╗
-║    bot_helper/Handlers/vip_handlers.py — v3.2                        ║
+║    bot/vip_handlers.py                                               ║
 ║    VIP Management & Trakteer Payment Verification (Aiogram)          ║
 ╠══════════════════════════════════════════════════════════════════════╣
 ║  Commands: /verify /myvip /add_vip /delete_vip /view_vip             ║
