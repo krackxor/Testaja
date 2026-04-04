@@ -1,17 +1,17 @@
 """
 ╔══════════════════════════════════════════════════════════════════════╗
-║    bot/Gameplay.py        (NETFLIX LORE EDITION - INTERNATIONAL)     ║
+║    bot/Gameplay.py — v4.5 (NETFLIX LORE EDITION - INTERNATIONAL)     ║
 ║    Studio Khoirul: Core Engine Video Production Bot (Aiogram 3.x)    ║
 ╠══════════════════════════════════════════════════════════════════════╣
-║  CHANGELOG v4.4:                                                     ║
+║  CHANGELOG v4.5:                                                     ║
 ║  [UX PREMIUM] Migrasi Total Dashboard Inline menjadi Interactive     ║
 ║               Wizard (Step-by-step) dengan Reply Keyboard Singkat!   ║
 ║  [UX PREMIUM] Auto-Delete disematkan di semua langkah setup produksi ║
 ║               agar obrolan tidak dipenuhi pesan sampah.              ║
 ║  [UX PREMIUM] Kotak Konfirmasi (Summary Box) diseragamkan dengan     ║
 ║               desain modul admin dan media_handlers.                 ║
+║  [FIX HIGH] Perbaikan logika _try_txt untuk cegah AttributeError.    ║
 ║  [FIX HIGH] Threading untuk operasi MoviePy & I/O                    ║
-║  [FIX HIGH] Command Filters sekarang membaca CMD_SUFFIX.             ║
 ╚══════════════════════════════════════════════════════════════════════╝
 """
 
@@ -570,7 +570,7 @@ def make_burst_rating_card(score, game_title, duration, w=SHORT_W, h=SHORT_H):
     g_sizes = [_measure(l, fs_g) for l in g_lines]; g_gap = int(h*0.008); GAP = int(h*0.016); CPX, CPY = int(w*0.05) if is_portrait else int(w*0.08), int(h*0.04) if is_portrait else int(h*0.045)
     cw_card = w-CPX*2; fs_stl, stw, sth, star_gap, star_row_w = _calc_stars(cw_card); tot_h = sh+GAP+sth+GAP+lh+GAP+sum(gh for _,gh in g_sizes)+g_gap*max(0, len(g_lines)-1)+4; y0 = (h-tot_h)//2; cx, cy = CPX, y0-CPY; ch = tot_h+CPY*2
     canvas = Image.new("RGBA", (w, h), (0,0,0,0)); draw = ImageDraw.Draw(canvas)
-    draw.rectangle([cx, cy, cx+cw_card, cy+ch], fill=(0,0,0,220)); draw.rectangle([cx, cy, cx+cw_card, cy+4], fill=(*BURST_CYAN, 255)); draw.rectangle([cx, cy+ch-4, cx+cw_card, cy+ch], fill=(*BURST_CYAN, 255)); draw.rectangle([cx, cy, cx+4, cy+ch], fill=(*BURST_CYAN, 255)); draw.rectangle([cx+cw_card-4, cy, cx+cw_card, cy+ch], fill=(*BURST_CYAN, 255)); ry = y0
+    draw.rectangle([cx, cy, cx+cw_card, cy+ch], fill=(0,0,0,220)); draw.rectangle([cx, cy, cx+cw_card, cy+4], fill=(*BURST_CYAN, 255)); draw.rectangle([cx, cy, cx+cw_card, cy+ch], fill=(*BURST_CYAN, 255)); draw.rectangle([cx, cy, cx+4, cy+ch], fill=(*BURST_CYAN, 255)); draw.rectangle([cx+cw_card-4, cy, cx+cw_card, cy+ch], fill=(*BURST_CYAN, 255)); ry = y0
     _glow(draw, (w-sw)//2, ry, str(score), fs_num, col, BURST_CYAN, 5); ry += sh+GAP; sx_s = cx+(cw_card-star_row_w)//2
     for i in range(10): _glow(draw, sx_s+i*(stw+star_gap), ry, "★" if i<score else "☆", fs_stl, col if i<score else (30,30,50), col if i<score else (30,30,50), 2)
     ry += sth+GAP; _glow(draw, (w-lw)//2, ry, label, fs_lbl, col, BURST_CYAN, 3); ry += lh+GAP
@@ -935,7 +935,7 @@ async def master_studio_handler(message: Message) -> None:
     txt_path, gameplay_reply = None, None
     
     async def _try_txt(msg: Message):
-        if msg and msg.document and (msg.document.file_name or "").endswith(".txt") or "text" in (msg.document.mime_type or ""):
+        if msg and msg.document and ((msg.document.file_name or "").endswith(".txt") or "text" in (msg.document.mime_type or "")):
             p = tmp(f"studio_{int(time.time())}.txt"); await Telegram.AIOGRAM_BOT.download(msg.document, destination=p); return p
         return None
         
@@ -952,7 +952,7 @@ async def master_studio_handler(message: Message) -> None:
     await ensure_user_data_structure(user_id)
     
     # --- WIZARD START ---
-    # Resolusi
+    # Step 1: Resolusi
     kb_res = _make_reply_kb(["🖥 16:9", "📱 9:16", "🖥📱 Keduanya", "❌ Batal"], 3)
     msg_res = await message.reply("📐 **Pilih Resolusi Video:**", reply_markup=kb_res)
     resp_res = await wait_for_message(chat_id, user_id, 60)
@@ -964,7 +964,7 @@ async def master_studio_handler(message: Message) -> None:
     res_txt = (resp_res.text or "").lower()
     res_mode = "both" if "keduanya" in res_txt else "9:16" if "9:16" in res_txt else "16:9"
     
-    # Subtitle
+    # Step 2: Subtitle
     kb_sub = _make_reply_kb(["✅ ON", "❌ OFF", "❌ Batal"], 3)
     msg_sub = await message.reply("💬 **Gunakan Subtitle Bergerak?**", reply_markup=kb_sub)
     resp_sub = await wait_for_message(chat_id, user_id, 60)
@@ -975,20 +975,22 @@ async def master_studio_handler(message: Message) -> None:
         
     subs_on = True if "on" in (resp_sub.text or "").lower() else False
     
-    # YouTube
-    kb_yt = _make_reply_kb(["❌ Skip", "🌍 Public", "🔗 Unlisted", "🔒 Private", "❌ Batal"], 3)
-    msg_yt = await message.reply("📺 **Upload ke YouTube Otomatis?**", reply_markup=kb_yt)
-    resp_yt = await wait_for_message(chat_id, user_id, 60)
-    await _clean_msgs(msg_yt, resp_yt)
-    if not resp_yt or "batal" in (resp_yt.text or "").lower():
-        cleanup_temp([txt_path])
-        return await message.answer("❌ Dibatalkan.", reply_markup=ReplyKeyboardRemove())
-        
-    yt_txt = (resp_yt.text or "").lower()
-    yt_enabled = "skip" not in yt_txt
-    yt_privacy = "public" if "public" in yt_txt else "unlisted" if "unlisted" in yt_txt else "private"
+    # Step 3: YouTube
+    yt_enabled, yt_privacy = False, "private"
+    if YOUTUBE_ENABLED and _HAS_YTUPLOAD:
+        kb_yt = _make_reply_kb(["❌ Skip", "🌍 Public", "🔗 Unlisted", "🔒 Private", "❌ Batal"], 3)
+        msg_yt = await message.reply("📺 **Upload ke YouTube Otomatis?**", reply_markup=kb_yt)
+        resp_yt = await wait_for_message(chat_id, user_id, 60)
+        await _clean_msgs(msg_yt, resp_yt)
+        if not resp_yt or "batal" in (resp_yt.text or "").lower():
+            cleanup_temp([txt_path])
+            return await message.answer("❌ Dibatalkan.", reply_markup=ReplyKeyboardRemove())
+            
+        yt_txt = (resp_yt.text or "").lower()
+        yt_enabled = "skip" not in yt_txt
+        yt_privacy = "public" if "public" in yt_txt else "unlisted" if "unlisted" in yt_txt else "private"
     
-    # Confirmation
+    # Step 4: Konfirmasi Akhir (Summary Box)
     st = {
         "segment_name": segment_name, "title": data["title"], "description": data["description"], 
         "score": data["score"], "scenes": data["scenes"], "txt_path": txt_path, 
@@ -1007,7 +1009,7 @@ async def master_studio_handler(message: Message) -> None:
         f"📐 **Resolusi:** `{res_label}`\n"
         f"💬 **Subtitle:** `{'✅ ON' if subs_on else '❌ OFF'}`\n"
         f"📺 **YouTube:** `{yt_label}`\n\n"
-        "Mulai Render?"
+        "Lanjutkan?"
     )
     kb_conf = _make_reply_kb(["✅ Render", "❌ Batal"], 2)
     msg_conf = await message.reply(conf_txt, reply_markup=kb_conf)
@@ -1020,11 +1022,9 @@ async def master_studio_handler(message: Message) -> None:
         
     await message.answer("✅ Menyiapkan Mesin Produksi...", reply_markup=ReplyKeyboardRemove())
     
-    # Initialize Process Status
     sender_name = message.from_user.first_name or str(user_id)
     ps = ProcessStatus(user_id, chat_id, message.from_user.username or "", sender_name, message, getattr(Names,"studio_prod","Studio"), "Telegram")
     
-    # Download Gameplay if replied
     if gameplay_reply:
         gp_path = tmp(f"studio_gp_{int(time.time())}.mp4")
         status_tmp = await message.answer("⏳ Mengunduh video gameplay...")
@@ -1039,7 +1039,6 @@ async def master_studio_handler(message: Message) -> None:
             return await message.answer(f"❌ Gameplay untuk `{st['title']}` tidak ditemukan di server!\nGunakan `/addgameplay{CMD_SUFFIX}`.")
             
     init_text = f"🎬 **Produksi Dimulai: {st['segment_name']}**\n`{st['title']}` · `{len(st['scenes'])} scene`\n**ID:** `{ps.process_id}`\n`/cancel{CMD_SUFFIX} process {ps.process_id}`"
-    
     kb_action = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="❌ Batalkan", callback_data=f"prod_cancel_{user_id}_{ps.process_id}")]])
     status_msg = await message.answer(init_text, reply_markup=kb_action)
     
@@ -1204,4 +1203,4 @@ async def set_gameplay_cb(call: CallbackQuery) -> None:
 @router.callback_query(F.data == "set_yt")
 async def set_yt_cb(call: CallbackQuery) -> None: 
     await call.answer()
-    await call.message.answer(_dash("📺","YouTube Status",[("API Upload", "✅ Siap" if YOUTUBE_ENABLED else "❌ Belum diinstall"),("yt-dlp", "✅ Siap" if YTDLP_ENABLED else "❌ Belum diinstall"),("Token", "✅ Ada" if os.path.exists("token.json") else "❌ Belum login"),("Secret", "✅ Ada" if os.path.exists("client_secret.json") else "❌ Tidak ada")]))
+    await call.message.answer(_dash("📺","YouTube Status",[("API Upload", "✅ Siap" if YOUTUBE_ENABLED else "❌ Belum diinstall"),("yt-dlp", "✅ Siap" if YOUTUBE_ENABLED else "❌ Belum diinstall"),("Token", "✅ Ada" if os.path.exists("token.json") else "❌ Belum login"),("Secret", "✅ Ada" if os.path.exists("client_secret.json") else "❌ Tidak ada")]))
