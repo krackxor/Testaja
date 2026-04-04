@@ -1,7 +1,7 @@
 """
 ╔══════════════════════════════════════════════════════════════════════╗
 ║            bot_helper/Process/Running_Tasks.py                       ║
-║            Encoder1 Bot — v3.1                                       ║
+║            Encoder1 Bot — v3.1 (Aiogram 3.x)                         ║
 ╠══════════════════════════════════════════════════════════════════════╣
 ║  CHANGELOG dari versi lama:                                          ║
 ║  [FIX HIGH]  pkill ffmpeg global → kill PID spesifik                 ║
@@ -16,6 +16,8 @@
 ║  [FIX]       handle_autocrop stdout deadlock → DEVNULL               ║
 ║  [IMPROVE]   process_status_checker log → LOGGER.debug               ║
 ║  [IMPROVE]   upload_files cache user_data sekali                     ║
+║  [FIX CRIT]  Menghapus sisa Telethon Button → Aiogram Markup         ║
+║  [FIX HIGH]  Fallback send_message jika pesan asli (reply) dihapus   ║
 ╚══════════════════════════════════════════════════════════════════════╝
 """
 
@@ -32,8 +34,8 @@ from pathlib import Path
 from shutil import rmtree
 from time import time
 
-# ── Telethon ──────────────────────────────────────────────────────────
-from telethon.tl.custom import Button
+# ── Aiogram ───────────────────────────────────────────────────────────
+from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 
 # ── Internal ──────────────────────────────────────────────────────────
 from bot_helper.Database.User_Data import get_data, get_task_limit
@@ -108,8 +110,28 @@ async def _kill_ffmpeg_pids(process_id: str) -> int:
 
 
 # ═══════════════════════════════════════════════════════════════════════
-#  UTILITY
+#  UTILITY & MESSAGING HELPER
 # ═══════════════════════════════════════════════════════════════════════
+
+async def _safe_send(process_status, text: str, reply_markup=None):
+    """
+    [FIX HIGH] Kirim pesan dengan aman. Jika reply gagal (karena pesan dihapus),
+    maka fallback ke send_message biasa.
+    """
+    try:
+        kwargs = {}
+        if reply_markup:
+            kwargs["reply_markup"] = reply_markup
+        await process_status.event.reply(text, **kwargs)
+    except Exception:
+        try:
+            kwargs = {}
+            if reply_markup:
+                kwargs["reply_markup"] = reply_markup
+            await process_status.event.bot.send_message(chat_id=process_status.chat_id, text=text, **kwargs)
+        except Exception as err:
+            LOGGER.error(f"Gagal mengirim pesan peringatan ke {process_status.chat_id}: {err}")
+
 
 def create_log_file(log_file: str) -> None:
     """
@@ -235,7 +257,6 @@ async def process_status_checker() -> None:
         LOGGER.info("🔵 Process Status Checker dimulai")
 
     while True:
-        # [IMPROVE] debug bukan info — tidak flood log setiap 60 detik
         LOGGER.debug("Process Status Checker: cek dead processes")
 
         if not working_task and not queued_task:
@@ -250,12 +271,7 @@ async def process_status_checker() -> None:
                     LOGGER.warning(
                         f"⚠️  Task {ps.process_type} tidak respond 10 menit — dihapus"
                     )
-                    try:
-                        await ps.event.reply(
-                            "❗ Task ini dihapus karena tidak ada respons selama 10 menit."
-                        )
-                    except Exception:
-                        pass
+                    await _safe_send(ps, "❗ Task ini dihapus karena tidak ada respons selama 10 menit.")
                     await clear_trash(task, False, [])
                     await task_manager()
 
@@ -348,7 +364,10 @@ async def get_status_message(reply) -> str | bool:
 
     retry = 0
     if not working_task:
-        await reply.edit("⏳ Menunggu task dimulai...")
+        try:
+            await reply.edit("⏳ Menunggu task dimulai...")
+        except Exception:
+            pass
         while not working_task and retry < 30:
             await sleep(1)
             retry += 1
@@ -392,7 +411,7 @@ async def handle_autocrop(process_status) -> bool:
     crop_values = re.findall(r"crop=\d+:\d+:\d+:\d+", stderr_str)
 
     if not crop_values:
-        await process_status.event.reply("❌ Gagal mendeteksi bilah hitam.")
+        await _safe_send(process_status, "❌ Gagal mendeteksi bilah hitam.")
         return False
 
     crop_params = crop_values[-1]
@@ -401,7 +420,7 @@ async def handle_autocrop(process_status) -> bool:
 
     command, log_file, _, output_file, file_duration = get_commands(process_status)
     if not command:
-        await process_status.event.reply("❌ Gagal membuat perintah FFmpeg untuk autocrop.")
+        await _safe_send(process_status, "❌ Gagal membuat perintah FFmpeg untuk autocrop.")
         return False
 
     create_log_file(log_file)
@@ -421,11 +440,15 @@ async def handle_autocrop(process_status) -> bool:
 
     log_path = f"{process_status.dir}/FFMPEG_LOG.txt"
     if exists(log_path):
-        await process_status.event.client.send_file(
-            process_status.chat_id,
-            file=log_path,
-            caption=f"❌ Autocrop gagal (returncode: {ffmpeg_process.returncode})",
-        )
+        from aiogram.types import FSInputFile
+        try:
+            await process_status.event.bot.send_document(
+                process_status.chat_id,
+                document=FSInputFile(log_path),
+                caption=f"❌ Autocrop gagal (returncode: {ffmpeg_process.returncode})",
+            )
+        except Exception:
+            pass
     return False
 
 
@@ -454,10 +477,10 @@ async def handle_extract(process_status) -> bool:
         all_streams = json_loads(stdout.decode("utf-8", "replace")).get("streams", [])
     except Exception as e:
         LOGGER.error(f"❌ ffprobe gagal untuk extract: {e}", exc_info=True)
-        await process_status.event.reply(f"❌ Gagal membaca stream dari video: `{e}`")
+        await _safe_send(process_status, f"❌ Gagal membaca stream dari video: `{e}`")
         return False
 
-    commands    = []
+    commands     = []
     output_files = []
 
     for stream_map in process_status.extract_maps:
@@ -487,7 +510,7 @@ async def handle_extract(process_status) -> bool:
         commands.append(["ffmpeg", "-hide_banner", "-i", input_file, "-map", stream_map, "-c", "copy", "-y", output_file])
 
     if not commands:
-        await process_status.event.reply("❌ Tidak ada stream yang bisa diekstrak.")
+        await _safe_send(process_status, "❌ Tidak ada stream yang bisa diekstrak.")
         return False
 
     # [FIX] Semaphore(3) — max 3 ekstraksi paralel bukan semua sekaligus
@@ -503,7 +526,7 @@ async def handle_extract(process_status) -> bool:
         process_status.replace_send_list([f for f in output_files if exists(f)])
         return True
 
-    await process_status.event.reply("❌ Terjadi kesalahan saat mengekstrak satu atau lebih stream.")
+    await _safe_send(process_status, "❌ Terjadi kesalahan saat mengekstrak satu atau lebih stream.")
     return False
 
 
@@ -518,6 +541,7 @@ async def start_task(task: dict) -> None:
     [FIX HIGH] get_data()[user_id] → .get() dengan fallback
     [FIX HIGH] analyze_ffmpeg_error return dict → ambil ['diagnosis'] dan ['solutions_text']
     [FIX HIGH] Daftarkan PID ffmpeg ke _active_ffmpeg_pids
+    [FIX CRIT] Menggunakan InlineKeyboardMarkup dari Aiogram (Bukan Button.inline Telethon)
     """
     process_status = task["process_status"]
     multi_tasks    = process_status.multi_tasks
@@ -540,12 +564,12 @@ async def start_task(task: dict) -> None:
             process_status.set_dw_index(dw_index)
             download, aria2_status = await func_call(*func_args)
             if not download:
-                await process_status.event.reply(process_status.status_message)
+                await _safe_send(process_status, process_status.status_message)
                 break
             trash_objects.append(aria2_status)
             await process_status.update_status(aria2_status)
             if aria2_status.process_status != 1:
-                await process_status.event.reply(process_status.message)
+                await _safe_send(process_status, process_status.message)
                 break
             process_status.move_dw_file(aria2_status.name())
         else:
@@ -648,29 +672,30 @@ async def start_task(task: dict) -> None:
 
                         if exists(log_path):
                             # [FIX HIGH] analyze_ffmpeg_error return dict bukan tuple
-                            result      = await analyze_ffmpeg_error(log_path)
-                            error_reason  = result["diagnosis"]
-                            suggestions   = result["solutions_text"]
+                            result       = await analyze_ffmpeg_error(log_path)
+                            error_reason  = result.get("diagnosis", "Unknown Error")
+                            suggestions   = result.get("solutions_text", "Tidak ada saran.")
 
                             reply_text = (
                                 f"**Proses `{process_status.process_type}` gagal!**\n\n"
                                 f"**🔬 Diagnosis:**\n{error_reason}\n\n"
                                 f"**💡 Rekomendasi:**\n{suggestions}"
                             )
-                            buttons = [
-                                [Button.inline("🎬 Pengaturan Video", "video_settings"),
-                                 Button.inline("🎧 Pengaturan Audio", "audio_settings")],
-                                [Button.inline("🗒️ Kirim Log Lengkap",
-                                               f"send_log_{process_status.process_id}")],
-                            ]
-                            await process_status.event.reply(reply_text, buttons=buttons)
+                            # [FIX CRIT] Menggunakan InlineKeyboardMarkup dari Aiogram
+                            markup = InlineKeyboardMarkup(inline_keyboard=[
+                                [InlineKeyboardButton(text="🎬 Pengaturan Video", callback_data="video_settings"),
+                                 InlineKeyboardButton(text="🎧 Pengaturan Audio", callback_data="audio_settings")],
+                                [InlineKeyboardButton(text="🗒️ Kirim Log Lengkap", callback_data=f"send_log_{process_status.process_id}")],
+                            ])
+                            await _safe_send(process_status, reply_text, reply_markup=markup)
                         else:
-                            await process_status.event.reply(
+                            await _safe_send(
+                                process_status,
                                 f"❌ Proses `{process_status.process_type}` gagal "
                                 f"(returncode: {ffmpeg_process.returncode})."
                             )
-                        process_completed = False
-                        break
+                    process_completed = False
+                    break
 
                 except asyncio.TimeoutError:
                     LOGGER.error(
@@ -680,7 +705,8 @@ async def start_task(task: dict) -> None:
                         ffmpeg_process.kill()
                     except ProcessLookupError:
                         pass
-                    await process_status.event.reply(
+                    await _safe_send(
+                        process_status,
                         "❌ Proses encoding terlalu lama (> 2 jam) dan dihentikan otomatis."
                     )
                     process_completed = False
@@ -712,7 +738,7 @@ async def start_task(task: dict) -> None:
             if splitted_files:
                 process_status.replace_send_list(splitted_files)
             else:
-                await process_status.event.reply("❌ Gagal membagi video.")
+                await _safe_send(process_status, "❌ Gagal membagi video.")
                 process_completed = False
 
     # ── UPLOAD PHASE ──────────────────────────────────────────────────
