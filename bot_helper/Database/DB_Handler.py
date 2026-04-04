@@ -1,21 +1,21 @@
 """
 ╔══════════════════════════════════════════════════════════════════════╗
-║           bot_helper/Database/DB_Handler.py                          ║
-║           Encoder1 Bot — v3.1                                        ║
+║            bot_helper/Database/DB_Handler.py                         ║
+║            Encoder1 Bot — v3.1                                       ║
 ╠══════════════════════════════════════════════════════════════════════╣
 ║  CHANGELOG dari versi lama:                                          ║
-║  [SECURITY] eval(data_from_db) → json.loads()                       ║
-║  [SECURITY] str(dict) serialize → json.dumps()                      ║
-║  [FIX HIGH] Connection leak → Singleton pattern                     ║
-║  [FIX HIGH] Module-level variables crash NameError → class-level    ║
-║  [FIX]      Timeout ditambahkan ke AsyncIOMotorClient               ║
-║  [FIX]      valu==False → not valu                                  ║
-║  [FIX]      find_one() None → guard sebelum .get()                  ║
-║  [FIX]      LOGGER.info(e) → LOGGER.error(..., exc_info=True)      ║
-║  [FIX]      Index 'id' dibuat saat connect                          ║
-║  [IMPROVE]  Date disimpan sebagai datetime object bukan string      ║
-║  [IMPROVE]  Retry logic untuk transient network errors              ║
-║  [IMPROVE]  collection_name validation                              ║
+║  [SECURITY] eval(data_from_db) → json.loads()                        ║
+║  [SECURITY] str(dict) serialize → json.dumps()                       ║
+║  [FIX HIGH] Connection leak → Singleton pattern                      ║
+║  [FIX HIGH] Module-level variables crash NameError → class-level     ║
+║  [FIX]      Timeout ditambahkan ke AsyncIOMotorClient                ║
+║  [FIX]      valu==False → not valu                                   ║
+║  [FIX]      find_one() None → guard sebelum .get()                   ║
+║  [FIX]      LOGGER.info(e) → LOGGER.error(..., exc_info=True)        ║
+║  [FIX]      Index 'id' dibuat saat connect                           ║
+║  [IMPROVE]  Date disimpan sebagai datetime object bukan string       ║
+║  [IMPROVE]  Retry logic untuk transient network errors               ║
+║  [IMPROVE]  collection_name validation                               ║
 ╚══════════════════════════════════════════════════════════════════════╝
 """
 
@@ -150,7 +150,7 @@ class Database:
 
     # [FIX HIGH] Class-level client — dibuat sekali, dipakai semua instance
     _client: AsyncIOMotorClient | None = None
-    _db     = None
+    _db      = None
     _initialized: bool = False
 
     def __init__(self):
@@ -182,8 +182,8 @@ class Database:
             Database._db = Database._client[Config.NAME]
             LOGGER.info("✅ MongoDB client dibuat (singleton)")
 
-        self._client     = Database._client
-        self.db          = Database._db
+        self._client          = Database._client
+        self.db               = Database._db
         self.bot_username     = Config.NAME
         self.save_id          = Config.SAVE_ID
         self.collection_name  = Config.COLLECTION_NAME
@@ -281,7 +281,6 @@ class Database:
             LOGGER.error(f"❌ DB connection error saat save_data: {e}", exc_info=True)
             return False
         except Exception as e:
-            # [FIX] LOGGER.info(e) → LOGGER.error dengan traceback
             LOGGER.error(f"❌ save_data error: {e}", exc_info=True)
             return False
 
