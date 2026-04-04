@@ -1,15 +1,18 @@
 """
 ╔══════════════════════════════════════════════════════════════════════╗
-║            bot_helper/callbacks.py — v3.2                            ║
+║            bot_helper/callbacks.py — v3.3                            ║
 ║            Callback Query Handler (Aiogram 3.x)                      ║
 ╠══════════════════════════════════════════════════════════════════════╣
 ║  FIXES dari versi lama:                                              ║
+║  [UX PREMIUM] Menerapkan Auto-Delete pada seluruh input manual dari  ║
+║               menu Setting agar chat tidak dipenuhi pesan sampah.    ║
+║  [UX PREMIUM] Menyelaraskan teks konfirmasi & menambahkan fitur batal║
+║               di dalam input manual.                                 ║
 ║  [FIX HIGH] Menyuntikkan call.answer() untuk memutus loading tombol  ║
 ║             sehingga respons UI bot menjadi secepat kilat (Instan).  ║
 ║  [FIX HIGH] Implementasi CMD_SUFFIX pada teks panduan restart.       ║
 ║  [NEW] Migrasi total dari Telethon CallbackQuery ke Aiogram          ║
 ║  [NEW] Menggunakan sistem wait_for_message dari shared.py            ║
-║  [IMPROVE] Desain UI yang lebih interaktif, mudah dibaca, & rapi.    ║
 ║  [FIX] Menutup celah crash Markdown pada pesan respons.              ║
 ║  [FIX] Menyelesaikan error Pydantic ValidationError (Frozen Object)  ║
 ╚══════════════════════════════════════════════════════════════════════╝
@@ -60,6 +63,13 @@ def _safe_eval_bool(s: str) -> bool | None:
     if s == "False":
         return False
     return None
+
+async def _clean_msgs(*msgs):
+    """Menghapus pesan untuk menjaga chat tetap rapi."""
+    for m in msgs:
+        if m:
+            try: await m.delete()
+            except Exception: pass
 
 # ── UI Decorators ─────────────────────────────────────────────────────
 def _menu_header(title: str) -> str:
@@ -135,17 +145,25 @@ def gen_keyboard(values_list, current_value, callvalue, items, hide):
 
 
 async def get_text_data(chat_id, user_id, call: CallbackQuery, timeout, message_text):
-    """Integrasi dengan sistem Inline Waiter dari shared.py"""
-    ask_msg = await call.message.reply(f"📌 {message_text}\n_Waktu: {timeout} detik_")
+    """Integrasi dengan sistem Inline Waiter dengan Auto-Delete bersih."""
+    ask_msg = await call.message.reply(f"📌 {message_text}\n\n_Ketik 'batal' untuk membatalkan. ({timeout} detik)_")
     try:
         resp = await wait_for_message(chat_id, user_id, timeout)
-        await ask_msg.delete()
+        
+        # Clean up
+        await _clean_msgs(ask_msg, resp)
+        
+        if not resp or (resp.text or "").strip().lower() == "batal":
+            await call.answer("Aksi Dibatalkan", show_alert=True)
+            return False
+            
         return resp
     except asyncio.TimeoutError:
         try:
             await ask_msg.edit_text("🔃 Waktu Habis! Tugas Telah Dibatalkan.")
-        except Exception:
-            pass
+            await asyncio.sleep(3)
+            await _clean_msgs(ask_msg)
+        except Exception: pass
         return False
 
 
@@ -277,18 +295,23 @@ async def video_callback(call: CallbackQuery, txt: str, user_id: int, edit: bool
         if val is not None: await saveconfig(user_id, "video", "map", val, SAVE_TO_DATABASE)
     elif txt.startswith("videocrf_"):
         if new_pos == "Custom":
-            resp = await get_text_data(chat_id, user_id, call, 120, "Kirim nilai CRF (0-51)")
+            resp = await get_text_data(chat_id, user_id, call, 120, "Kirim nilai CRF (0-51):")
             if resp:
                 try:
                     crf = int(resp.text)
                     if 0 <= crf <= 51:
                         await saveconfig(user_id, "video", "crf", str(crf), SAVE_TO_DATABASE)
-                        await resp.reply(f"✅ CRF diatur ke {crf}")
+                        try: await call.answer(f"✅ CRF diatur ke {crf}")
+                        except: pass
                         edit = False
                     else:
-                        await resp.reply("❌ Nilai CRF harus antara 0 hingga 51.")
+                        temp = await call.message.answer("❌ Nilai CRF harus antara 0 hingga 51.")
+                        await asyncio.sleep(2)
+                        await _clean_msgs(temp)
                 except ValueError:
-                    await resp.reply("❌ Input tidak valid.")
+                    temp = await call.message.answer("❌ Input tidak valid.")
+                    await asyncio.sleep(2)
+                    await _clean_msgs(temp)
         else:
             await saveconfig(user_id, "video", "crf", new_pos, SAVE_TO_DATABASE)
     elif txt.startswith("videousequeuesize_"):
@@ -305,10 +328,11 @@ async def video_callback(call: CallbackQuery, txt: str, user_id: int, edit: bool
     elif txt.startswith("videopixel_format_"):await saveconfig(user_id, "video", "pixel_format", new_pos, SAVE_TO_DATABASE)
     elif txt.startswith("videoresolution_"):
         if new_pos == "Custom":
-            resp = await get_text_data(chat_id, user_id, call, 120, "Kirim resolusi kustom (contoh: `1280x720`)")
+            resp = await get_text_data(chat_id, user_id, call, 120, "Kirim resolusi kustom (contoh: `1280x720`):")
             if resp:
                 await saveconfig(user_id, "video", "resolution", resp.text, SAVE_TO_DATABASE)
-                await resp.reply(f"✅ Resolusi diatur ke: `{resp.text}`")
+                try: await call.answer(f"✅ Resolusi diatur ke: {resp.text}")
+                except: pass
                 edit = False
         else:
             await saveconfig(user_id, "video", "resolution", new_pos, SAVE_TO_DATABASE)
@@ -558,14 +582,15 @@ async def metadata_callback(call: CallbackQuery, txt: str, user_id: int, chat_id
             presets = get_data().get(user_id, {}).get("metadata", {}).get("preset", {})
             presets[field] = resp.text
             await saveconfig(user_id, "metadata", "preset", presets, SAVE_TO_DATABASE)
-            await resp.reply(f"✅ Atribut '{field}' berhasil diubah.")
+            try: await call.answer(f"✅ Atribut '{field}' berhasil diubah.", show_alert=True)
+            except: pass
             edit = False
     elif txt.startswith("metadatacustom_"):
-        resp = await get_text_data(chat_id, user_id, call, 300,
-                                    "Kirim kode metadata ffmpeg kustom Anda.")
+        resp = await get_text_data(chat_id, user_id, call, 300, "Kirim kode metadata ffmpeg kustom Anda.")
         if resp:
             await saveconfig(user_id, "metadata", "custom", resp.text, SAVE_TO_DATABASE)
-            await resp.reply("✅ Kode kustom berhasil disimpan.")
+            try: await call.answer("✅ Kode kustom berhasil disimpan.", show_alert=True)
+            except: pass
             edit = False
 
     md      = get_data().get(user_id, {}).get("metadata", {})
@@ -594,6 +619,8 @@ async def metadata_callback(call: CallbackQuery, txt: str, user_id: int, chat_id
         try: await call.message.edit_text(msg, reply_markup=markup)
         except Exception: pass
     else:
+        try: await call.message.delete()
+        except Exception: pass
         await call.message.answer(msg, reply_markup=markup)
 
 
@@ -750,9 +777,11 @@ async def watermark_image_menu(call: CallbackQuery, txt: str, user_id: int, chat
         if resp and (resp.photo or resp.document):
             target_media = resp.photo[-1] if resp.photo else resp.document
             await Telegram.AIOGRAM_BOT.download(target_media, destination=wm_path)
-            await resp.reply("✅ Gambar Watermark berhasil disimpan.")
+            try: await call.answer("✅ Gambar Watermark berhasil disimpan.", show_alert=True)
+            except: pass
         elif resp:
-            await resp.reply("❌ Berkas bukan gambar.")
+            try: await call.answer("❌ Berkas bukan gambar.", show_alert=True)
+            except: pass
         await call.message.answer("Aksi Selesai:", reply_markup=InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="Kembali Ke Menu Gambar", callback_data="watermark_image_menu")]]))
         return
 
@@ -871,7 +900,8 @@ async def watermark_text_menu(call: CallbackQuery, txt: str, user_id: int, chat_
             setts = get_data().get(user_id, {}).get("watermark", {})
             setts["text"]["content"] = resp.text
             await saveoptions(user_id, "watermark", setts, SAVE_TO_DATABASE)
-            await resp.reply("✅ Kalimat teks berhasil disimpan.")
+            try: await call.answer("✅ Kalimat teks berhasil disimpan.", show_alert=True)
+            except: pass
         await call.message.answer("Aksi Selesai:", reply_markup=InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="Kembali Ke Menu Teks", callback_data="watermark_text_menu")]]))
         return
 
@@ -887,11 +917,14 @@ async def watermark_text_menu(call: CallbackQuery, txt: str, user_id: int, chat_
                 if ext.lower() in [".ttf", ".otf"]:
                     for f in glob.glob(font_glob): remove(f)
                     await Telegram.AIOGRAM_BOT.download(resp.document, destination=f"./userdata/{user_id}_watermark_font{ext.lower()}")
-                    await resp.reply(f"✅ File Font `{fname}` berhasil ditambahkan.")
+                    try: await call.answer(f"✅ File Font `{fname}` berhasil ditambahkan.", show_alert=True)
+                    except: pass
                 else:
-                    await resp.reply("❌ Format font tidak didukung. Harap kirim ekstensi .ttf atau .otf")
+                    try: await call.answer("❌ Format font tidak didukung. Harap kirim ekstensi .ttf atau .otf", show_alert=True)
+                    except: pass
             except Exception as e:
-                await resp.reply(f"❌ Terjadi kesalahan: `{e}`")
+                try: await call.answer(f"❌ Terjadi kesalahan: `{e}`", show_alert=True)
+                except: pass
         await call.message.answer("Aksi Selesai:", reply_markup=InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="Kembali Ke Menu Teks", callback_data="watermark_text_menu")]]))
         return
 
@@ -1110,9 +1143,11 @@ async def callback(call: CallbackQuery):
                     safe_name = resp.text.replace("`", "").replace("*", "")
                     user_data.setdefault("profiles", {})[safe_name] = get_current_settings_copy(user_id)
                     await saveoptions(user_id, "profiles", user_data["profiles"], SAVE_TO_DATABASE)
-                    await resp.reply(f"✅ Profil `{safe_name}` berhasil disimpan.")
+                    try: await call.answer(f"✅ Profil `{safe_name}` berhasil disimpan.", show_alert=True)
+                    except: pass
                 elif resp:
-                    await resp.reply("❌ Nama tidak valid (Harus 1-31 karakter).")
+                    try: await call.answer("❌ Nama tidak valid (Harus 1-31 karakter).", show_alert=True)
+                    except: pass
                 await call.message.delete()
                 await call.message.answer("Aksi Selesai:", reply_markup=InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="Buka Menu Profil", callback_data="profile_main")]]))
 
@@ -1206,7 +1241,8 @@ async def callback(call: CallbackQuery):
                 d = get_env_dict("./userdata/botconfig.env") or get_env_dict("config.env") or {}
                 d[key] = resp.text
                 export_env_file("./userdata/botconfig.env", d)
-                await resp.reply(f"✅ Variabel `{key}` berhasil diperbarui. Gunakan perintah `/restart{CMD_SUFFIX}` untuk menerapkan konfigurasi sistem.")
+                try: await call.answer(f"✅ Variabel `{key}` berhasil diperbarui. Gunakan perintah /restart untuk menerapkan konfigurasi sistem.", show_alert=True)
+                except: pass
 
         elif txt.startswith("renew"):
             val = _safe_eval_bool(txt.split("_", 1)[1])
