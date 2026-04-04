@@ -1,9 +1,11 @@
 """
 ╔══════════════════════════════════════════════════════════════════════╗
-║       bot_helper/Handlers/media_handlers.py — v3.1                   ║
+║       bot_helper/Handlers/media_handlers.py — v3.3                   ║
 ║       Media Processing Command Handlers (Aiogram 3.x)                ║
 ╠══════════════════════════════════════════════════════════════════════╣
 ║  CHANGELOG dari versi lama:                                          ║
+║  [UX PREMIUM] Menerapkan Auto-Delete agar chat tetap bersih & rapi.  ║
+║  [UX PREMIUM] Menerapkan Kotak Konfirmasi (Summary Box) pada fitur.  ║
 ║  [NEW] Kelahiran /encode: Fitur dubbing audio & hardmux mandiri      ║
 ║  [NEW] /convert interaktif: Bisa pilih banyak resolusi (240p - 8K)   ║
 ║  [NEW] /watermark interaktif: Setup teks/gambar langsung di chat     ║
@@ -19,7 +21,9 @@ from os.path import exists
 
 # ── Aiogram ───────────────────────────────────────────────────────────
 from aiogram import Router, F
-from aiogram.types import Message
+from aiogram.types import (
+    Message, ReplyKeyboardMarkup, KeyboardButton, ReplyKeyboardRemove
+)
 from aiogram.filters import Command
 
 # ── Internal ──────────────────────────────────────────────────────────
@@ -40,6 +44,45 @@ from .shared import (
 
 owner_id = Config.OWNER_ID
 router = Router()
+
+# ═══════════════════════════════════════════════════════════════════════
+#  UI & CLEANUP HELPERS
+# ═══════════════════════════════════════════════════════════════════════
+
+async def _clean_msgs(*msgs):
+    """Menghapus pesan untuk menjaga chat tetap rapi."""
+    for m in msgs:
+        if m:
+            try: await m.delete()
+            except Exception: pass
+
+def _make_reply_kb(options: list, row_width: int = 2) -> ReplyKeyboardMarkup:
+    """Membuat Reply Keyboard dengan mudah."""
+    kb = []
+    row = []
+    for opt in options:
+        row.append(KeyboardButton(text=opt))
+        if len(row) == row_width:
+            kb.append(row)
+            row = []
+    if row:
+        kb.append(row)
+    return ReplyKeyboardMarkup(keyboard=kb, resize_keyboard=True, one_time_keyboard=True)
+
+def _get_fname(link, custom_file_name: str) -> str:
+    """Helper untuk mendapatkan nama file cantik untuk ditampilkan."""
+    if custom_file_name: return custom_file_name
+    if isinstance(link, str): return "Tautan / URL"
+    doc = getattr(link, "document", None) or getattr(link, "video", None) or getattr(link, "audio", None)
+    return getattr(doc, "file_name", "Berkas Media")
+
+def _sanitize_link_for_db(link):
+    """Membersihkan Tombol Keyboard dari Pesan agar bisa diubah ke JSON."""
+    if not isinstance(link, str) and hasattr(link, 'reply_markup'):
+        try: link.reply_markup = None
+        except Exception: pass
+    return link
+
 
 # ═══════════════════════════════════════════════════════════════════════
 #  MULTI-TASK SYSTEM (Legacy Support)
@@ -107,25 +150,50 @@ async def _encode_video(message: Message):
         if ne and ne not in ["cancelled", "stopped"]: link = await get_url_from_message(ne)
         else: return
 
+    link = _sanitize_link_for_db(link)
+    fname = _get_fname(link, custom_file_name)
+
     # Prompt Subtitle
     sub_msg = await ask_media_OR_url(message, chat_id, user_id, ["stop", "skip"], "💬 Kirim file Subtitle (SRT/ASS) untuk di-Hardmux.\n\nKetik `skip` jika tidak ingin menambahkan subtitle.", 120, False, True)
     if sub_msg in ["cancelled", "stopped"]: return
     sub_path = None
+    sub_name_str = "Tidak Ada"
     if sub_msg not in ["skip", "pass"] and hasattr(sub_msg, "document") and sub_msg.document:
         create_direc(f"./temp/subs_{user_id}")
         sub_path = check_file(f"./temp/subs_{user_id}", sub_msg.document.file_name)
+        sub_name_str = sub_msg.document.file_name
         await Telegram.AIOGRAM_BOT.download(sub_msg.document, destination=sub_path)
 
     # Prompt Audio Dubbing
     aud_msg = await ask_media_OR_url(message, chat_id, user_id, ["stop", "skip"], "🎵 Kirim file Audio (MP3/M4A) untuk Dubbing (Membisukan suara asli).\n\nKetik `skip` jika tidak ingin dubbing.", 120, "audio/", True)
     if aud_msg in ["cancelled", "stopped"]: return
     aud_path = None
+    aud_name_str = "Suara Asli"
     if aud_msg not in ["skip", "pass"]:
         aud_doc = getattr(aud_msg, "audio", None) or getattr(aud_msg, "document", None)
         if aud_doc:
             create_direc(f"./temp/auds_{user_id}")
             aud_path = check_file(f"./temp/auds_{user_id}", aud_doc.file_name or "dub.mp3")
+            aud_name_str = aud_doc.file_name or "Audio Dubbing"
             await Telegram.AIOGRAM_BOT.download(aud_doc, destination=aud_path)
+            
+    # Konfirmasi Akhir
+    kb_conf = _make_reply_kb(["✅ Encode", "❌ Batal"], 2)
+    conf_txt = (
+        f"**⚙️ KONFIRMASI ENCODE VIDEO**\n\n"
+        f"🎬 File: `{fname}`\n"
+        f"💬 Subtitle: `{sub_name_str}`\n"
+        f"🎵 Audio: `{aud_name_str}`\n\n"
+        "Lanjutkan?"
+    )
+    conf_msg = await message.reply(conf_txt, reply_markup=kb_conf)
+    press = await wait_for_message(chat_id, user_id, 120)
+    await _clean_msgs(conf_msg, press)
+    
+    if not press or "batal" in (press.text or "").lower():
+         return await message.answer("❌ Dibatalkan.", reply_markup=ReplyKeyboardRemove())
+         
+    await message.answer("✅ Mempersiapkan proses encode...", reply_markup=ReplyKeyboardRemove())
 
     # Menggunakan properti compress agar tunduk pada pengaturan global FFmpeg_Commands
     ps = ProcessStatus(user_id, chat_id, get_username(message), message.from_user.first_name, message, Names.compress, custom_file_name)
@@ -161,11 +229,16 @@ async def _convert_video(message: Message):
         if ne and ne not in ["cancelled", "stopped"]: link = await get_url_from_message(ne)
         else: return
 
-    ask_res = await message.reply("📺 **Pilih Resolusi Konversi**\nKirim angka resolusi yang diinginkan. Untuk multi-resolusi, pisahkan dengan koma.\n\nContoh: `480, 720, 1080`\nPilihan: `240, 360, 480, 540, 720, 1080, 1440, 2160, 4320`")
+    link = _sanitize_link_for_db(link)
+    fname = _get_fname(link, custom_file_name)
+
+    kb_res = _make_reply_kb(["240", "360", "480", "720", "1080", "❌ Batal"], 3)
+    ask_res = await message.reply("📺 **Pilih Resolusi Konversi**\nKirim angka resolusi yang diinginkan. Untuk multi-resolusi, pisahkan dengan koma.\n\nContoh: `480, 720, 1080`\nPilihan: `240, 360, 480, 540, 720, 1080, 1440, 2160, 4320`", reply_markup=kb_res)
     res_msg = await wait_for_message(chat_id, user_id, 120)
+    await _clean_msgs(ask_res, res_msg)
     
-    if res_msg is None or (res_msg.text or "").lower() in ["cancel", "stop"]:
-        return await safe_reply(message, "❌ Dibatalkan.")
+    if res_msg is None or "batal" in (res_msg.text or "").lower():
+        return await message.answer("❌ Dibatalkan.", reply_markup=ReplyKeyboardRemove())
         
     resolutions = []
     for r in (res_msg.text or "").split(","):
@@ -173,7 +246,24 @@ async def _convert_video(message: Message):
         if r.isdigit(): resolutions.append(int(r))
         
     if not resolutions:
-        return await safe_reply(message, "❌ Tidak ada resolusi valid yang dipilih. Dibatalkan.")
+        return await message.answer("❌ Tidak ada resolusi valid yang dipilih. Dibatalkan.", reply_markup=ReplyKeyboardRemove())
+
+    res_str = ", ".join([f"{r}p" for r in sorted(resolutions, reverse=True)])
+    kb_conf = _make_reply_kb(["✅ Convert", "❌ Batal"], 2)
+    conf_txt = (
+        f"**📺 KONFIRMASI KONVERSI RESOLUSI**\n\n"
+        f"🎬 File: `{fname}`\n"
+        f"🎯 Resolusi Target: `{res_str}`\n\n"
+        "Lanjutkan?"
+    )
+    conf_msg = await message.reply(conf_txt, reply_markup=kb_conf)
+    press = await wait_for_message(chat_id, user_id, 120)
+    await _clean_msgs(conf_msg, press)
+    
+    if not press or "batal" in (press.text or "").lower():
+         return await message.answer("❌ Dibatalkan.", reply_markup=ReplyKeyboardRemove())
+         
+    await message.answer("✅ Mempersiapkan proses konversi...", reply_markup=ReplyKeyboardRemove())
 
     ps = ProcessStatus(user_id, chat_id, get_username(message), message.from_user.first_name, message, Names.convert, custom_file_name)
     ps.custom_convert_list = sorted(resolutions, reverse=True) # Override pengaturan global Convert
@@ -207,30 +297,37 @@ async def _add_watermark_interactive(message: Message):
         if ne and ne not in ["cancelled", "stopped"]: link = await get_url_from_message(ne)
         else: return
 
+    link = _sanitize_link_for_db(link)
+    fname = _get_fname(link, custom_file_name)
     ps = ProcessStatus(user_id, chat_id, get_username(message), message.from_user.first_name, message, Names.watermark, custom_file_name)
 
-    mode_msg = await message.reply("🛺 **Pilih Mode Watermark:**\nKetik `1` untuk Gambar / Logo\nKetik `2` untuk Teks\nKetik `batal` untuk membatalkan.")
+    kb_mode = _make_reply_kb(["🖼️ Gambar / Logo", "✍️ Teks", "❌ Batal"], 2)
+    mode_msg = await message.reply("🛺 **Pilih Mode Watermark:**", reply_markup=kb_mode)
     res_mode = await wait_for_message(chat_id, user_id, 60)
-    if not res_mode or "batal" in (res_mode.text or "").lower(): return await safe_reply(message, "❌ Dibatalkan.")
+    await _clean_msgs(mode_msg, res_mode)
     
-    mode = "image" if "1" in (res_mode.text or "") else "text"
+    if not res_mode or "batal" in (res_mode.text or "").lower(): return await message.answer("❌ Dibatalkan.", reply_markup=ReplyKeyboardRemove())
+    
+    mode = "image" if "gambar" in (res_mode.text or "").lower() else "text"
     custom_wm = {"type": mode, "enabled": True}
+    wm_info_str = ""
     
     if mode == "image":
         img_msg = await ask_media_OR_url(message, chat_id, user_id, ["stop", "batal"], "🖼️ Kirim file Gambar (PNG/JPG) untuk Watermark.", 120, "photo/", True)
-        if not img_msg or img_msg in ["stopped", "cancelled", "batal"]: return await safe_reply(message, "❌ Dibatalkan.")
+        if not img_msg or img_msg in ["stopped", "cancelled", "batal"]: return await message.answer("❌ Dibatalkan.", reply_markup=ReplyKeyboardRemove())
         
         doc = img_msg.photo[-1] if img_msg.photo else img_msg.document
         create_direc(f"./temp/wm_{user_id}")
         wm_path = f"./temp/wm_{user_id}/logo.png"
         await Telegram.AIOGRAM_BOT.download(doc, destination=wm_path)
         custom_wm["image"] = {"path": wm_path}
+        wm_info_str = "Logo Kustom (Gambar)"
     else:
-        txt_msg = await ask_text_event(chat_id, user_id, message, 60, "✍️ Kirim teks untuk Watermark:")
-        if not txt_msg: return await safe_reply(message, "❌ Dibatalkan.")
+        txt_msg = await ask_text_event(chat_id, user_id, message, 60, "✍️ Kirim teks untuk Watermark:", message_hint=None, reply_markup=ReplyKeyboardRemove())
+        if not txt_msg: return await message.answer("❌ Dibatalkan.", reply_markup=ReplyKeyboardRemove())
         
         font_msg = await ask_media_OR_url(message, chat_id, user_id, ["skip", "batal"], "🔤 Kirim file Font (.ttf/.otf)\n\nATAU ketik `skip` untuk memakai font standar.", 60, False, True)
-        if font_msg in ["stopped", "cancelled", "batal"]: return await safe_reply(message, "❌ Dibatalkan.")
+        if font_msg in ["stopped", "cancelled", "batal"]: return await message.answer("❌ Dibatalkan.", reply_markup=ReplyKeyboardRemove())
         
         font_path = None
         if font_msg not in ["skip", "pass"] and getattr(font_msg, "document", None):
@@ -238,17 +335,38 @@ async def _add_watermark_interactive(message: Message):
             font_path = f"./temp/wm_{user_id}/custom_font.ttf"
             await Telegram.AIOGRAM_BOT.download(font_msg.document, destination=font_path)
             
-        color_msg = await ask_text_event(chat_id, user_id, message, 60, "🎨 Kirim warna teks (contoh: `white`, `red`, `yellow`, `#FF0000`)\n\nATAU ketik `skip` untuk warna default:")
+        color_msg = await ask_text_event(chat_id, user_id, message, 60, "🎨 Kirim warna teks (contoh: `white`, `red`, `yellow`, `#FF0000`)\n\nATAU ketik `skip` untuk warna default:", message_hint=None, reply_markup=ReplyKeyboardRemove())
         color = "white" if not color_msg or color_msg.text.lower() == "skip" else color_msg.text.strip()
         
         custom_wm["text"] = {"content": txt_msg.text, "font_path": font_path, "color": color, "size": 32}
+        wm_info_str = f"Teks: '{txt_msg.text}' ({color})"
 
-    pos_msg = await ask_text_event(chat_id, user_id, message, 60, "📍 Pilih Posisi Watermark:\n`top_left`, `top_right`, `bottom_left`, `bottom_right`, `center`\n\nKetik salah satu posisinya:")
-    pos = pos_msg.text.strip().lower() if pos_msg else "bottom_right"
-    if pos == "center": pos = "middle_center"  # Adaptasi nama posisi FFmpeg
+    kb_pos = _make_reply_kb(["Kiri Atas", "Kanan Atas", "Tengah", "Kiri Bawah", "Kanan Bawah"], 2)
+    pos_msg = await ask_text_event(chat_id, user_id, message, 60, "📍 Pilih Posisi Watermark:", message_hint=None, reply_markup=kb_pos)
+    
+    pos_map = {"kiri atas": "top_left", "kanan atas": "top_right", "tengah": "middle_center", "kiri bawah": "bottom_left", "kanan bawah": "bottom_right"}
+    pos = pos_map.get((pos_msg.text or "").strip().lower(), "bottom_right") if pos_msg else "bottom_right"
     
     if mode == "image": custom_wm["image"]["position"] = pos
     else: custom_wm["text"]["position"] = pos
+    
+    kb_conf = _make_reply_kb(["✅ Watermark", "❌ Batal"], 2)
+    conf_txt = (
+        f"**🛺 KONFIRMASI WATERMARK**\n\n"
+        f"🎬 File: `{fname}`\n"
+        f"🎨 Mode: `{mode.capitalize()}`\n"
+        f"📍 Posisi: `{pos}`\n"
+        f"📌 Info: `{wm_info_str}`\n\n"
+        "Lanjutkan?"
+    )
+    conf_msg = await message.reply(conf_txt, reply_markup=kb_conf)
+    press = await wait_for_message(chat_id, user_id, 120)
+    await _clean_msgs(conf_msg, press)
+    
+    if not press or "batal" in (press.text or "").lower():
+         return await message.answer("❌ Dibatalkan.", reply_markup=ReplyKeyboardRemove())
+         
+    await message.answer("✅ Mempersiapkan proses watermark...", reply_markup=ReplyKeyboardRemove())
     
     ps.custom_watermark = custom_wm # Override pengaturan global Watermark
 
@@ -323,6 +441,8 @@ async def _subtitle_mux_handler(message: Message, process_name: str, cmd_name: s
         if ne and ne not in ["cancelled", "stopped"]: link = await get_url_from_message(ne)
         else: return
 
+    link = _sanitize_link_for_db(link)
+    fname = _get_fname(link, custom_file_name)
     ps     = ProcessStatus(user_id, chat_id, get_username(message), message.from_user.first_name, message, process_name, custom_file_name)
     idx    = 1
     cancel = False
@@ -352,6 +472,22 @@ async def _subtitle_mux_handler(message: Message, process_name: str, cmd_name: s
 
     if cancel: del ps; return
     if not ps.subtitles: del ps; return await safe_reply(message, f"❗ Minimal 1 Subtitle Diperlukan untuk {process_name}")
+
+    kb_conf = _make_reply_kb(["✅ Mux", "❌ Batal"], 2)
+    conf_txt = (
+        f"**💬 KONFIRMASI {process_name.upper()}**\n\n"
+        f"🎬 File: `{fname}`\n"
+        f"📖 Total Subtitle: `{len(ps.subtitles)} Berkas`\n\n"
+        "Lanjutkan?"
+    )
+    conf_msg = await message.reply(conf_txt, reply_markup=kb_conf)
+    press = await wait_for_message(chat_id, user_id, 120)
+    await _clean_msgs(conf_msg, press)
+    
+    if not press or "batal" in (press.text or "").lower():
+         return await message.answer("❌ Dibatalkan.", reply_markup=ReplyKeyboardRemove())
+         
+    await message.answer("✅ Mempersiapkan proses...", reply_markup=ReplyKeyboardRemove())
 
     await get_thumbnail(ps, [f"/{cmd_name}{CMD_SUFFIX}", "pass"], 120)
     task = build_task(ps, link)
@@ -399,7 +535,10 @@ async def _change_metadata(message: Message):
         if ne and ne not in ["cancelled", "stopped"]: link = await get_url_from_message(ne)
         else: return
 
-    me = await ask_text_event(chat_id, user_id, message, 120, "Kirim MetaData", message_hint=("Format:\n`a:0-BahasaAudio-JudulAudio`\n`s:0-BahasaSub-JudulSub`\n\nContoh: `a:1-eng-EncoderBot`"))
+    link = _sanitize_link_for_db(link)
+    fname = _get_fname(link, custom_file_name)
+
+    me = await ask_text_event(chat_id, user_id, message, 120, "Kirim MetaData", message_hint=("Format:\n`a:0-BahasaAudio-JudulAudio`\n`s:0-BahasaSub-JudulSub`\n\nContoh: `a:1-eng-EncoderBot`"), reply_markup=ReplyKeyboardRemove())
     if not me: return
 
     custom_metadata = []
@@ -412,6 +551,22 @@ async def _change_metadata(message: Message):
             custom_metadata.append([f"-metadata:s:{sindex}", f"language={mlang}", f"-metadata:s:{sindex}", f"title={mtitle}"])
         except (IndexError, Exception) as e:
             return await safe_reply(me, f"❗ Metadata Tidak Valid: `{e}`")
+
+    kb_conf = _make_reply_kb(["✅ Ubah Metadata", "❌ Batal"], 2)
+    conf_txt = (
+        f"**🏷️ KONFIRMASI UBAH METADATA**\n\n"
+        f"🎬 File: `{fname}`\n"
+        f"⚙️ Target Index: `{len(custom_metadata) // 4} Stream`\n\n"
+        "Lanjutkan?"
+    )
+    conf_msg = await message.reply(conf_txt, reply_markup=kb_conf)
+    press2 = await wait_for_message(chat_id, user_id, 120)
+    await _clean_msgs(me, conf_msg, press2)
+    
+    if "batal" in (press2.text or "").lower():
+        return await message.answer("❌ Dibatalkan.", reply_markup=ReplyKeyboardRemove())
+        
+    await message.answer("✅ Mempersiapkan proses...", reply_markup=ReplyKeyboardRemove())
 
     ps = ProcessStatus(user_id, chat_id, get_username(message), message.from_user.first_name, message, Names.changeMetadata, custom_file_name, custom_metadata=custom_metadata)
     await get_thumbnail(ps, [cmd, "pass"], 120)
@@ -438,7 +593,10 @@ async def _change_index(message: Message):
         if ne and ne not in ["cancelled", "stopped"]: link = await get_url_from_message(ne)
         else: return
 
-    ie = await ask_text_event(chat_id, user_id, message, 120, "Kirim Indeks", message_hint=("`a` Audio | `s` Subtitle\nFormat: `a-3-1-2` (urutan 3,1,2)\nContoh: `s-2-1`"))
+    link = _sanitize_link_for_db(link)
+    fname = _get_fname(link, custom_file_name)
+
+    ie = await ask_text_event(chat_id, user_id, message, 120, "Kirim Indeks", message_hint=("`a` Audio | `s` Subtitle\nFormat: `a-3-1-2` (urutan 3,1,2)\nContoh: `s-2-1`"), reply_markup=ReplyKeyboardRemove())
     if not ie: return
 
     custom_index = []
@@ -453,6 +611,22 @@ async def _change_index(message: Message):
             custom_index += [f"-disposition:{stream}:0", "default"]
         except (ValueError, IndexError, Exception) as e:
             return await safe_reply(ie, f"❗ Indeks Tidak Valid: `{e}`")
+
+    kb_conf = _make_reply_kb(["✅ Ubah Index", "❌ Batal"], 2)
+    conf_txt = (
+        f"**🔄 KONFIRMASI UBAH INDEX**\n\n"
+        f"🎬 File: `{fname}`\n"
+        f"🔢 Susunan Index: `{ie.text}`\n\n"
+        "Lanjutkan?"
+    )
+    conf_msg = await message.reply(conf_txt, reply_markup=kb_conf)
+    press2 = await wait_for_message(chat_id, user_id, 120)
+    await _clean_msgs(ie, conf_msg, press2)
+    
+    if "batal" in (press2.text or "").lower():
+        return await message.answer("❌ Dibatalkan.", reply_markup=ReplyKeyboardRemove())
+        
+    await message.answer("✅ Mempersiapkan proses...", reply_markup=ReplyKeyboardRemove())
 
     ps = ProcessStatus(user_id, chat_id, get_username(message), message.from_user.first_name, message, Names.changeindex, custom_file_name, custom_index=custom_index)
     await get_thumbnail(ps, [cmd, "pass"], 120)
