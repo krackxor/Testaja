@@ -10,6 +10,7 @@
 ║  [FIX] event.reply_to_msg_id diubah ke message.reply_to_message      ║
 ║  [FIX] event.edit() diubah menjadi message.edit_text()               ║
 ║  [FIX] Pengiriman dokumen lokal dengan FSInputFile                   ║
+║  [FIX] Menutup celah Markdown crash pada pesan error & API response  ║
 ╚══════════════════════════════════════════════════════════════════════╝
 """
 
@@ -135,12 +136,12 @@ async def _verify_payment(message: Message):
         LOGGER.error(f"Trakteer HTTP error: {e}")
         return
     except requests.exceptions.RequestException as e:
-        await verif_msg.edit_text(f"❌ Gagal terhubung ke Trakteer: {e}")
+        await verif_msg.edit_text(f"❌ Gagal terhubung ke Trakteer: `{e}`")
         LOGGER.error(f"Trakteer connection error: {e}")
         return
 
     if data.get("status") != "success":
-        await verif_msg.edit_text(f"❌ Error dari Trakteer: {data.get('message', 'Unknown')}")
+        await verif_msg.edit_text(f"❌ Error dari Trakteer: `{data.get('message', 'Unknown')}`")
         return
 
     # Cari transaksi yang cocok
@@ -298,7 +299,7 @@ async def _add_vip_manual(message: Message):
             f"Aktif hingga: **{new_expiry.strftime('%d %B %Y, %H:%M WIB')}**"
         )
     except Exception as e:
-        await safe_reply(message, f"❌ Terjadi kesalahan: {e}")
+        await safe_reply(message, f"❌ Terjadi kesalahan: `{e}`")
         LOGGER.error(f"/add_vip error: {e}", exc_info=True)
 
 
@@ -332,7 +333,7 @@ async def _delete_vip_manual(message: Message):
         await safe_reply(message, f"✅ VIP user `{target_uid}` berhasil dihapus.")
 
     except Exception as e:
-        await safe_reply(message, f"❌ Terjadi kesalahan: {e}")
+        await safe_reply(message, f"❌ Terjadi kesalahan: `{e}`")
         LOGGER.error(f"/delete_vip error: {e}", exc_info=True)
 
 
@@ -394,5 +395,5 @@ async def _view_vip_list(message: Message):
             await message.reply(text_msg)
 
     except Exception as e:
-        await safe_reply(message, f"❌ Terjadi kesalahan: {e}")
+        await safe_reply(message, f"❌ Terjadi kesalahan: `{e}`")
         LOGGER.error(f"/view_vip error: {e}", exc_info=True)
