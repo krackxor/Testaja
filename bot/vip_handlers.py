@@ -1,11 +1,14 @@
 """
 ╔══════════════════════════════════════════════════════════════════════╗
-║       bot_helper/Handlers/vip_handlers.py — v3.1                     ║
-║       VIP Management & Trakteer Payment Verification (Aiogram)       ║
+║    bot_helper/Handlers/vip_handlers.py — v3.2                        ║
+║    VIP Management & Trakteer Payment Verification (Aiogram)          ║
 ╠══════════════════════════════════════════════════════════════════════╣
 ║  Commands: /verify /myvip /add_vip /delete_vip /view_vip             ║
 ╠══════════════════════════════════════════════════════════════════════╣
 ║  CHANGELOG dari versi lama:                                          ║
+║  [UX PREMIUM] Menerapkan Auto-Delete agar chat tetap bersih.         ║
+║  [UX PREMIUM] Menerapkan Reply Keyboard "❌ Batal" yang konsisten.   ║
+║  [UX PREMIUM] Penataan pesan info dengan Box Konfirmasi yang rapi.   ║
 ║  [FIX HIGH] Implementasi CMD_SUFFIX pada semua Command filter        ║
 ║  [NEW] Migrasi total ke Aiogram Router & Message objects             ║
 ║  [FIX] event.reply_to_msg_id diubah ke message.reply_to_message      ║
@@ -23,7 +26,9 @@ from os import remove
 # ── Third Party ───────────────────────────────────────────────────────
 import requests
 from aiogram import Router
-from aiogram.types import Message, FSInputFile
+from aiogram.types import (
+    Message, FSInputFile, ReplyKeyboardMarkup, KeyboardButton, ReplyKeyboardRemove
+)
 from aiogram.filters import Command
 
 # ── Internal ──────────────────────────────────────────────────────────
@@ -37,7 +42,7 @@ from config.config import Config
 
 from .shared import (
     CMD_SUFFIX, LOGGER, SAVE_TO_DATABASE,
-    ask_text_event, owner_checker,
+    ask_text_event, owner_checker, wait_for_message,
     safe_reply, user_auth_checker,
 )
 
@@ -50,8 +55,28 @@ ACTIVATION_WINDOW_HOURS  = 48        # Jam batas aktivasi setelah donasi
 
 
 # ═══════════════════════════════════════════════════════════════════════
-#  HELPERS
+#  HELPERS & UI
 # ═══════════════════════════════════════════════════════════════════════
+
+async def _clean_msgs(*msgs):
+    """Menghapus pesan untuk menjaga chat tetap rapi."""
+    for m in msgs:
+        if m:
+            try: await m.delete()
+            except Exception: pass
+
+def _make_reply_kb(options: list, row_width: int = 2) -> ReplyKeyboardMarkup:
+    """Membuat Reply Keyboard dengan mudah."""
+    kb = []
+    row = []
+    for opt in options:
+        row.append(KeyboardButton(text=opt))
+        if len(row) == row_width:
+            kb.append(row)
+            row = []
+    if row:
+        kb.append(row)
+    return ReplyKeyboardMarkup(keyboard=kb, resize_keyboard=True, one_time_keyboard=True)
 
 def parse_duration(duration_str: str) -> int:
     """Konversi string durasi '30d' / '2m' / '1y' ke hari."""
@@ -90,36 +115,33 @@ def _extend_vip(user_id: int, duration_days: int) -> datetime:
 
 @router.message(Command(f"verify{CMD_SUFFIX}"))
 async def _verify_payment(message: Message):
-    if not await user_auth_checker(message):
-        return
+    if not await user_auth_checker(message): return
         
-    user_id = message.from_user.id
-    chat_id = message.chat.id
-
+    user_id, chat_id = message.from_user.id, message.chat.id
     await ensure_user_data_structure(user_id)
 
-    order_id_msg = await ask_text_event(
-        chat_id, user_id, message, 120,
-        "Setelah donasi di Trakteer, masukkan **Order ID** Anda untuk verifikasi.",
-    )
-    if not order_id_msg:
-        return
+    kb = _make_reply_kb(["❌ Batal"], 1)
+    ask_txt = "🎁 **VERIFIKASI TRAKTEER**\n\nSetelah berdonasi di Trakteer, silakan kirimkan (Ketik) **Order ID** Anda di sini:"
+    ask_msg = await message.reply(ask_txt, reply_markup=kb)
+    
+    resp = await wait_for_message(chat_id, user_id, 120)
+    await _clean_msgs(ask_msg, resp)
 
-    order_id = str(order_id_msg.text).strip()
+    if not resp or "batal" in (resp.text or "").lower():
+        return await message.answer("❌ Dibatalkan.", reply_markup=ReplyKeyboardRemove())
+
+    order_id = str(resp.text).strip()
     api_key  = Config.TRAKTEER_API_KEY
 
     if not api_key:
-        await safe_reply(message, "❗ Fitur verifikasi belum dikonfigurasi oleh pemilik bot.")
-        return
+        return await message.answer("❗ Fitur verifikasi belum dikonfigurasi oleh pemilik bot.", reply_markup=ReplyKeyboardRemove())
 
-    # Cek apakah order_id sudah diklaim
     all_data    = get_data()
     claimed_ids = all_data.get("claimed_order_ids", [])
     if order_id in claimed_ids:
-        await safe_reply(message, "❌ Order ID ini sudah pernah digunakan.")
-        return
+        return await message.answer("❌ Order ID ini sudah pernah diklaim sebelumnya.", reply_markup=ReplyKeyboardRemove())
 
-    verif_msg = await message.reply("🔎 Memverifikasi Order ID, harap tunggu...")
+    verif_msg = await message.answer("🔎 Sedang memverifikasi Order ID ke Trakteer...", reply_markup=ReplyKeyboardRemove())
     try:
         resp = await asyncio.to_thread(
             requests.get,
@@ -132,18 +154,15 @@ async def _verify_payment(message: Message):
         data = resp.json()
     except requests.exceptions.HTTPError as e:
         code = e.response.status_code
-        msg_text = "❌ API Key Trakteer salah." if code == 401 else f"❌ HTTP Error {code}."
-        await verif_msg.edit_text(msg_text)
+        msg_text = "❌ API Key Trakteer salah (Unauthorized)." if code == 401 else f"❌ HTTP Error {code}."
         LOGGER.error(f"Trakteer HTTP error: {e}")
-        return
+        return await verif_msg.edit_text(msg_text)
     except requests.exceptions.RequestException as e:
-        await verif_msg.edit_text(f"❌ Gagal terhubung ke Trakteer: `{e}`")
         LOGGER.error(f"Trakteer connection error: {e}")
-        return
+        return await verif_msg.edit_text(f"❌ Gagal terhubung ke Trakteer: `{e}`")
 
     if data.get("status") != "success":
-        await verif_msg.edit_text(f"❌ Error dari Trakteer: `{data.get('message', 'Unknown')}`")
-        return
+        return await verif_msg.edit_text(f"❌ Error dari Trakteer: `{data.get('message', 'Unknown')}`")
 
     # Cari transaksi yang cocok
     target = None
@@ -153,35 +172,26 @@ async def _verify_payment(message: Message):
             break
 
     if not target:
-        await verif_msg.edit_text("❌ Order ID tidak ditemukan. Pastikan ID sudah benar.")
-        return
+        return await verif_msg.edit_text("❌ Order ID tidak ditemukan di Trakteer. Pastikan ID diketik dengan benar.")
 
     # Validasi status pembayaran
     if target.get("status", "success") != "success":
-        await verif_msg.edit_text(f"❌ Status pembayaran: `{target.get('status')}`")
-        return
+        return await verif_msg.edit_text(f"❌ Status pembayaran Order ID ini: `{target.get('status')}`")
 
     # Validasi tanggal (batas aktivasi)
     try:
         trx_date = datetime.strptime(target.get("updated_at", ""), "%Y-%m-%d %H:%M:%S")
     except (ValueError, TypeError):
-        await verif_msg.edit_text("❌ Format tanggal tidak valid. Hubungi admin.")
-        return
+        return await verif_msg.edit_text("❌ Format tanggal tidak valid dari Trakteer. Hubungi admin.")
 
     if datetime.now() > trx_date + timedelta(hours=ACTIVATION_WINDOW_HOURS):
         days = int(ACTIVATION_WINDOW_HOURS / 24)
-        await verif_msg.edit_text(
-            f"❌ Order ID sudah hangus — tidak diaktifkan dalam **{days} hari** setelah donasi."
-        )
-        return
+        return await verif_msg.edit_text(f"❌ Order ID hangus. Tidak diklaim dalam **{days} hari** setelah donasi.")
 
     # Hitung durasi
     amount = target.get("amount", 0)
     if amount < VIP_PRICE_PER_MONTH:
-        await verif_msg.edit_text(
-            f"❌ Jumlah donasi kurang dari minimum 1 bulan (Rp {VIP_PRICE_PER_MONTH:,})."
-        )
-        return
+        return await verif_msg.edit_text(f"❌ Jumlah donasi (Rp {amount:,}) kurang dari harga minimum (Rp {VIP_PRICE_PER_MONTH:,}/bulan).")
 
     months        = int(amount // VIP_PRICE_PER_MONTH)
     duration_days = months * 30
@@ -198,11 +208,13 @@ async def _verify_payment(message: Message):
             await db_instance.save_data(all_data)
 
     expiry_fmt = new_expiry.strftime("%d %B %Y, %H:%M WIB")
-    await verif_msg.edit_text(
-        f"✅ **Verifikasi Berhasil!**\n\n"
-        f"Anda mendapatkan **{months} bulan** akses VIP.\n"
-        f"Status aktif hingga: **{expiry_fmt}**"
+    box_txt = (
+        f"✅ **VERIFIKASI BERHASIL!**\n\n"
+        f"🎉 Terima kasih atas dukungan Anda!\n"
+        f"├ Tambahan Waktu: **{months} Bulan** (`{duration_days} Hari`)\n"
+        f"└ Berakhir Pada: **{expiry_fmt}**"
     )
+    await verif_msg.edit_text(box_txt)
 
 
 # ═══════════════════════════════════════════════════════════════════════
@@ -258,22 +270,19 @@ async def _my_vip_status(message: Message):
 
 @router.message(Command(f"add_vip{CMD_SUFFIX}"))
 async def _add_vip_manual(message: Message):
-    if not owner_checker(message):
-        return
+    if not owner_checker(message): return
         
-    parts         = (message.text or "").split()
-    target_uid    = None
-    duration_str  = "30d"
+    parts        = (message.text or "").split()
+    target_uid   = None
+    duration_str = "30d"
 
     try:
         if message.reply_to_message and message.reply_to_message.from_user:
             target_uid = message.reply_to_message.from_user.id
-            if len(parts) > 1:
-                duration_str = parts[1]
+            if len(parts) > 1: duration_str = parts[1]
         elif len(parts) > 1 and parts[1].isdigit():
             target_uid = int(parts[1])
-            if len(parts) > 2:
-                duration_str = parts[2]
+            if len(parts) > 2: duration_str = parts[2]
         else:
             await safe_reply(message,
                 "**Format:**\n"
@@ -294,14 +303,14 @@ async def _add_vip_manual(message: Message):
         await saveoptions(target_uid, "total_vip_duration",  total_duration,         SAVE_TO_DATABASE)
 
         await safe_reply(message,
-            f"✅ **VIP Berhasil Ditambahkan!**\n\n"
-            f"User: `{target_uid}`\n"
-            f"Durasi: **{duration_days} hari**\n"
-            f"Aktif hingga: **{new_expiry.strftime('%d %B %Y, %H:%M WIB')}**"
+            f"✅ **VIP MANUAL BERHASIL DITAMBAHKAN**\n\n"
+            f"├ User ID: `{target_uid}`\n"
+            f"├ Durasi Baru: **{duration_days} hari**\n"
+            f"└ Aktif Hingga: **{new_expiry.strftime('%d %B %Y, %H:%M WIB')}**"
         )
     except Exception as e:
-        await safe_reply(message, f"❌ Terjadi kesalahan: `{e}`")
         LOGGER.error(f"/add_vip error: {e}", exc_info=True)
+        await safe_reply(message, f"❌ Terjadi kesalahan: `{e}`")
 
 
 # ═══════════════════════════════════════════════════════════════════════
@@ -310,8 +319,7 @@ async def _add_vip_manual(message: Message):
 
 @router.message(Command(f"delete_vip{CMD_SUFFIX}"))
 async def _delete_vip_manual(message: Message):
-    if not owner_checker(message):
-        return
+    if not owner_checker(message): return
         
     target_uid = None
     parts      = (message.text or "").split()
@@ -321,21 +329,19 @@ async def _delete_vip_manual(message: Message):
         elif len(parts) > 1 and parts[1].isdigit():
             target_uid = int(parts[1])
         else:
-            await safe_reply(message, f"❗ Format: `/delete_vip{CMD_SUFFIX} <user_id>` atau balas pesan.")
-            return
+            return await safe_reply(message, f"❗ Format: `/delete_vip{CMD_SUFFIX} <user_id>` atau balas pesan.")
 
         await ensure_user_data_structure(target_uid)
         if not get_data().get(target_uid, {}).get("premium_expiry_date"):
-            await safe_reply(message, f"❗ User `{target_uid}` tidak memiliki VIP aktif.")
-            return
+            return await safe_reply(message, f"❗ User `{target_uid}` tidak memiliki VIP aktif.")
 
         await saveoptions(target_uid, "premium_expiry_date", None, SAVE_TO_DATABASE)
         await saveoptions(target_uid, "total_vip_duration",  0,    SAVE_TO_DATABASE)
-        await safe_reply(message, f"✅ VIP user `{target_uid}` berhasil dihapus.")
+        await safe_reply(message, f"✅ VIP user `{target_uid}` berhasil dihapus paksa.")
 
     except Exception as e:
-        await safe_reply(message, f"❌ Terjadi kesalahan: `{e}`")
         LOGGER.error(f"/delete_vip error: {e}", exc_info=True)
+        await safe_reply(message, f"❌ Terjadi kesalahan: `{e}`")
 
 
 # ═══════════════════════════════════════════════════════════════════════
@@ -344,8 +350,7 @@ async def _delete_vip_manual(message: Message):
 
 @router.message(Command(f"view_vip{CMD_SUFFIX}"))
 async def _view_vip_list(message: Message):
-    if not owner_checker(message):
-        return
+    if not owner_checker(message): return
         
     path = "vip_list.txt"
     try:
@@ -368,8 +373,7 @@ async def _view_vip_list(message: Message):
                 continue
 
         if not vip_list:
-            await safe_reply(message, "ℹ️ Tidak ada pengguna VIP aktif saat ini.")
-            return
+            return await safe_reply(message, "ℹ️ Tidak ada pengguna VIP aktif saat ini.")
 
         vip_list.sort(key=lambda x: x[1])   # sort by expiry (terdekat dulu)
 
@@ -395,8 +399,8 @@ async def _view_vip_list(message: Message):
             await message.reply(text_msg)
 
     except Exception as e:
-        await safe_reply(message, f"❌ Terjadi kesalahan: `{e}`")
         LOGGER.error(f"/view_vip error: {e}", exc_info=True)
+        await safe_reply(message, f"❌ Terjadi kesalahan: `{e}`")
     finally:
         if exists(path):
             remove(path)
