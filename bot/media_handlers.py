@@ -1,14 +1,15 @@
 """
 ╔══════════════════════════════════════════════════════════════════════╗
-║       bot_helper/Handlers/media_handlers.py — v3.5                   ║
+║       bot_helper/Handlers/media_handlers.py — v3.8                   ║
 ║       Media Processing Command Handlers (Aiogram 3.x)                ║
 ╠══════════════════════════════════════════════════════════════════════╣
 ║  CHANGELOG dari versi lama:                                          ║
 ║  [FIX] Memisahkan /compress agar lebih instan (tanpa dub/sub).       ║
 ║  [FIX] /convert kini menggunakan Reply Keyboard multi-pilih (240-8k).║
 ║  [FIX] /watermark kini menggunakan tombol Skip yang aman dari error. ║
-║  [FIX] Menambahkan kembali perintah /hardmux yang hilang.            ║
-║  [FIX] /merge & /softmux kini menggunakan Tombol Reply, bukan teks.  ║
+║  [FIX] /hardmux kini hanya meminta 1 subtitle lalu otomatis lanjut.  ║
+║  [NEW] /softmux & /softremux kini mendukung penambahan file Audio!   ║
+║  [FIX CRITICAL] Hapus reply_markup ilegal saat edit_text di convert. ║
 ╚══════════════════════════════════════════════════════════════════════╝
 """
 
@@ -301,16 +302,19 @@ async def _convert_video(message: Message):
 
     link = _sanitize_link_for_db(link)
     fname = _get_fname(link, custom_file_name)
-    resolutions = []
 
-    kb_res = _make_reply_kb(["240p", "360p", "480p", "540p", "720p", "1080p", "1440p", "2160p", "4320p", "✅ Selesai", "❌ Batal"], 3)
-    ask_res = await message.reply("📺 **Pilih Resolusi Konversi**\nTekan tombol resolusi di bawah. Jika sudah memilih semua yang diinginkan, tekan **✅ Selesai**.", reply_markup=kb_res)
+    kb_res = _make_reply_kb(["240", "360", "480", "720", "1080", "❌ Batal"], 3)
+    ask_res = await message.reply("📺 **Pilih Resolusi Konversi**\nKirim angka resolusi yang diinginkan. Untuk multi-resolusi, pisahkan dengan koma.\n\nContoh: `480, 720, 1080`\nPilihan: `240, 360, 480, 540, 720, 1080, 1440, 2160, 4320`", reply_markup=kb_res)
     
+    resolutions = []
     while True:
         res_msg = await wait_for_message(chat_id, user_id, 120)
         await _clean_msgs(res_msg)
-        txt = (res_msg.text or "").lower()
         
+        if res_msg is None: 
+            return await message.answer("❌ Waktu habis. Dibatalkan.", reply_markup=ReplyKeyboardRemove())
+            
+        txt = (res_msg.text or "").lower()
         if "batal" in txt:
             await _clean_msgs(ask_res)
             return await message.answer("❌ Dibatalkan.", reply_markup=ReplyKeyboardRemove())
@@ -324,16 +328,16 @@ async def _convert_video(message: Message):
             res = int(num_str)
             if res not in resolutions:
                 resolutions.append(res)
-            # Beri tau user resolusi apa aja yang udah masuk keranjang
             res_list_str = ", ".join([f"{r}p" for r in sorted(resolutions, reverse=True)])
-            await ask_res.edit_text(f"📺 **Resolusi Terpilih:** `{res_list_str}`\n\nTekan opsi lain untuk menambah, atau tekan **✅ Selesai** jika sudah.", reply_markup=kb_res)
+            # [FIX CRITICAL] Dihapus penggunaan reply_markup=kb_res di dalam edit_text
+            await ask_res.edit_text(f"📺 **Resolusi Terpilih:** `{res_list_str}`\n\nTekan opsi lain untuk menambah, atau tekan **✅ Selesai** jika sudah.")
         else:
             err = await message.reply("❌ Input tidak valid.")
             await asyncio.sleep(2)
             await _clean_msgs(err)
 
     if not resolutions:
-        return await message.answer("❌ Tidak ada resolusi yang dipilih. Proses dibatalkan.", reply_markup=ReplyKeyboardRemove())
+        return await message.answer("❌ Tidak ada resolusi valid yang dipilih. Dibatalkan.", reply_markup=ReplyKeyboardRemove())
 
     res_str = ", ".join([f"{r}p" for r in sorted(resolutions, reverse=True)])
     kb_conf = _make_reply_kb(["✅ Convert", "❌ Batal"], 2)
@@ -413,28 +417,17 @@ async def _add_watermark_interactive(message: Message):
         txt_msg = await ask_text_event(chat_id, user_id, message, 60, "✍️ Kirim teks untuk Watermark:", message_hint=None)
         if not txt_msg: return await message.answer("❌ Dibatalkan.", reply_markup=ReplyKeyboardRemove())
         
-        kb_skip = _make_reply_kb(["⏭ Skip", "❌ Batal"], 2)
-        font_ask = await message.reply("🔤 Kirim file Font (.ttf/.otf)\n\nATAU tekan tombol `⏭ Skip` untuk memakai font standar.", reply_markup=kb_skip)
-        font_msg = await wait_for_message(chat_id, user_id, 60)
-        await _clean_msgs(font_ask)
-        
-        txt_font = (font_msg.text or "").lower()
-        if "batal" in txt_font: return await message.answer("❌ Dibatalkan.", reply_markup=ReplyKeyboardRemove())
+        font_msg = await ask_media_OR_url(message, chat_id, user_id, ["skip", "batal"], "🔤 Kirim file Font (.ttf/.otf)\n\nATAU ketik `skip` untuk memakai font standar.", 60, False, True)
+        if font_msg in ["stopped", "cancelled", "batal"]: return await message.answer("❌ Dibatalkan.", reply_markup=ReplyKeyboardRemove())
         
         font_path = None
-        if "skip" not in txt_font and getattr(font_msg, "document", None):
+        if font_msg not in ["skip", "pass"] and getattr(font_msg, "document", None):
             create_direc(f"./temp/wm_{user_id}")
             font_path = f"./temp/wm_{user_id}/custom_font.ttf"
             await Telegram.AIOGRAM_BOT.download(font_msg.document, destination=font_path)
             
-        color_ask = await message.reply("🎨 Kirim warna teks (contoh: `white`, `red`, `#FF0000`)\n\nATAU tekan tombol `⏭ Skip` untuk warna standar:", reply_markup=kb_skip)
-        color_msg = await wait_for_message(chat_id, user_id, 60)
-        await _clean_msgs(color_ask)
-        
-        txt_color = (color_msg.text or "").lower()
-        if "batal" in txt_color: return await message.answer("❌ Dibatalkan.", reply_markup=ReplyKeyboardRemove())
-        
-        color = "white" if "skip" in txt_color else color_msg.text.strip()
+        color_msg = await ask_text_event(chat_id, user_id, message, 60, "🎨 Kirim warna teks (contoh: `white`, `red`, `yellow`, `#FF0000`)\n\nATAU ketik `skip` untuk warna default:", message_hint=None)
+        color = "white" if not color_msg or color_msg.text.lower() == "skip" else color_msg.text.strip()
         
         custom_wm["text"] = {"content": txt_msg.text, "font_path": font_path, "color": color, "size": 32}
         wm_info_str = f"Teks: '{txt_msg.text}' ({color})"
@@ -543,7 +536,7 @@ async def _merge_videos(message: Message):
 
 
 # ═══════════════════════════════════════════════════════════════════════
-#  SOFTMUX / SOFTREMUX / HARDMUX (COPY STREAM/HARDCODE)
+#  SOFTMUX / SOFTREMUX / HARDMUX
 # ═══════════════════════════════════════════════════════════════════════
 
 async def _subtitle_mux_handler(message: Message, process_name: str, cmd_name: str):
@@ -565,10 +558,16 @@ async def _subtitle_mux_handler(message: Message, process_name: str, cmd_name: s
     idx    = 1
     cancel = False
 
-    kb_action = _make_reply_kb(["🛑 Selesai (Proses)", "❌ Batal"], 2)
+    is_hardmux = (process_name == Names.hardmux)
+    kb_action = _make_reply_kb(["❌ Batal"], 2) if is_hardmux else _make_reply_kb(["🛑 Selesai (Proses)", "❌ Batal"], 2)
 
     while True:
-        ask_msg = await message.reply(f"💬 Kirim Subtitle SRT/ASS No {idx}\n\nTekan tombol jika sudah selesai:", reply_markup=kb_action)
+        if is_hardmux:
+            ask_text = "💬 Kirim 1 File Subtitle (SRT/ASS) untuk di-Hardmux:"
+        else:
+            ask_text = f"💬 Kirim Subtitle (SRT/ASS) atau Audio (MP3/M4A) No {idx}\n\nTekan tombol jika sudah selesai:"
+
+        ask_msg = await message.reply(ask_text, reply_markup=kb_action)
         ne = await wait_for_message(chat_id, user_id, 120)
         await _clean_msgs(ask_msg)
         
@@ -577,31 +576,44 @@ async def _subtitle_mux_handler(message: Message, process_name: str, cmd_name: s
             cancel = True
             break
             
-        if "selesai" in txt or txt == "/stop":
+        if not is_hardmux and ("selesai" in txt or txt == "/stop"):
             break
             
-        if ne.document:
-            mime = str(ne.document.mime_type)
+        media_obj = getattr(ne, "document", None) or getattr(ne, "audio", None)
+        if media_obj:
+            mime = str(media_obj.mime_type).lower()
+            is_audio = mime.startswith("audio/")
+            
             if mime.startswith("video/") or mime.startswith("image/"):
-                err = await message.reply("❌ Saya Membutuhkan Berkas Subtitle")
-                await asyncio.sleep(2)
-                await _clean_msgs(err)
-                continue
-            if ne.document.file_size >= 512_000:
-                err = await message.reply("❌ Ukuran Subtitle Lebih dari 500KB")
+                err = await message.reply("❌ Saya Membutuhkan Berkas Subtitle atau Audio.")
                 await asyncio.sleep(2)
                 await _clean_msgs(err)
                 continue
                 
-            sub_name   = ne.document.file_name
+            if is_hardmux and is_audio:
+                err = await message.reply("❌ Hardmux hanya mendukung berkas Subtitle.")
+                await asyncio.sleep(2)
+                await _clean_msgs(err)
+                continue
+                
+            if not is_audio and media_obj.file_size >= 2_000_000:
+                err = await message.reply("❌ Ukuran Subtitle terlalu besar (Lebih dari 2MB).")
+                await asyncio.sleep(2)
+                await _clean_msgs(err)
+                continue
+                
+            sub_name   = media_obj.file_name or f"audio_track_{idx}.m4a"
             create_direc(f"{ps.dir}/subtitles")
             sub_dw_loc = check_file(f"{ps.dir}/subtitles", sub_name)
             
-            await Telegram.AIOGRAM_BOT.download(ne.document, destination=sub_dw_loc)
+            await Telegram.AIOGRAM_BOT.download(media_obj, destination=sub_dw_loc)
             ps.append_subtitles(sub_dw_loc)
+            
+            if is_hardmux:
+                break
             idx += 1
         else: 
-            err = await message.reply("❗ Hanya Berkas Telegram yang Didukung")
+            err = await message.reply("❗ Hanya Berkas Media/Dokumen Telegram yang Didukung.")
             await asyncio.sleep(2)
             await _clean_msgs(err)
 
@@ -611,13 +623,13 @@ async def _subtitle_mux_handler(message: Message, process_name: str, cmd_name: s
         
     if not ps.subtitles: 
         del ps
-        return await message.answer(f"❗ Minimal 1 Subtitle Diperlukan untuk {process_name}.", reply_markup=ReplyKeyboardRemove())
+        return await message.answer(f"❗ Minimal 1 Berkas (Subtitle/Audio) Diperlukan untuk {process_name}.", reply_markup=ReplyKeyboardRemove())
 
     kb_conf = _make_reply_kb(["✅ Mux", "❌ Batal"], 2)
     conf_txt = (
         f"**💬 KONFIRMASI {process_name.upper()}**\n\n"
         f"🎬 File: `{fname}`\n"
-        f"📖 Total Subtitle: `{len(ps.subtitles)} Berkas`\n\n"
+        f"📖 Total Berkas Tambahan: `{len(ps.subtitles)} Berkas`\n\n"
         "Lanjutkan?"
     )
     conf_msg = await message.reply(conf_txt, reply_markup=kb_conf)
