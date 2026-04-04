@@ -17,6 +17,7 @@
 ║  [IMPROVE]   @staticmethod decorator untuk semua class method        ║
 ║  [IMPROVE]   DocumentAttributeVideo ambil w/h dari metadata          ║
 ║  [IMPROVE]   Cancel check terintegrasi di progress callback          ║
+║  [FIX HIGH]  Support ekstraksi Aiogram Message untuk Download        ║
 ╚══════════════════════════════════════════════════════════════════════╝
 """
 
@@ -464,18 +465,38 @@ class Telegram:
         new_event  = variables[0]
 
         try:
-            file_name     = new_event.message.file.name
-            file_location = new_event.message.document
-            file_id       = new_event.message.id
-        except AttributeError:
-            try:
+            # 1. Cek apakah ini Aiogram Message (Objek dari Aiogram 3.x)
+            if hasattr(new_event, "message_id"):
+                file_id = new_event.message_id
+                chat_id_source = new_event.chat.id
+                
+                # Ekstrak Media Aiogram (Document/Video/Audio)
+                media = getattr(new_event, "document", None) or getattr(new_event, "video", None) or getattr(new_event, "audio", None)
+                file_name = getattr(media, "file_name", None)
+
+                # Ambil objek Telethon-nya agar file location valid dan bisa di-download via Fast Telethon
+                t_msg = await Telegram.TELETHON_CLIENT.get_messages(chat_id_source, ids=file_id)
+                file_location = getattr(t_msg, "document", None) or getattr(t_msg, "media", None)
+
+            # 2. Cek apakah ini objek event Telethon langsung (punya attribute .file)
+            elif hasattr(new_event, "file"):
                 file_name     = new_event.file.name
-                file_location = new_event.document
+                file_location = getattr(new_event, "document", None) or getattr(new_event, "media", None)
                 file_id       = new_event.id
-            except AttributeError as e:
-                LOGGER.error(f"❌ Tidak bisa baca file dari event: {e}")
+                
+            # 3. Cek apakah ini objek callback query Telethon (punya nested .message)
+            else:
+                file_name     = new_event.message.file.name
+                file_location = getattr(new_event.message, "document", None) or getattr(new_event.message, "media", None)
+                file_id       = new_event.message.id
+
+        except AttributeError as e:
+            LOGGER.error(f"❌ Tidak bisa baca file dari event: {e}")
+            try:
                 await new_event.reply("❗ Tidak bisa membaca informasi file dari pesan ini.")
-                return False
+            except Exception:
+                pass
+            return False
 
         if not file_name:
             file_name = f"download_{int(time())}.mp4"
@@ -499,6 +520,9 @@ class Telegram:
 
         if download_method == "Telethon":
             try:
+                if not file_location:
+                    raise Exception("File location kosong (Bot gagal menemukan objek Media untuk diunduh).")
+                    
                 with open(download_location, "wb") as f:
                     await download_file(
                         client=Telegram.TELETHON_CLIENT,
@@ -523,13 +547,15 @@ class Telegram:
                 await new_event.reply("❌ Pyrogram client tidak aktif. Set USE_PYROGRAM=True di config.")
                 return False
             try:
-                chat_id = (
-                    Config.AUTH_GROUP_ID
-                    if (process_status.event.is_group and Config.AUTH_GROUP_ID)
-                    else process_status.chat_id
-                )
+                # Penentuan Chat ID yang aman untuk Aiogram / Telethon Event
+                chat_id_dl = process_status.chat_id
+                if hasattr(process_status.event, "is_group") and getattr(process_status.event, "is_group") and Config.AUTH_GROUP_ID:
+                    chat_id_dl = Config.AUTH_GROUP_ID
+                elif hasattr(process_status.event, "chat") and getattr(process_status.event.chat, "type", "") in ["group", "supergroup"] and Config.AUTH_GROUP_ID:
+                    chat_id_dl = Config.AUTH_GROUP_ID
+
                 await Telegram.PYROGRAM_CLIENT.download_media(
-                    message=(await Telegram.PYROGRAM_CLIENT.get_messages(chat_id, file_id)),
+                    message=(await Telegram.PYROGRAM_CLIENT.get_messages(chat_id_dl, file_id)),
                     file_name=download_location,
                     progress=process_status.telegram_update_status,
                     progress_args=(
