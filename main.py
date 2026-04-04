@@ -11,6 +11,7 @@
 ║  [FIX]      Inisialisasi semua client (Telethon & Pyrogram) async    ║
 ║  [FIX]      Jalur import shared.py disesuaikan ke folder bot/        ║
 ║  [IMPROVE]  Auto-Loader Router untuk menghindari Unhandled Updates   ║
+║  [FIX]      Inisialisasi Aria2 Engine sebelum listener               ║
 ╚══════════════════════════════════════════════════════════════════════╝
 """
 
@@ -26,7 +27,7 @@ from aiogram import BaseMiddleware
 
 # ── Internal ──────────────────────────────────────────────────────────
 from config.config import Config
-from bot_helper.Aria2.Aria2_Engine import start_listener
+from bot_helper.Aria2.Aria2_Engine import start_listener, Aria2
 from bot_helper.Telegram.Telegram_Client import Telegram
 from bot.shared import resolve_waiter
 
@@ -183,6 +184,8 @@ async def main():
         await start_user_account()
 
     # 5. Start Aria2 Engine
+    LOGGER.info("🔶 Starting Aria2 Engine")
+    Aria2.initialize()
     start_listener()
 
     # 6. Set Bot Commands
