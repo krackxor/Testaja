@@ -1,15 +1,17 @@
 """
 ╔══════════════════════════════════════════════════════════════════════╗
-║                    bot/YTUpload.py — v3.1                            ║
-║        YouTube Upload — Terintegrasi Penuh dengan Bot System         ║
+║                    bot/YTUpload.py                                   ║
+║         YouTube Upload — Terintegrasi Penuh dengan Bot System        ║
 ╠══════════════════════════════════════════════════════════════════════╣
 ║  CHANGELOG dari versi lama:                                          ║
+║  [UX PREMIUM] Menerapkan Auto-Delete agar chat tetap bersih & rapi.  ║
+║  [UX PREMIUM] Menyelaraskan desain Kotak Konfirmasi (Summary Box).   ║
+║  [UX PREMIUM] Menerapkan label tombol yang ringkas & estetik.        ║
 ║  [FIX HIGH] Implementasi CMD_SUFFIX pada semua Command filter        ║
 ║  [NEW] Migrasi total ke Aiogram Router & CallbackQuery               ║
 ║  [NEW] Hybrid Downloader (Pyrogram dengan Progress Bar -> Aiogram)   ║
 ║  [FIX] TelegramBadRequest untuk edit_text handling                   ║
 ║  [FIX] Menutup kebuntuan memori pada antrean asyncio tasks           ║
-║  [IMPROVE] UI lebih mudah dimengerti dengan Markdown aman            ║
 ╚══════════════════════════════════════════════════════════════════════╝
 """
 
@@ -21,7 +23,10 @@ from datetime import datetime
 
 # ── Aiogram ───────────────────────────────────────────────────────────
 from aiogram import Router, F
-from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton
+from aiogram.types import (
+    Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton,
+    ReplyKeyboardMarkup, KeyboardButton, ReplyKeyboardRemove
+)
 from aiogram.filters import Command, CommandObject
 from aiogram.exceptions import TelegramBadRequest
 
@@ -38,6 +43,9 @@ from bot_helper.Process.Running_Tasks import (
 )
 from bot_helper.Telegram.Telegram_Client import Telegram
 from config.config import Config
+
+# Memanggil fitur "Inline Waiter" jika dibutuhkan
+from bot.shared import wait_for_message
 
 # ── YouTube API ───────────────────────────────────────────────────────
 try:
@@ -68,6 +76,29 @@ os.makedirs(TEMP_DIR, exist_ok=True)
 # State sementara per user untuk menyimpan pilihan sebelum konfirmasi
 _yt_state: dict = {}
 
+# ═══════════════════════════════════════════════════════════════════════
+#  UI & CLEANUP HELPERS
+# ═══════════════════════════════════════════════════════════════════════
+
+async def _clean_msgs(*msgs):
+    """Menghapus pesan untuk menjaga chat tetap rapi."""
+    for m in msgs:
+        if m:
+            try: await m.delete()
+            except Exception: pass
+
+def _make_reply_kb(options: list, row_width: int = 2) -> ReplyKeyboardMarkup:
+    """Membuat Reply Keyboard dengan mudah."""
+    kb = []
+    row = []
+    for opt in options:
+        row.append(KeyboardButton(text=opt))
+        if len(row) == row_width:
+            kb.append(row)
+            row = []
+    if row:
+        kb.append(row)
+    return ReplyKeyboardMarkup(keyboard=kb, resize_keyboard=True, one_time_keyboard=True)
 
 async def _safe_edit(msg: Message, text: str, buttons=None) -> None:
     """Helper edit pesan yang tidak crash jika gagal."""
@@ -459,13 +490,11 @@ def _build_dashboard(user_id: int, yt_title: str, privacy: str) -> tuple[str, li
     clean_title = yt_title.replace("`", "").replace("*", "")
 
     dash_text = (
-        f"📺 **Konfirmasi Upload ke YouTube**\n"
-        f"{'─' * 32}\n"
-        f"  📝 **Judul:** `{clean_title[:40]}{'...' if len(clean_title) > 40 else ''}`\n"
-        f"  {priv_icon} **Privasi:** `{privacy.capitalize()}`\n"
-        f"  👑 **VIP:** {vip_text}\n"
-        f"{'─' * 32}\n"
-        f"_Pilih level privasi YouTube, lalu tekan ▶️ Mulai Upload_"
+        f"**📺 KONFIRMASI UPLOAD YOUTUBE**\n\n"
+        f"📝 **Judul:** `{clean_title[:40]}{'...' if len(clean_title) > 40 else ''}`\n"
+        f"{priv_icon} **Privasi Target:** `{privacy.capitalize()}`\n"
+        f"👑 **Status VIP:** {vip_text}\n\n"
+        f"Lanjutkan?"
     )
 
     def _prv_btn(label: str, val: str):
@@ -474,7 +503,7 @@ def _build_dashboard(user_id: int, yt_title: str, privacy: str) -> tuple[str, li
 
     buttons = [
         [_prv_btn("🔒 Private", "private"), _prv_btn("🔗 Unlisted", "unlisted"), _prv_btn("🌍 Public", "public")],
-        [InlineKeyboardButton(text="▶️ Mulai Upload", callback_data=f"yt_go_{user_id}"),
+        [InlineKeyboardButton(text="✅ Upload", callback_data=f"yt_go_{user_id}"),
          InlineKeyboardButton(text="❌ Batal", callback_data=f"yt_cancel_{user_id}")],
     ]
 
@@ -511,7 +540,7 @@ async def ytupload_handler(message: Message, command: CommandObject) -> None:
             "1. Download `client_secret.json` dari Google Cloud Console\n"
             "2. Jalankan `python3 get_token.py` di komputer lokal\n"
             "3. Login di browser yang muncul\n"
-            "4. Upload `token.json` yang dihasilkan ke folder bot di VPS\n\n"
+            "4. Upload `token.json` yang dihasilkan ke sini.\n\n"
             "_Token hanya perlu di-setup sekali._"
         )
 
@@ -559,7 +588,9 @@ async def ytupload_handler(message: Message, command: CommandObject) -> None:
 
 @router.callback_query(F.data.startswith("yt_prv_"))
 async def yt_privacy_cb(call: CallbackQuery) -> None:
-    await call.answer()
+    try: await call.answer()
+    except: pass
+    
     data = call.data.split("_")
     if len(data) < 4: return
     user_id, privacy = int(data[2]), data[3]
@@ -577,7 +608,9 @@ async def yt_privacy_cb(call: CallbackQuery) -> None:
 
 @router.callback_query(F.data.startswith("yt_go_"))
 async def yt_go_cb(call: CallbackQuery) -> None:
-    await call.answer("⏳ Menambahkan ke daftar tugas...", show_alert=False)
+    try: await call.answer("⏳ Menambahkan ke daftar tugas...", show_alert=False)
+    except: pass
+    
     user_id = int(call.data.split("_")[2])
 
     if call.from_user.id != user_id:
@@ -656,7 +689,9 @@ async def yt_go_cb(call: CallbackQuery) -> None:
 
 @router.callback_query(F.data.startswith("yt_cancel_"))
 async def yt_cancel_cb(call: CallbackQuery) -> None:
-    await call.answer("🚫 Mencoba membatalkan...", show_alert=False)
+    try: await call.answer("🚫 Mencoba membatalkan...", show_alert=False)
+    except: pass
+    
     parts   = call.data.split("_")
     user_id = int(parts[2])
 
@@ -677,7 +712,9 @@ async def yt_cancel_cb(call: CallbackQuery) -> None:
 
 @router.callback_query(F.data.startswith("yt_status_"))
 async def yt_status_cb(call: CallbackQuery) -> None:
-    await call.answer()
+    try: await call.answer()
+    except: pass
+    
     process_id = call.data.split("_")[2]
 
     async with working_task_lock:
@@ -712,17 +749,33 @@ async def yttoken_handler(message: Message) -> None:
         token_status = "✅ Tersedia" if os.path.exists(TOKEN_FILE) else "❌ Tidak Ditemukan"
         secret_status = "✅ Tersedia" if os.path.exists(SECRET_FILE) else "❌ Tidak Ditemukan"
 
-        return await message.reply(
+        kb = _make_reply_kb(["❌ Batal"], 1)
+        ask_msg = await message.reply(
             f"🔑 **Status Kredensial YouTube**\n\n"
             f"  `token.json`: {token_status}\n"
             f"  `client_secret.json`: {secret_status}\n\n"
             f"📋 **Untuk Memperbarui Token:**\n"
-            f"Balas (reply) file `token.json` Anda dengan perintah `/yttoken{CMD_SUFFIX}`\n\n"
-            f"📋 **Cara Generate Token (Lokal):**\n"
-            f"1. Jalankan `python3 get_token.py` di komputer lokal Anda\n"
-            f"2. Login melalui browser yang otomatis terbuka\n"
-            f"3. Upload `token.json` yang dihasilkan ke sini."
+            f"Kirimkan file `token.json` baru Anda di sini.",
+            reply_markup=kb
         )
+        
+        resp = await wait_for_message(message.chat.id, user_id, 120)
+        await _clean_msgs(ask_msg, resp)
+        
+        if not resp or "batal" in (resp.text or "").lower():
+            return await message.answer("❌ Dibatalkan.", reply_markup=ReplyKeyboardRemove())
+            
+        if not resp.document:
+            return await message.answer("❌ Silakan kirimkan file `token.json` yang sah.", reply_markup=ReplyKeyboardRemove())
+            
+        try:
+            await Telegram.AIOGRAM_BOT.download(resp.document, destination=TOKEN_FILE)
+            LOGGER.info(f"✅ token.json berhasil diperbarui oleh admin {user_id}")
+            await message.answer("✅ **`token.json` berhasil diperbarui!**\n\nFitur Upload YouTube sekarang aktif dan siap digunakan.", reply_markup=ReplyKeyboardRemove())
+        except Exception as e:
+            LOGGER.error(f"❌ Gagal memperbarui token.json: {e}", exc_info=True)
+            await message.answer(f"❌ Gagal menyimpan file token:\n`{e}`", reply_markup=ReplyKeyboardRemove())
+        return
 
     reply_msg = message.reply_to_message
     if not reply_msg.document:
