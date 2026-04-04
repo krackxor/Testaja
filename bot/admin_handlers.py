@@ -1,6 +1,6 @@
 """
 ╔══════════════════════════════════════════════════════════════════════╗
-║       bot_helper/Handlers/admin_handlers.py — v3.1                   ║
+║       bot/admin_handlers.py — v3.1                                   ║
 ║       Admin & System Command Handlers (Aiogram 3.x)                  ║
 ╠══════════════════════════════════════════════════════════════════════╣
 ║  Commands: /start /time /restart /herokurestart /log /logs           ║
@@ -14,6 +14,7 @@
 ║  [FIX] Tombol diubah menjadi InlineKeyboardMarkup & InlineKeyboardButton║
 ║  [FIX] Pengiriman log & file menggunakan FSInputFile                 ║
 ║  [FIX] event.reply_to_msg_id diubah ke message.reply_to_message      ║
+║  [FIX] Emoji (*️⃣) diubah ke (📌) agar tidak konflik Markdown       ║
 ╚══════════════════════════════════════════════════════════════════════╝
 """
 
@@ -487,7 +488,7 @@ async def _resetdb(message: Message):
         [InlineKeyboardButton(text="Tidak 😓", callback_data="resetdb_False")],
         [InlineKeyboardButton(text="⭕ Tutup", callback_data="close_settings")],
     ])
-    await message.reply("*️⃣ Anda yakin?\n\n🚫 Ini akan mereset seluruh basis data 🚫", reply_markup=kb)
+    await message.reply("📌 Anda yakin?\n\n🚫 Ini akan mereset seluruh basis data 🚫", reply_markup=kb)
 
 
 @router.message(Command("renew"))
@@ -503,7 +504,7 @@ async def _renew(message: Message):
         [InlineKeyboardButton(text="Tidak 😓", callback_data="renew_False")],
         [InlineKeyboardButton(text="⭕ Tutup", callback_data="close_settings")],
     ])
-    await message.reply("*️⃣ Anda yakin?\n\n🚫 Ini akan menghapus semua unduhan & watermark lokal 🚫", reply_markup=kb)
+    await message.reply("📌 Anda yakin?\n\n🚫 Ini akan menghapus semua unduhan & watermark lokal 🚫", reply_markup=kb)
 
 
 @router.message(Command("settings"))
