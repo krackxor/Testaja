@@ -11,6 +11,7 @@
 ║  [NEW] Mengganti conv.get_response() dengan wait_for_message()       ║
 ║  [FIX] TelegramBadRequest handle saat edit_text tanpa modifikasi     ║
 ║  [FIX] Penggunaan FSInputFile untuk mengirim file lokal              ║
+║  [FIX] Menutup celah Markdown crash pada nama file di /mediainfo     ║
 ╚══════════════════════════════════════════════════════════════════════╝
 """
 
@@ -168,12 +169,9 @@ async def _trim_video(message: Message):
             reply_markup=kb
         )
         
-        # Menunggu interceptor button press (menggunakan fungsi wait event sementara)
-        # Note: Implementasi yang lebih bersih menggunakan FSM State Aiogram
-        # Di sini kita simulasikan untuk kecepatan refaktor
         press = await wait_for_message(chat_id, user_id, 120)
         
-        if (press.text or "").lower() == "batal": # Asumsi input fallback
+        if (press.text or "").lower() == "batal":
              await conf_msg.edit_text("Dibatalkan.")
              return
              
@@ -182,7 +180,7 @@ async def _trim_video(message: Message):
         await safe_reply(message, "⏱ Waktu habis, proses dibatalkan.")
         return
     except Exception as e:
-        await safe_reply(message, f"❌ Error: {e}")
+        await safe_reply(message, f"❌ Error: `{e}`")
         LOGGER.error(f"/trim conversation error: {e}", exc_info=True)
         return
 
@@ -248,16 +246,14 @@ async def _split_video(message: Message):
         ])
         mode_msg = await message.reply("**Pilih Mode Pembagian Video:**", reply_markup=kb)
         
-        # Simulasi penangkapan callback atau fallback ke text
         press = await wait_for_message(chat_id, user_id, 300)
-        cb = (press.text or "").lower() # Menggunakan input text sebagai fallback sementra FSM tidak penuh
+        cb = (press.text or "").lower()
         
         if cb == "batal":
             await mode_msg.edit_text("Dibatalkan.")
             return
 
-        # Simplified for now (karena handler button Aiogram terpisah dari message loop)
-        split_mode = "parts" # Defaulting for simulation
+        split_mode = "parts" 
         
         ask_val = await message.reply(f"Masukkan nilai pembagian:")
         val_res = await wait_for_message(chat_id, user_id, 120)
@@ -270,7 +266,7 @@ async def _split_video(message: Message):
         
         kb2 = InlineKeyboardMarkup(inline_keyboard=[
             [InlineKeyboardButton(text="✅ Mulai Bagi", callback_data="confirm")],
-            [InlineKeyboardButton(text="❌ Batal",       callback_data="cancel")],
+            [InlineKeyboardButton(text="❌ Batal",        callback_data="cancel")],
         ])
         conf_msg = await message.reply(
             f"**✂️ KONFIRMASI PEMBAGIAN VIDEO**\n\n"
@@ -290,7 +286,7 @@ async def _split_video(message: Message):
         await safe_reply(message, "⏱ Waktu habis.")
         return
     except Exception as e:
-        await safe_reply(message, f"❌ Error: {e}")
+        await safe_reply(message, f"❌ Error: `{e}`")
         LOGGER.error(f"/split error: {e}", exc_info=True)
         return
 
@@ -383,7 +379,7 @@ async def _cut_video(message: Message):
         await safe_reply(message, "⏱ Waktu habis.")
         return
     except Exception as e:
-        await safe_reply(message, f"❌ Error: {e}")
+        await safe_reply(message, f"❌ Error: `{e}`")
         LOGGER.error(f"/cut error: {e}", exc_info=True)
         return
 
@@ -452,7 +448,7 @@ async def _rotate_video(message: Message):
         await safe_reply(message, "⏱ Waktu habis.")
         return
     except Exception as e:
-        await safe_reply(message, f"❌ Error: {e}")
+        await safe_reply(message, f"❌ Error: `{e}`")
         LOGGER.error(f"/rotate error: {e}", exc_info=True)
         return
 
@@ -514,7 +510,7 @@ async def _crop_video(message: Message):
         await safe_reply(message, "⏱ Waktu habis.")
         return
     except Exception as e:
-        await safe_reply(message, f"❌ Error: {e}")
+        await safe_reply(message, f"❌ Error: `{e}`")
         LOGGER.error(f"/crop error: {e}", exc_info=True)
         return
 
@@ -576,7 +572,7 @@ async def _autocrop_video(message: Message):
         await safe_reply(message, "⏱ Waktu habis.")
         return
     except Exception as e:
-        await safe_reply(message, f"❌ Error: {e}")
+        await safe_reply(message, f"❌ Error: `{e}`")
         LOGGER.error(f"/autocrop error: {e}", exc_info=True)
         return
 
@@ -702,7 +698,7 @@ async def _extension_changer(message: Message):
         await safe_reply(message, "⏱ Waktu habis.")
         return
     except Exception as e:
-        await safe_reply(message, f"❌ Error: {e}")
+        await safe_reply(message, f"❌ Error: `{e}`")
         LOGGER.error(f"/extension error: {e}", exc_info=True)
         return
 
@@ -786,7 +782,7 @@ async def _extract_streams(message: Message):
         stdout, _ = await proc.communicate()
         all_streams = json_loads(stdout.decode("utf-8", "replace")).get("streams", [])
     except Exception as e:
-        await safe_reply(message, f"❌ Gagal menganalisis video: {e}")
+        await safe_reply(message, f"❌ Gagal menganalisis video: `{e}`")
         return
 
     audio_subs = [s for s in all_streams if s.get("codec_type") == "audio"]
@@ -808,7 +804,7 @@ async def _extract_streams(message: Message):
         await safe_reply(message, "⏱ Waktu habis.")
         return
     except Exception as e:
-        await safe_reply(message, f"❌ Error: {e}")
+        await safe_reply(message, f"❌ Error: `{e}`")
         LOGGER.error(f"/extract error: {e}", exc_info=True)
         return
 
@@ -902,11 +898,11 @@ async def _media_info(message: Message):
         size        = int(fmt.get("size", 0))
         bit_rate    = int(float(fmt.get("bit_rate", 0)))
 
-        txt  = f"❏ **{fname}**\n\n"
+        txt  = f"❏ **`{fname}`**\n\n"
         txt += f"├ **Ukuran**: {get_human_size(size)}\n"
         txt += f"├ **Durasi**: {seconds_to_readable_str(int(duration))}\n"
         txt += f"├ **Bitrate**: {int(bit_rate/1000)} kb/s\n"
-        txt += f"└ **Wadah**: {fmt.get('format_name','N/A').upper()}\n\n"
+        txt += f"└ **Wadah**: `{fmt.get('format_name','N/A').upper()}`\n\n"
 
         for s in media_info.get("streams", []):
             ct      = s.get("codec_type")
@@ -917,28 +913,28 @@ async def _media_info(message: Message):
             sbr     = int(float(s.get("bit_rate", 0)))
             if ct == "video":
                 txt += f"🎬 **Video (#{si})**\n"
-                txt += f"├ **Codec**: {codec.upper()}\n"
+                txt += f"├ **Codec**: `{codec.upper()}`\n"
                 txt += f"├ **Resolusi**: {s.get('width')}x{s.get('height')}\n"
                 txt += f"├ **Bitrate**: {int(sbr/1000)} kb/s\n"
                 txt += f"└ **FPS**: {s.get('r_frame_rate','N/A')}\n\n"
             elif ct == "audio":
                 txt += f"🎧 **Audio (#{si})**\n"
-                txt += f"├ **Bahasa**: {lang.upper()}\n"
-                txt += f"├ **Codec**: {codec.upper()}\n"
-                txt += f"├ **Channel**: {s.get('channel_layout','N/A')}\n"
+                txt += f"├ **Bahasa**: `{lang.upper()}`\n"
+                txt += f"├ **Codec**: `{codec.upper()}`\n"
+                txt += f"├ **Channel**: `{s.get('channel_layout','N/A')}`\n"
                 txt += f"└ **Bitrate**: {int(sbr/1000)} kb/s\n\n"
             elif ct == "subtitle":
                 txt += f"📖 **Subtitle (#{si})**\n"
-                txt += f"├ **Bahasa**: {lang.upper()}\n"
+                txt += f"├ **Bahasa**: `{lang.upper()}`\n"
                 if title_:
-                    txt += f"├ **Judul**: {title_}\n"
-                txt += f"└ **Codec**: {codec.upper()}\n\n"
+                    txt += f"├ **Judul**: `{title_}`\n"
+                txt += f"└ **Codec**: `{codec.upper()}`\n\n"
 
         for ch in media_info.get("chapters", []):
             s_t = seconds_to_readable_str(int(float(ch.get("start_time", 0))))
             e_t = seconds_to_readable_str(int(float(ch.get("end_time", 0))))
             ct_ = ch.get("tags", {}).get("title", f"Chapter {ch.get('id')}")
-            txt += f"🔖 `{s_t}` - `{e_t}`: {ct_}\n"
+            txt += f"🔖 `{s_t}` - `{e_t}`: `{ct_}`\n"
 
         if len(txt) > 4096:
             path = f"{temp_dir}/mediainfo.txt"
@@ -949,10 +945,10 @@ async def _media_info(message: Message):
                                           caption=f"📄 MediaInfo untuk `{fname}`",
                                           reply_to_message_id=message.message_id)
         else:
-            await dling_msg.edit_text(txt, parse_mode="md")
+            await dling_msg.edit_text(txt, parse_mode="Markdown")
 
     except Exception as e:
-        await dling_msg.edit_text(f"❌ Error saat analisis: {e}")
+        await dling_msg.edit_text(f"❌ Error saat analisis: `{e}`")
         LOGGER.error(f"/mediainfo error: {e}", exc_info=True)
     finally:
         if temp_dir:
