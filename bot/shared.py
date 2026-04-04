@@ -12,6 +12,7 @@
 ║  [FIX] Inline Button syntax Aiogram                                  ║
 ║  [FIX] Menambahkan kembali get_sudo_user_id untuk kompatibilitas     ║
 ║  [FIX] Mengganti emoji asterisk (*️⃣) dengan (📌) agar aman          ║
+║  [FIX] Membersihkan spasi tersembunyi & Exception handle untuk delete║
 ╚══════════════════════════════════════════════════════════════════════╝
 """
 
@@ -531,7 +532,10 @@ async def update_status_message(message: Message) -> None:
             break
 
         if status_update.get(chat_id, {}).get("update_id") != status_update_id:
-            await reply.delete()
+            try:
+                await reply.delete()
+            except Exception: # Mengatasi crash jika pesan sudah dihapus sebelumnya
+                pass
             break
 
         user_cfg = get_data().get(user_id, {})
