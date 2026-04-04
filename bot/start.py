@@ -1,17 +1,20 @@
 """
 ╔══════════════════════════════════════════════════════════════════════╗
-║                        start.py — v3.1                              ║
-║              Entry Point: Import semua handler modules              ║
+║                        start.py — v3.1                               ║
+║             Entry Point: Import semua handler modules                ║
 ╠══════════════════════════════════════════════════════════════════════╣
-║  File ini hanya berisi import — semua logic ada di:                 ║
-║    bot/shared.py                              ← shared utilities    ║
-║    bot/admin_handlers.py                      ← system commands    ║
-║    bot/vip_handlers.py                        ← VIP management     ║
-║    bot/media_handlers.py                      ← FFmpeg commands    ║
-║    bot/advanced_media_handlers.py             ← trim/cut/crop      ║
-║    bot/callbacks.py                           ← settings UI        ║
+║  File ini hanya berisi import — semua logic ada di:                  ║
+║    bot/shared.py                              ← shared utilities     ║
+║    bot/admin_handlers.py                      ← system commands      ║
+║    bot/vip_handlers.py                        ← VIP management       ║
+║    bot/media_handlers.py                      ← FFmpeg commands      ║
+║    bot/advanced_media_handlers.py             ← trim/cut/crop        ║
+║    bot/callbacks.py                           ← settings UI          ║
 ╚══════════════════════════════════════════════════════════════════════╝
 """
+
+# Impor Telegram Client terbaru (Trinity Architecture)
+from bot_helper.Telegram.Telegram_Client import Telegram
 
 # ── Registrasi semua handlers via package import ──────────────────────
 # @TELETHON_CLIENT.on() dekorator sudah dieksekusi saat module dimuat.
@@ -64,7 +67,6 @@ from .shared import (   # noqa: F401
     CMD_SUFFIX,
     LOGGER,
     SAVE_TO_DATABASE,
-    TELETHON_CLIENT,
     owner_id,
     sudo_users,
 )
