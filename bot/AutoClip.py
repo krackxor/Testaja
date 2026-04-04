@@ -1,12 +1,17 @@
 """
 ╔══════════════════════════════════════════════════════════════════════╗
-║                    bot/AutoClip.py — v3.1                            ║
+║                    bot/AutoClip.py — v3.2                            ║
 ║        Auto Clip: Potong video panjang → Shorts/Reels terpisah       ║
 ╠══════════════════════════════════════════════════════════════════════╣
-║  CHANGELOG: Migrasi total ke Aiogram 3.x Router & Message objects    ║
+║  CHANGELOG:                                                          ║
+║  [UX PREMIUM] Migrasi Total Dashboard Inline menjadi Interactive     ║
+║               Wizard (Step-by-step) dengan Reply Keyboard Singkat!   ║
+║  [UX PREMIUM] Auto-Delete disematkan di semua langkah setup produksi ║
+║               agar obrolan tidak dipenuhi pesan sampah.              ║
+║  [UX PREMIUM] Kotak Konfirmasi (Summary Box) diseragamkan dengan     ║
+║               desain modul lain.                                     ║
 ║  [FIX HIGH] Implementasi CMD_SUFFIX pada command filter /clip        ║
 ║  [FIX] Syntax error pada pesan help /clip diperbaiki                 ║
-║  [FIX] Penambahan fungsi callback handler yang sebelumnya terpotong  ║
 ╚══════════════════════════════════════════════════════════════════════╝
 """
 
@@ -21,7 +26,10 @@ from moviepy import VideoFileClip, CompositeVideoClip, ColorClip, ImageClip
 from moviepy.video.fx import FadeIn, FadeOut
 
 from aiogram import Router, F
-from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton, FSInputFile
+from aiogram.types import (
+    Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton, FSInputFile,
+    ReplyKeyboardMarkup, KeyboardButton, ReplyKeyboardRemove
+)
 from aiogram.filters import Command, CommandObject
 from aiogram.exceptions import TelegramBadRequest
 
@@ -33,6 +41,7 @@ from bot_helper.Process.Running_Process import append_running_process, check_run
 from bot_helper.Process.Running_Tasks import working_task, working_task_lock, queued_task, queued_task_lock
 from bot_helper.Telegram.Telegram_Client import Telegram
 from config.config import Config
+from bot.shared import wait_for_message
 
 try:
     from bot.YTUpload import upload_to_youtube, YOUTUBE_ENABLED
@@ -62,8 +71,28 @@ os.makedirs(TEMP_DIR, exist_ok=True)
 
 
 # ═══════════════════════════════════════════════════════════════════════
-#  HELPERS
+#  HELPERS & UI
 # ═══════════════════════════════════════════════════════════════════════
+
+async def _clean_msgs(*msgs):
+    """Menghapus pesan untuk menjaga chat tetap rapi."""
+    for m in msgs:
+        if m:
+            try: await m.delete()
+            except Exception: pass
+
+def _make_reply_kb(options: list, row_width: int = 2) -> ReplyKeyboardMarkup:
+    """Membuat Reply Keyboard dengan mudah."""
+    kb = []
+    row = []
+    for opt in options:
+        row.append(KeyboardButton(text=opt))
+        if len(row) == row_width:
+            kb.append(row)
+            row = []
+    if row:
+        kb.append(row)
+    return ReplyKeyboardMarkup(keyboard=kb, resize_keyboard=True, one_time_keyboard=True)
 
 async def _safe_edit(msg: Message, text: str, buttons=None) -> None:
     try:
@@ -86,16 +115,6 @@ def _is_vip(user_id: int) -> bool:
     if not expiry_str: return False
     try: return datetime.now(datetime.fromisoformat(str(expiry_str)).tzinfo) < datetime.fromisoformat(str(expiry_str))
     except Exception: return False
-
-def _vip_expiry_text(user_id: int) -> str:
-    if user_id == Config.OWNER_ID or user_id in Config.SUDO_USERS: return "♾️ Unlimited (Owner/Sudo)"
-    expiry_str = get_data().get(user_id, {}).get("premium_expiry_date")
-    if not expiry_str: return "❌ Tidak aktif"
-    try:
-        expiry = datetime.fromisoformat(str(expiry_str)); now = datetime.now(expiry.tzinfo)
-        if now >= expiry: return "❌ Sudah kadaluarsa"
-        return f"✅ Aktif — sisa {(expiry - now).days} hari"
-    except Exception: return "❓ Tidak diketahui"
 
 def _find_source_video(topic: str) -> Optional[str]:
     search_dirs = ["./gameplay/", "./userdata/gameplay/", "./videos/"]
@@ -347,29 +366,14 @@ async def _start_autoclip_task(process_status: ProcessStatus, original_event: Me
     await _autoclip_worker(process_status, original_event, reply_msg, topic, mode, quality, yt_enabled, yt_privacy, status_msg)
 
 # ═══════════════════════════════════════════════════════════════════════
-#  DASHBOARD & COMMAND HANDLERS
+#  DASHBOARD & COMMAND HANDLERS (WIZARD UI)
 # ═══════════════════════════════════════════════════════════════════════
-
-def _build_clip_dashboard(user_id: int, topic: str, mode: str, quality: str, yt_enabled: bool, yt_privacy: str) -> tuple[str, list]:
-    mode_icons = {"short": "📱 Shorts 9:16", "landscape": "🖥️ Landscape 16:9", "auto": "🔄 Auto"}
-    dash_text = f"✂️ **Auto Clip — Konfirmasi**\n{'─' * 32}\n  🎬 Sumber    `{topic}`\n  📐 Mode      `{mode_icons.get(mode, mode)}`\n  ⚙️  Quality   `{QUALITY_PRESETS[quality]['label']}`\n  📺 YouTube   `{'✅ YT Upload' if yt_enabled else '❌ Telegram Only'}`"
-    if yt_enabled: dash_text += f"\n  🔒 Privasi   `{yt_privacy.capitalize()}`"
-    dash_text += f"\n  👑 VIP       {_vip_expiry_text(user_id)}\n{'─' * 32}\n_Sesuaikan pengaturan lalu tekan ▶️ Mulai_"
-
-    buttons = [
-        [InlineKeyboardButton(text=f"{'✅ ' if 'short' == mode else ''}📱 Short", callback_data=f"ac_mode_{user_id}_short"), InlineKeyboardButton(text=f"{'✅ ' if 'landscape' == mode else ''}🖥️ Wide", callback_data=f"ac_mode_{user_id}_landscape"), InlineKeyboardButton(text=f"{'✅ ' if 'auto' == mode else ''}🔄 Auto", callback_data=f"ac_mode_{user_id}_auto")],
-        [InlineKeyboardButton(text=f"{'✅ ' if 'fast' == quality else ''}⚡ Cepat", callback_data=f"ac_qual_{user_id}_fast"), InlineKeyboardButton(text=f"{'✅ ' if 'balanced' == quality else ''}⚖️ Seimbang", callback_data=f"ac_qual_{user_id}_balanced"), InlineKeyboardButton(text=f"{'✅ ' if 'hq' == quality else ''}💎 HQ", callback_data=f"ac_qual_{user_id}_hq")]
-    ]
-    if YOUTUBE_ENABLED and _HAS_YTUPLOAD:
-        buttons.append([InlineKeyboardButton(text="✅ Upload YT" if yt_enabled else "☐ Upload YT", callback_data=f"ac_yt_{user_id}")])
-        if yt_enabled:
-            buttons.append([InlineKeyboardButton(text=f"{'✅ ' if 'private' == yt_privacy else ''}🔒 Private", callback_data=f"ac_prv_{user_id}_private"), InlineKeyboardButton(text=f"{'✅ ' if 'unlisted' == yt_privacy else ''}🔗 Unlisted", callback_data=f"ac_prv_{user_id}_unlisted"), InlineKeyboardButton(text=f"{'✅ ' if 'public' == yt_privacy else ''}🌍 Public", callback_data=f"ac_prv_{user_id}_public")])
-    buttons.append([InlineKeyboardButton(text="▶️ Mulai Render", callback_data=f"ac_go_{user_id}"), InlineKeyboardButton(text="❌ Batal", callback_data=f"ac_cancel_{user_id}")])
-    return dash_text, buttons
 
 @router.message(Command(f"clip{CMD_SUFFIX}"))
 async def autoclip_handler(message: Message, command: CommandObject) -> None:
     user_id = message.from_user.id
+    chat_id = message.chat.id
+    
     if not _is_vip(user_id):
         return await message.reply("👑 **Fitur Eksklusif VIP**\n\nAuto Clip membutuhkan resource render yang besar.\nFitur ini hanya untuk member **VIP/Premium**.\n\nHubungi admin untuk info berlangganan.", reply_markup=InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="💬 Hubungi Admin", url=f"https://t.me/{Config.BOT_USERNAME}")]]))
 
@@ -388,93 +392,90 @@ async def autoclip_handler(message: Message, command: CommandObject) -> None:
             f"Silakan sertakan nama game/video yang ingin dipotong.\nContoh: `/clip{CMD_SUFFIX} Resident Evil 4`"
         )
 
-    _clip_state[user_id] = {
-        "topic": topic,
-        "mode": "short",
-        "quality": "balanced",
-        "yt_enabled": False,
-        "yt_privacy": "private",
-        "reply_msg": message.reply_to_message
-    }
-
-    dash_text, buttons = _build_clip_dashboard(user_id, topic, "short", "balanced", False, "private")
-    await message.reply(dash_text, reply_markup=InlineKeyboardMarkup(inline_keyboard=buttons))
-
-# ═══════════════════════════════════════════════════════════════════════
-#  CALLBACK HANDLERS
-# ═══════════════════════════════════════════════════════════════════════
-
-def _check_state(call: CallbackQuery, user_id: int):
-    return (True, "") if call.from_user.id == user_id and user_id in _clip_state else (False, "❌ Sesi tidak valid atau telah kadaluarsa.")
-
-@router.callback_query(F.data.startswith("ac_mode_"))
-async def cb_ac_mode(call: CallbackQuery):
-    user_id = int(call.data.split("_")[2])
-    val = call.data.split("_")[3]
-    ok, msg = _check_state(call, user_id)
-    if not ok: return await call.answer(msg, show_alert=True)
+    # WIZARD STEP 1: MODE
+    kb_mode = _make_reply_kb(["📱 Shorts", "🖥️ Landscape", "🔄 Auto", "❌ Batal"], 3)
+    msg_mode = await message.reply("📐 **Pilih Format Pemotongan:**", reply_markup=kb_mode)
+    resp_mode = await wait_for_message(chat_id, user_id, 60)
+    await _clean_msgs(msg_mode, resp_mode)
     
-    _clip_state[user_id]["mode"] = val
-    st = _clip_state[user_id]
-    dash, btns = _build_clip_dashboard(user_id, st["topic"], st["mode"], st["quality"], st["yt_enabled"], st["yt_privacy"])
-    await _safe_edit(call.message, dash, btns)
+    txt_mode = (resp_mode.text or "").lower()
+    if not resp_mode or "batal" in txt_mode:
+        return await message.answer("❌ Dibatalkan.", reply_markup=ReplyKeyboardRemove())
+        
+    mode = "landscape" if "landscape" in txt_mode else "auto" if "auto" in txt_mode else "short"
 
-@router.callback_query(F.data.startswith("ac_qual_"))
-async def cb_ac_qual(call: CallbackQuery):
-    user_id = int(call.data.split("_")[2])
-    val = call.data.split("_")[3]
-    ok, msg = _check_state(call, user_id)
-    if not ok: return await call.answer(msg, show_alert=True)
+    # WIZARD STEP 2: QUALITY
+    kb_qual = _make_reply_kb(["⚡ Cepat", "⚖️ Seimbang", "💎 HQ", "❌ Batal"], 3)
+    msg_qual = await message.reply("⚙️ **Pilih Kualitas Render:**", reply_markup=kb_qual)
+    resp_qual = await wait_for_message(chat_id, user_id, 60)
+    await _clean_msgs(msg_qual, resp_qual)
     
-    _clip_state[user_id]["quality"] = val
-    st = _clip_state[user_id]
-    dash, btns = _build_clip_dashboard(user_id, st["topic"], st["mode"], st["quality"], st["yt_enabled"], st["yt_privacy"])
-    await _safe_edit(call.message, dash, btns)
+    txt_qual = (resp_qual.text or "").lower()
+    if not resp_qual or "batal" in txt_qual:
+        return await message.answer("❌ Dibatalkan.", reply_markup=ReplyKeyboardRemove())
+        
+    quality = "fast" if "cepat" in txt_qual else "hq" if "hq" in txt_qual else "balanced"
 
-@router.callback_query(F.data.startswith("ac_yt_"))
-async def cb_ac_yt(call: CallbackQuery):
-    user_id = int(call.data.split("_")[2])
-    ok, msg = _check_state(call, user_id)
-    if not ok: return await call.answer(msg, show_alert=True)
-    
-    _clip_state[user_id]["yt_enabled"] = not _clip_state[user_id]["yt_enabled"]
-    st = _clip_state[user_id]
-    dash, btns = _build_clip_dashboard(user_id, st["topic"], st["mode"], st["quality"], st["yt_enabled"], st["yt_privacy"])
-    await _safe_edit(call.message, dash, btns)
+    # WIZARD STEP 3: YOUTUBE
+    yt_enabled, yt_privacy = False, "private"
+    if YOUTUBE_ENABLED and _HAS_YTUPLOAD:
+        kb_yt = _make_reply_kb(["❌ Skip", "🌍 Public", "🔗 Unlisted", "🔒 Private", "❌ Batal"], 3)
+        msg_yt = await message.reply("📺 **Upload ke YouTube Otomatis?**", reply_markup=kb_yt)
+        resp_yt = await wait_for_message(chat_id, user_id, 60)
+        await _clean_msgs(msg_yt, resp_yt)
+        
+        txt_yt = (resp_yt.text or "").lower()
+        if not resp_yt or "batal" in txt_yt:
+            return await message.answer("❌ Dibatalkan.", reply_markup=ReplyKeyboardRemove())
+            
+        yt_enabled = "skip" not in txt_yt
+        if yt_enabled:
+            yt_privacy = "public" if "public" in txt_yt else "unlisted" if "unlisted" in txt_yt else "private"
 
-@router.callback_query(F.data.startswith("ac_prv_"))
-async def cb_ac_prv(call: CallbackQuery):
-    user_id = int(call.data.split("_")[2])
-    val = call.data.split("_")[3]
-    ok, msg = _check_state(call, user_id)
-    if not ok: return await call.answer(msg, show_alert=True)
+    # WIZARD STEP 4: CONFIRMATION
+    kb_conf = _make_reply_kb(["✅ Potong", "❌ Batal"], 2)
+    conf_txt = (
+        f"**✂️ KONFIRMASI AUTO CLIP**\n\n"
+        f"🎬 **Sumber:** `{topic}`\n"
+        f"📐 **Mode:** `{mode.upper()}`\n"
+        f"⚙️ **Quality:** `{QUALITY_PRESETS[quality]['label']}`\n"
+        f"📺 **YouTube:** `{'✅ Upload ('+yt_privacy.capitalize()+')' if yt_enabled else '❌ Skip'}`\n\n"
+        "Lanjutkan?"
+    )
+    msg_conf = await message.reply(conf_txt, reply_markup=kb_conf)
+    resp_conf = await wait_for_message(chat_id, user_id, 60)
+    await _clean_msgs(msg_conf, resp_conf)
     
-    _clip_state[user_id]["yt_privacy"] = val
-    st = _clip_state[user_id]
-    dash, btns = _build_clip_dashboard(user_id, st["topic"], st["mode"], st["quality"], st["yt_enabled"], st["yt_privacy"])
-    await _safe_edit(call.message, dash, btns)
+    if not resp_conf or "batal" in (resp_conf.text or "").lower():
+        return await message.answer("❌ Dibatalkan.", reply_markup=ReplyKeyboardRemove())
+
+    await message.answer("✅ Menyiapkan Proses Auto Clip...", reply_markup=ReplyKeyboardRemove())
+
+    # INITIALIZE PROCESS
+    sender_name = message.from_user.first_name or str(user_id)
+    ps = ProcessStatus(user_id, chat_id, message.from_user.username or "", sender_name, message, getattr(Names, "autoclip", "AutoClip"), "Telegram")
+    
+    init_text = f"✂️ **Memulai Auto Clip...**\n**Sumber:** `{topic}`\n**ID:** `{ps.process_id}`\n`/cancel{CMD_SUFFIX} process {ps.process_id}`"
+    kb_action = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="❌ Batalkan", callback_data=f"ac_cancel_{user_id}_{ps.process_id}")]])
+    
+    status_msg = await message.answer(init_text, reply_markup=kb_action)
+    
+    asyncio.create_task(_start_autoclip_task(
+        ps, message, message.reply_to_message, topic, mode, quality, yt_enabled, yt_privacy, status_msg
+    ))
+
 
 @router.callback_query(F.data.startswith("ac_cancel_"))
 async def cb_ac_cancel(call: CallbackQuery):
-    user_id = int(call.data.split("_")[2])
-    ok, msg = _check_state(call, user_id)
-    if not ok: return await call.answer(msg, show_alert=True)
+    await call.answer("🚫 Membatalkan...")
+    parts = call.data.split("_")
+    uid = int(parts[2])
     
-    _clip_state.pop(user_id, None)
-    await _safe_edit(call.message, "❌ **Auto Clip Dibatalkan.**")
-
-@router.callback_query(F.data.startswith("ac_go_"))
-async def cb_ac_go(call: CallbackQuery):
-    await call.answer("⏳ Menyiapkan Auto Clip...")
-    user_id = int(call.data.split("_")[2])
-    ok, msg = _check_state(call, user_id)
-    if not ok: return await call.answer(msg, show_alert=True)
-    
-    st = _clip_state[user_id]
-    sender_name = call.from_user.first_name or str(user_id)
-    ps = ProcessStatus(user_id, call.message.chat.id, call.from_user.username or "", sender_name, call.message, getattr(Names, "autoclip", "AutoClip"), "Telegram")
-    
-    init_text = f"✂️ **Memulai Auto Clip...**\n**Sumber:** `{st['topic']}`\n**ID:** `{ps.process_id}`\n`/cancel{CMD_SUFFIX} process {ps.process_id}`"
-    status_msg = await call.message.edit_text(init_text)
-    
-    asyncio.create_task(_start_autoclip_task(ps, call.message, st["reply_msg"], st["topic"], st["mode"], st["quality"], st["yt_enabled"], st["yt_privacy"], status_msg))
+    if call.from_user.id != uid: 
+        return await call.answer("❌ Bukan milikmu!", show_alert=True)
+        
+    if len(parts) >= 4:
+        process_id = parts[3]
+        await remove_running_process(process_id)
+        
+    await _safe_edit(call.message, "❌ **Auto Clip dibatalkan.**")
