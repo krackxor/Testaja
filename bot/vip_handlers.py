@@ -6,6 +6,7 @@
 ║  Commands: /verify /myvip /add_vip /delete_vip /view_vip             ║
 ╠══════════════════════════════════════════════════════════════════════╣
 ║  CHANGELOG dari versi lama:                                          ║
+║  [FIX HIGH] Implementasi CMD_SUFFIX pada semua Command filter        ║
 ║  [NEW] Migrasi total ke Aiogram Router & Message objects             ║
 ║  [FIX] event.reply_to_msg_id diubah ke message.reply_to_message      ║
 ║  [FIX] event.edit() diubah menjadi message.edit_text()               ║
@@ -35,7 +36,7 @@ from bot_helper.Telegram.Telegram_Client import Telegram
 from config.config import Config
 
 from .shared import (
-    LOGGER, SAVE_TO_DATABASE,
+    CMD_SUFFIX, LOGGER, SAVE_TO_DATABASE,
     ask_text_event, owner_checker,
     safe_reply, user_auth_checker,
 )
@@ -87,7 +88,7 @@ def _extend_vip(user_id: int, duration_days: int) -> datetime:
 #  /verify — Verifikasi Pembayaran Trakteer
 # ═══════════════════════════════════════════════════════════════════════
 
-@router.message(Command("verify"))
+@router.message(Command(f"verify{CMD_SUFFIX}"))
 async def _verify_payment(message: Message):
     if not await user_auth_checker(message):
         return
@@ -208,7 +209,7 @@ async def _verify_payment(message: Message):
 #  /myvip — Cek Status VIP Sendiri
 # ═══════════════════════════════════════════════════════════════════════
 
-@router.message(Command("myvip"))
+@router.message(Command(f"myvip{CMD_SUFFIX}"))
 async def _my_vip_status(message: Message):
     user_id = message.from_user.id
     await ensure_user_data_structure(user_id)
@@ -245,7 +246,7 @@ async def _my_vip_status(message: Message):
             "├  **Status:** `Pengguna Reguler`\n"
             "│\n"
             "├  Ingin akses penuh? Lakukan donasi\n"
-            "│  dan gunakan `/verify` untuk upgrade VIP!\n"
+            f"│  dan gunakan `/verify{CMD_SUFFIX}` untuk upgrade VIP!\n"
             "│\n"
             "╰─╼ • Upgrade untuk fitur premium • ╾─╯"
         )
@@ -255,7 +256,7 @@ async def _my_vip_status(message: Message):
 #  /add_vip — Tambah VIP Manual (Owner)
 # ═══════════════════════════════════════════════════════════════════════
 
-@router.message(Command("add_vip"))
+@router.message(Command(f"add_vip{CMD_SUFFIX}"))
 async def _add_vip_manual(message: Message):
     if not owner_checker(message):
         return
@@ -276,8 +277,8 @@ async def _add_vip_manual(message: Message):
         else:
             await safe_reply(message,
                 "**Format:**\n"
-                "`/add_vip [durasi]` (balas pesan) — contoh: `/add_vip 2m`\n"
-                "`/add_vip <user_id> [durasi]` — contoh: `/add_vip 12345 1y`\n\n"
+                f"`/add_vip{CMD_SUFFIX} [durasi]` (balas pesan) — contoh: `/add_vip{CMD_SUFFIX} 2m`\n"
+                f"`/add_vip{CMD_SUFFIX} <user_id> [durasi]` — contoh: `/add_vip{CMD_SUFFIX} 12345 1y`\n\n"
                 "Durasi: `30d`, `2m`, `1y`, atau angka hari"
             )
             return
@@ -290,7 +291,7 @@ async def _add_vip_manual(message: Message):
         new_expiry     = _extend_vip(target_uid, duration_days)
 
         await saveoptions(target_uid, "premium_expiry_date", new_expiry.isoformat(), SAVE_TO_DATABASE)
-        await saveoptions(target_uid, "total_vip_duration",  total_duration,          SAVE_TO_DATABASE)
+        await saveoptions(target_uid, "total_vip_duration",  total_duration,         SAVE_TO_DATABASE)
 
         await safe_reply(message,
             f"✅ **VIP Berhasil Ditambahkan!**\n\n"
@@ -307,7 +308,7 @@ async def _add_vip_manual(message: Message):
 #  /delete_vip — Hapus VIP (Owner)
 # ═══════════════════════════════════════════════════════════════════════
 
-@router.message(Command("delete_vip"))
+@router.message(Command(f"delete_vip{CMD_SUFFIX}"))
 async def _delete_vip_manual(message: Message):
     if not owner_checker(message):
         return
@@ -320,7 +321,7 @@ async def _delete_vip_manual(message: Message):
         elif len(parts) > 1 and parts[1].isdigit():
             target_uid = int(parts[1])
         else:
-            await safe_reply(message, "❗ Format: `/delete_vip <user_id>` atau balas pesan.")
+            await safe_reply(message, f"❗ Format: `/delete_vip{CMD_SUFFIX} <user_id>` atau balas pesan.")
             return
 
         await ensure_user_data_structure(target_uid)
@@ -341,11 +342,12 @@ async def _delete_vip_manual(message: Message):
 #  /view_vip — Lihat Daftar VIP (Owner)
 # ═══════════════════════════════════════════════════════════════════════
 
-@router.message(Command("view_vip"))
+@router.message(Command(f"view_vip{CMD_SUFFIX}"))
 async def _view_vip_list(message: Message):
     if not owner_checker(message):
         return
         
+    path = "vip_list.txt"
     try:
         all_data   = get_data()
         now        = datetime.now()
@@ -385,15 +387,16 @@ async def _view_vip_list(message: Message):
         text_msg = "".join(lines)
 
         if len(text_msg) > 4096:
-            path = "vip_list.txt"
             with open(path, "w", encoding="utf-8") as f:
                 plain = text_msg.replace("**", "").replace("`", "")
                 f.write(plain)
             await message.reply_document(document=FSInputFile(path), caption="Daftar VIP terlalu panjang, dikirim sebagai file.")
-            remove(path)
         else:
             await message.reply(text_msg)
 
     except Exception as e:
         await safe_reply(message, f"❌ Terjadi kesalahan: `{e}`")
         LOGGER.error(f"/view_vip error: {e}", exc_info=True)
+    finally:
+        if exists(path):
+            remove(path)
