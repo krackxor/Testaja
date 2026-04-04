@@ -1,17 +1,17 @@
 """
 ╔══════════════════════════════════════════════════════════════════════╗
-║    bot_helper/Handlers/advanced_media_handlers.py — v3.1             ║
+║    bot_helper/Handlers/advanced_media_handlers.py — v3.3             ║
 ║    Advanced Media Handlers (Aiogram 3.x / Inline Waiter)             ║
 ╠══════════════════════════════════════════════════════════════════════╣
 ║  Commands: /trim /split /cut /rotate /crop /autocrop                 ║
 ║            /extension /extract /mediainfo                            ║
 ╠══════════════════════════════════════════════════════════════════════╣
 ║  CHANGELOG dari versi lama:                                          ║
-║  [FIX HIGH] Inline Keyboard → Reply Keyboard pada /trim /split dll   ║
-║             agar tombol merespons instan karena InlineKeyboardMarkup ║
-║             tidak ditangkap oleh wait_for_message()!                 ║
-║  [FIX HIGH] Extract & Mediainfo Bypass: File native Telegram akan    ║
-║             diunduh instan tanpa mengantre, bebas risiko stuck!      ║
+║  [UX PREMIUM] Menambahkan Kotak Konfirmasi Detail di SEMUA perintah  ║
+║               agar pengguna tahu persis parameter apa yang diatur.   ║
+║  [UX PREMIUM] Menerapkan Auto-Delete agar chat tetap bersih & rapi.  ║
+║  [UX PREMIUM] Menerapkan Reply Keyboard pendek yang konsisten.       ║
+║  [FIX HIGH] Extract & Mediainfo Bypass (Instan Download native TG)   ║
 ║  [FIX HIGH] Implementasi CMD_SUFFIX pada semua Command filter        ║
 ╚══════════════════════════════════════════════════════════════════════╝
 """
@@ -57,8 +57,35 @@ import re as _re
 router = Router()
 
 # ═══════════════════════════════════════════════════════════════════════
-#  TIME VALIDATION
+#  UI & CLEANUP HELPERS
 # ═══════════════════════════════════════════════════════════════════════
+
+async def _clean_msgs(*msgs):
+    """Menghapus pesan untuk menjaga chat tetap rapi."""
+    for m in msgs:
+        if m:
+            try: await m.delete()
+            except Exception: pass
+
+def _make_reply_kb(options: list, row_width: int = 2) -> ReplyKeyboardMarkup:
+    """Membuat Reply Keyboard dengan mudah."""
+    kb = []
+    row = []
+    for opt in options:
+        row.append(KeyboardButton(text=opt))
+        if len(row) == row_width:
+            kb.append(row)
+            row = []
+    if row:
+        kb.append(row)
+    return ReplyKeyboardMarkup(keyboard=kb, resize_keyboard=True, one_time_keyboard=True)
+
+def _get_fname(link, custom_file_name: str) -> str:
+    """Helper untuk mendapatkan nama file cantik untuk ditampilkan."""
+    if custom_file_name: return custom_file_name
+    if isinstance(link, str): return "Tautan / URL"
+    doc = getattr(link, "document", None) or getattr(link, "video", None) or getattr(link, "audio", None)
+    return getattr(doc, "file_name", "Berkas Media")
 
 def is_valid_time_format(time_str: str) -> bool:
     try:
@@ -99,12 +126,14 @@ async def _trim_video(message: Message):
         try:
             ask_msg = await message.reply("Kirim Video atau URL yang ingin di-trim.")
             resp = await wait_for_message(chat_id, user_id, 120)
+            await _clean_msgs(ask_msg, resp)
             if resp.video or resp.document: link = resp
             elif (resp.text or "").startswith("http"): link = resp.text
-            else: return await ask_msg.edit_text("Input tidak valid. Dibatalkan.")
+            else: return await message.answer("❌ Input tidak valid. Dibatalkan.")
         except asyncio.TimeoutError: return await safe_reply(message, "⏱ Waktu habis, proses dibatalkan.")
 
     video_event_for_task = link
+    fname = _get_fname(link, custom_file_name)
     if not isinstance(link, str) and (link.video or link.document):
         vid_obj = link.video or link.document
         orig_duration = getattr(vid_obj, 'duration', 0)
@@ -112,48 +141,68 @@ async def _trim_video(message: Message):
     orig_str = seconds_to_readable_str(orig_duration) if orig_duration else "Tidak Diketahui"
 
     try:
-        ask_st = await message.reply("Masukkan **Waktu Mulai** (Start Time).\nFormat: `HH:MM:SS` atau `MM:SS`")
+        # Prompt Start Time
+        kb_start = _make_reply_kb(["00:00", "❌ Batal"], 2)
+        ask_st = await message.reply("Masukkan **Waktu Mulai** (Start Time).\nFormat: `HH:MM:SS` atau `MM:SS`", reply_markup=kb_start)
         st_res = await wait_for_message(chat_id, user_id, 300)
-        if not is_valid_time_format(st_res.text or ""): return await ask_st.edit_text("❌ Format waktu mulai tidak valid. Dibatalkan.")
+        await _clean_msgs(ask_st, st_res)
+        
+        if "batal" in (st_res.text or "").lower():
+            return await message.answer("❌ Dibatalkan.", reply_markup=ReplyKeyboardRemove())
+        if not is_valid_time_format(st_res.text or ""): 
+            return await message.answer("❌ Format waktu mulai tidak valid. Dibatalkan.", reply_markup=ReplyKeyboardRemove())
 
-        ask_et = await message.reply("Masukkan **Waktu Selesai** (End Time).\nFormat: `HH:MM:SS` atau `MM:SS`")
+        # Prompt End Time
+        kb_end = _make_reply_kb([orig_str if orig_duration else "Kustom", "❌ Batal"], 2)
+        ask_et = await message.reply("Masukkan **Waktu Selesai** (End Time).\nFormat: `HH:MM:SS` atau `MM:SS`", reply_markup=kb_end)
         et_res = await wait_for_message(chat_id, user_id, 300)
-        if not is_valid_time_format(et_res.text or ""): return await ask_et.edit_text("❌ Format waktu selesai tidak valid. Dibatalkan.")
+        await _clean_msgs(ask_et, et_res)
+        
+        if "batal" in (et_res.text or "").lower():
+            return await message.answer("❌ Dibatalkan.", reply_markup=ReplyKeyboardRemove())
+        end_time_txt = et_res.text
+        if end_time_txt == "Kustom":
+            ask_cust = await message.reply("Ketik waktu selesai:", reply_markup=ReplyKeyboardRemove())
+            cust_res = await wait_for_message(chat_id, user_id, 120)
+            await _clean_msgs(ask_cust, cust_res)
+            end_time_txt = cust_res.text
+            
+        if not is_valid_time_format(end_time_txt or ""): 
+            return await message.answer("❌ Format waktu selesai tidak valid. Dibatalkan.", reply_markup=ReplyKeyboardRemove())
 
-        start_time, end_time = (st_res.text or "").strip(), (et_res.text or "").strip()
+        start_time, end_time = (st_res.text or "").strip(), (end_time_txt or "").strip()
         start_sec, end_sec   = time_string_to_seconds(start_time), time_string_to_seconds(end_time)
 
-        if start_sec >= end_sec: return await ask_et.edit_text("❌ Waktu selesai harus lebih besar dari waktu mulai.")
-        if orig_duration > 0 and end_sec > orig_duration: return await ask_et.edit_text(f"❌ Waktu selesai melebihi durasi video (`{orig_str}`).")
+        if start_sec >= end_sec: 
+            return await message.answer("❌ Waktu selesai harus lebih besar dari waktu mulai.", reply_markup=ReplyKeyboardRemove())
+        if orig_duration > 0 and end_sec > orig_duration: 
+            return await message.answer(f"❌ Waktu selesai melebihi durasi video (`{orig_str}`).", reply_markup=ReplyKeyboardRemove())
 
         dur_str = seconds_to_readable_str(end_sec - start_sec)
         
-        # [FIX HIGH] Menggunakan Reply Keyboard agar merespons secara INSTAN!
-        kb = ReplyKeyboardMarkup(keyboard=[
-            [KeyboardButton(text="✅ Mulai Pangkas"), KeyboardButton(text="❌ Batal")]
-        ], resize_keyboard=True, one_time_keyboard=True)
-        
+        kb_conf = _make_reply_kb(["✅ Pangkas", "❌ Batal"], 2)
         conf_msg = await message.reply(
             f"**✂️ KONFIRMASI PANGKAS VIDEO**\n\n"
+            f"🎬 File: `{fname}`\n"
             f"⏳ Durasi Asli: `{orig_str}`\n"
-            f"🎬 Waktu Mulai: `{start_time}`\n"
+            f"⏱️ Waktu Mulai: `{start_time}`\n"
             f"🏁 Waktu Selesai: `{end_time}`\n"
-            f"✂️ Hasil: `{dur_str}`\n\n"
+            f"✂️ Hasil Durasi: `{dur_str}`\n\n"
             "Lanjutkan?",
-            reply_markup=kb
+            reply_markup=kb_conf
         )
-        
         press = await wait_for_message(chat_id, user_id, 120)
+        await _clean_msgs(conf_msg, press)
         
         if "batal" in (press.text or "").lower():
-             return await message.reply("❌ Dibatalkan.", reply_markup=ReplyKeyboardRemove())
+             return await message.answer("❌ Dibatalkan.", reply_markup=ReplyKeyboardRemove())
              
-        await message.reply("✅ Mempersiapkan proses...", reply_markup=ReplyKeyboardRemove())
+        await message.answer("✅ Mempersiapkan proses...", reply_markup=ReplyKeyboardRemove())
         
-    except asyncio.TimeoutError: return await safe_reply(message, "⏱ Waktu habis, proses dibatalkan.")
+    except asyncio.TimeoutError: return await message.answer("⏱ Waktu habis, proses dibatalkan.", reply_markup=ReplyKeyboardRemove())
     except Exception as e:
         LOGGER.error(f"/trim conversation error: {e}", exc_info=True)
-        return await safe_reply(message, f"❌ Error: `{e}`")
+        return await message.answer(f"❌ Error: `{e}`", reply_markup=ReplyKeyboardRemove())
 
     ps = ProcessStatus(user_id, chat_id, get_username(message), message.from_user.first_name, message, Names.trim, custom_file_name)
     ps.trim_start, ps.trim_end = start_time, end_time
@@ -181,12 +230,14 @@ async def _split_video(message: Message):
         try:
             ask_msg = await message.reply("Kirim Video atau URL yang ingin dibagi (split).")
             resp = await wait_for_message(chat_id, user_id, 120)
+            await _clean_msgs(ask_msg, resp)
             if resp.video or resp.document: link = resp
             elif (resp.text or "").startswith("http"): link = resp.text
-            else: return await ask_msg.edit_text("Input tidak valid. Dibatalkan.")
+            else: return await message.answer("❌ Input tidak valid. Dibatalkan.")
         except asyncio.TimeoutError: return await safe_reply(message, "⏱ Waktu habis.")
 
     video_event_for_task = link
+    fname = _get_fname(link, custom_file_name)
     if not isinstance(link, str) and (link.video or link.document):
         vid_obj = link.video or link.document
         orig_duration = getattr(vid_obj, 'duration', 0)
@@ -195,50 +246,56 @@ async def _split_video(message: Message):
     split_mode = split_value = None
 
     try:
-        # [FIX HIGH] Menggunakan Reply Keyboard agar instan
-        kb = ReplyKeyboardMarkup(keyboard=[
-            [KeyboardButton(text="⏱ Berdasarkan Durasi"), KeyboardButton(text="🔢 Berdasarkan Jumlah Bagian")],
-            [KeyboardButton(text="📦 Berdasarkan Ukuran Berkas"), KeyboardButton(text="❌ Batal")]
-        ], resize_keyboard=True, one_time_keyboard=True)
-        
-        mode_msg = await message.reply("**Pilih Mode Pembagian Video:**", reply_markup=kb)
-        
+        kb_mode = _make_reply_kb(["⏱ Durasi", "🔢 Bagian", "📦 Ukuran", "❌ Batal"], 2)
+        mode_msg = await message.reply("**Pilih Mode Pembagian Video:**", reply_markup=kb_mode)
         press = await wait_for_message(chat_id, user_id, 300)
-        cb = (press.text or "").lower()
+        await _clean_msgs(mode_msg, press)
         
-        if "batal" in cb:
-            return await message.reply("❌ Dibatalkan.", reply_markup=ReplyKeyboardRemove())
+        cb = (press.text or "").lower()
+        if "batal" in cb: return await message.answer("❌ Dibatalkan.", reply_markup=ReplyKeyboardRemove())
 
         split_mode = "parts" 
         if "durasi" in cb: split_mode = "duration"
         elif "ukuran" in cb: split_mode = "size"
         
-        ask_val = await message.reply(f"Masukkan nilai pembagian:", reply_markup=ReplyKeyboardRemove())
+        kb_val = _make_reply_kb(["2", "3", "4", "Kustom", "❌ Batal"], 3)
+        ask_val = await message.reply(f"Masukkan nilai pembagian:", reply_markup=kb_val)
         val_res = await wait_for_message(chat_id, user_id, 120)
-        if not (val_res.text or "").isdigit(): return await ask_val.edit_text("Input tidak valid. Dibatalkan.")
-        split_value = int(val_res.text)
+        await _clean_msgs(ask_val, val_res)
+        
+        val_txt = val_res.text.lower()
+        if "batal" in val_txt: return await message.answer("❌ Dibatalkan.", reply_markup=ReplyKeyboardRemove())
+        if "kustom" in val_txt:
+            ask_cust = await message.reply("Ketik angka pembagian:", reply_markup=ReplyKeyboardRemove())
+            cust_res = await wait_for_message(chat_id, user_id, 120)
+            await _clean_msgs(ask_cust, cust_res)
+            val_txt = cust_res.text
+            
+        if not val_txt.isdigit(): return await message.answer("❌ Input tidak valid. Dibatalkan.", reply_markup=ReplyKeyboardRemove())
+        split_value = int(val_txt)
 
         info = f"Menjadi `{split_value}` bagian"
         
-        kb2 = ReplyKeyboardMarkup(keyboard=[
-            [KeyboardButton(text="✅ Mulai Bagi"), KeyboardButton(text="❌ Batal")]
-        ], resize_keyboard=True, one_time_keyboard=True)
-        
+        kb_conf = _make_reply_kb(["✅ Bagi", "❌ Batal"], 2)
         conf_msg = await message.reply(
-            f"**✂️ KONFIRMASI PEMBAGIAN VIDEO**\n\n"
+            f"**🪓 KONFIRMASI PEMBAGIAN VIDEO**\n\n"
+            f"🎬 File: `{fname}`\n"
             f"⏳ Durasi Asli: `{orig_str}`\n"
             f"⚙️ Mode: `{split_mode.capitalize()}`\n"
-            f"📊 Pengaturan: {info}\n\nLanjutkan?",
-            reply_markup=kb2
+            f"📊 Target: `{info}`\n\n"
+            "Lanjutkan?",
+            reply_markup=kb_conf
         )
         
         press2 = await wait_for_message(chat_id, user_id, 120)
-        if "batal" in (press2.text or "").lower():
-            return await message.reply("❌ Dibatalkan.", reply_markup=ReplyKeyboardRemove())
-            
-        await message.reply("✅ Mempersiapkan pembagian...", reply_markup=ReplyKeyboardRemove())
+        await _clean_msgs(conf_msg, press2)
         
-    except asyncio.TimeoutError: return await safe_reply(message, "⏱ Waktu habis.")
+        if "batal" in (press2.text or "").lower():
+            return await message.answer("❌ Dibatalkan.", reply_markup=ReplyKeyboardRemove())
+            
+        await message.answer("✅ Mempersiapkan pembagian...", reply_markup=ReplyKeyboardRemove())
+        
+    except asyncio.TimeoutError: return await message.answer("⏱ Waktu habis.", reply_markup=ReplyKeyboardRemove())
     except Exception as e:
         LOGGER.error(f"/split error: {e}", exc_info=True)
         return await safe_reply(message, f"❌ Error: `{e}`")
@@ -262,22 +319,28 @@ async def _cut_video(message: Message):
     if user_id not in get_data(): await new_user(user_id, SAVE_TO_DATABASE)
 
     link, custom_file_name = await get_link(message)
-    video_event_for_task   = None
+    video_event_for_task, orig_duration = None, 0
 
     if link == "invalid": return await safe_reply(message, "❗ Tautan tidak valid.")
     if not link:
         try:
             ask_msg = await message.reply("Kirim Video atau URL yang bagiannya ingin dibuang.")
             resp = await wait_for_message(chat_id, user_id, 120)
+            await _clean_msgs(ask_msg, resp)
             if resp.video or resp.document: link = resp
             elif (resp.text or "").startswith("http"): link = resp.text
-            else: return await ask_msg.edit_text("Input tidak valid. Dibatalkan.")
+            else: return await message.answer("❌ Input tidak valid. Dibatalkan.")
         except asyncio.TimeoutError: return await safe_reply(message, "⏱ Waktu habis.")
 
     video_event_for_task = link
+    fname = _get_fname(link, custom_file_name)
+    if not isinstance(link, str) and (link.video or link.document):
+        vid_obj = link.video or link.document
+        orig_duration = getattr(vid_obj, 'duration', 0)
+    orig_str = seconds_to_readable_str(orig_duration) if orig_duration else "Tidak Diketahui"
     cut_ranges = []
 
-    async def _menu_text():
+    def _menu_text():
         body  = "**Segmen yang akan Dibuang:**\n"
         if not cut_ranges: body += "*(Belum ada)*\n"
         else:
@@ -285,28 +348,53 @@ async def _cut_video(message: Message):
         return "**✂️ Potong Segmen Video**\n\n" + body
 
     try:
-        menu_msg = await message.reply(await _menu_text())
+        menu_msg = await message.reply(_menu_text())
+        kb_cut = _make_reply_kb(["✅ Selesai", "❌ Batal"], 2)
+        
         while True:
-            ask_cut = await message.reply("Kirim rentang waktu yang akan dibuang. (Atau balas `Selesai`)\n**Format:** `MM:SS-MM:SS`")
+            ask_cut = await message.reply("Kirim rentang waktu yang akan dibuang.\n**Format:** `MM:SS-MM:SS`", reply_markup=kb_cut)
             resp = await wait_for_message(chat_id, user_id, 600)
             txt = (resp.text or "").lower()
+            await _clean_msgs(ask_cut, resp)
             
-            if txt == "selesai":
-                if not cut_ranges: return await message.reply("Tidak ada segmen. Dibatalkan.")
-                await menu_msg.edit_text("✅ Mempersiapkan proses cut...")
+            if "batal" in txt:
+                await _clean_msgs(menu_msg)
+                return await message.answer("❌ Dibatalkan.", reply_markup=ReplyKeyboardRemove())
+                
+            if "selesai" in txt:
+                if not cut_ranges: 
+                    await _clean_msgs(menu_msg)
+                    return await message.answer("❌ Tidak ada segmen yang dipotong. Dibatalkan.", reply_markup=ReplyKeyboardRemove())
+                
+                # Tahap Konfirmasi Akhir
+                kb_conf = _make_reply_kb(["✅ Potong", "❌ Batal"], 2)
+                conf_txt = (
+                    f"**✂️ KONFIRMASI POTONG SEGMEN**\n\n"
+                    f"🎬 File: `{fname}`\n"
+                    f"⏳ Durasi Asli: `{orig_str}`\n"
+                    f"🗑️ Segmen Dibuang: `{len(cut_ranges)} bagian`\n\n"
+                    "Lanjutkan?"
+                )
+                conf_msg = await message.reply(conf_txt, reply_markup=kb_conf)
+                press2 = await wait_for_message(chat_id, user_id, 120)
+                await _clean_msgs(menu_msg, conf_msg, press2)
+                
+                if "batal" in (press2.text or "").lower():
+                    return await message.answer("❌ Dibatalkan.", reply_markup=ReplyKeyboardRemove())
+                    
+                await message.answer("✅ Mempersiapkan proses...", reply_markup=ReplyKeyboardRemove())
                 break
                 
             parsed = parse_single_cut_range(resp.text or "")
             if parsed:
                 cut_ranges.append(parsed)
-                await ask_cut.delete()
-                await menu_msg.edit_text(await _menu_text())
+                await menu_msg.edit_text(_menu_text())
             else:
                 err = await message.reply("⚠️ Format tidak valid. Coba lagi.")
                 await asyncio.sleep(2)
-                await err.delete()
+                await _clean_msgs(err)
 
-    except asyncio.TimeoutError: return await safe_reply(message, "⏱ Waktu habis.")
+    except asyncio.TimeoutError: return await message.answer("⏱ Waktu habis.", reply_markup=ReplyKeyboardRemove())
     except Exception as e:
         LOGGER.error(f"/cut error: {e}", exc_info=True)
         return await safe_reply(message, f"❌ Error: `{e}`")
@@ -337,26 +425,54 @@ async def _rotate_video(message: Message):
         try:
             ask_msg = await message.reply("Kirim Video atau URL yang ingin diputar/dibalik.")
             resp = await wait_for_message(chat_id, user_id, 120)
+            await _clean_msgs(ask_msg, resp)
             if resp.video or resp.document: link = resp
             elif (resp.text or "").startswith("http"): link = resp.text
-            else: return await ask_msg.edit_text("Input tidak valid. Dibatalkan.")
+            else: return await message.answer("❌ Input tidak valid. Dibatalkan.")
         except asyncio.TimeoutError: return await safe_reply(message, "⏱ Waktu habis.")
 
     video_event_for_task = link
+    fname = _get_fname(link, custom_file_name)
     rotate_option = None
 
     try:
-        ask_rt = await message.reply("Masukkan derajat rotasi (`45` atau `-45`) atau filter FFmpeg kustom.\nContoh: `45`, `hflip,vflip`, `transpose=1` (90°)")
+        kb_rot = _make_reply_kb(["90", "-90", "180", "hflip", "vflip", "Kustom", "❌ Batal"], 3)
+        ask_rt = await message.reply("Pilih derajat rotasi atau balik (flip):", reply_markup=kb_rot)
         resp = await wait_for_message(chat_id, user_id, 120)
-        inp  = (resp.text or "").strip()
+        await _clean_msgs(ask_rt, resp)
+        
+        inp = (resp.text or "").strip()
+        if "batal" in inp.lower(): return await message.answer("❌ Dibatalkan.", reply_markup=ReplyKeyboardRemove())
+        
+        if "kustom" in inp.lower():
+            ask_cust = await message.reply("Kirim derajat rotasi (misal `45`) atau filter kustom:", reply_markup=ReplyKeyboardRemove())
+            cust_res = await wait_for_message(chat_id, user_id, 120)
+            await _clean_msgs(ask_cust, cust_res)
+            inp = cust_res.text.strip()
+            
         try:
             angle = float(inp)
             rotate_option = f"rotate={angle}*PI/180"
-        except ValueError: rotate_option = inp
+        except ValueError: 
+            rotate_option = inp
             
-        await ask_rt.edit_text(f"✅ Filter: `{rotate_option}`. Mempersiapkan...")
+        kb_conf = _make_reply_kb(["✅ Putar", "❌ Batal"], 2)
+        conf_txt = (
+            f"**🔄 KONFIRMASI ROTASI VIDEO**\n\n"
+            f"🎬 File: `{fname}`\n"
+            f"📐 Filter: `{rotate_option}`\n\n"
+            "Lanjutkan?"
+        )
+        conf_msg = await message.reply(conf_txt, reply_markup=kb_conf)
+        press2 = await wait_for_message(chat_id, user_id, 120)
+        await _clean_msgs(conf_msg, press2)
+        
+        if "batal" in (press2.text or "").lower():
+            return await message.answer("❌ Dibatalkan.", reply_markup=ReplyKeyboardRemove())
+            
+        await message.answer(f"✅ Mempersiapkan rotasi...", reply_markup=ReplyKeyboardRemove())
 
-    except asyncio.TimeoutError: return await safe_reply(message, "⏱ Waktu habis.")
+    except asyncio.TimeoutError: return await message.answer("⏱ Waktu habis.", reply_markup=ReplyKeyboardRemove())
     except Exception as e:
         LOGGER.error(f"/rotate error: {e}", exc_info=True)
         return await safe_reply(message, f"❌ Error: `{e}`")
@@ -387,20 +503,50 @@ async def _crop_video(message: Message):
         try:
             ask_msg = await message.reply("Kirim Video atau URL yang ingin di-crop.")
             resp = await wait_for_message(chat_id, user_id, 120)
+            await _clean_msgs(ask_msg, resp)
             if resp.video or resp.document: link = resp
             elif (resp.text or "").startswith("http"): link = resp.text
-            else: return await ask_msg.edit_text("Input tidak valid atau bukan video. Dibatalkan.")
+            else: return await message.answer("❌ Input tidak valid atau bukan video. Dibatalkan.")
         except asyncio.TimeoutError: return await safe_reply(message, "⏱ Waktu habis.")
 
     video_event_for_task = link
+    fname = _get_fname(link, custom_file_name)
 
     try:
-        ask_crop = await message.reply("Masukkan parameter Crop FFmpeg.\nContoh: `in_w:in_w*9/16` (Layar Lebar) atau `1280:720:0:0` (Kustom)")
+        kb_crop = _make_reply_kb(["Lanskap (16:9)", "Potret (9:16)", "Persegi (1:1)", "Kustom", "❌ Batal"], 2)
+        ask_crop = await message.reply("Pilih format Rasio Crop:", reply_markup=kb_crop)
         resp = await wait_for_message(chat_id, user_id, 120)
-        crop_params = f"crop={(resp.text or '').strip()}"
-        await ask_crop.edit_text(f"✅ Parameter: `{crop_params}`. Mempersiapkan...")
+        await _clean_msgs(ask_crop, resp)
         
-    except asyncio.TimeoutError: return await safe_reply(message, "⏱ Waktu habis.")
+        txt = (resp.text or "").strip()
+        if "batal" in txt.lower(): return await message.answer("❌ Dibatalkan.", reply_markup=ReplyKeyboardRemove())
+        
+        if "Lanskap" in txt: crop_params = "crop=iw:iw*9/16"
+        elif "Potret" in txt: crop_params = "crop=ih*9/16:ih"
+        elif "Persegi" in txt: crop_params = "crop=min(iw\,ih):min(iw\,ih)"
+        else:
+            ask_cust = await message.reply("Kirim parameter crop kustom FFmpeg (contoh: `1280:720:0:0`):", reply_markup=ReplyKeyboardRemove())
+            cust_res = await wait_for_message(chat_id, user_id, 120)
+            await _clean_msgs(ask_cust, cust_res)
+            crop_params = f"crop={cust_res.text.strip()}"
+            
+        kb_conf = _make_reply_kb(["✅ Crop", "❌ Batal"], 2)
+        conf_txt = (
+            f"**✂️ KONFIRMASI CROP VIDEO**\n\n"
+            f"🎬 File: `{fname}`\n"
+            f"📐 Parameter: `{crop_params}`\n\n"
+            "Lanjutkan?"
+        )
+        conf_msg = await message.reply(conf_txt, reply_markup=kb_conf)
+        press2 = await wait_for_message(chat_id, user_id, 120)
+        await _clean_msgs(conf_msg, press2)
+        
+        if "batal" in (press2.text or "").lower():
+            return await message.answer("❌ Dibatalkan.", reply_markup=ReplyKeyboardRemove())
+            
+        await message.answer(f"✅ Mempersiapkan proses crop...", reply_markup=ReplyKeyboardRemove())
+        
+    except asyncio.TimeoutError: return await message.answer("⏱ Waktu habis.", reply_markup=ReplyKeyboardRemove())
     except Exception as e:
         LOGGER.error(f"/crop error: {e}", exc_info=True)
         return await safe_reply(message, f"❌ Error: `{e}`")
@@ -431,22 +577,31 @@ async def _autocrop_video(message: Message):
         try:
             ask_msg = await message.reply("Kirim Video atau URL untuk autocrop.")
             resp = await wait_for_message(chat_id, user_id, 120)
+            await _clean_msgs(ask_msg, resp)
             if resp.video or resp.document: link = resp
             elif (resp.text or "").startswith("http"): link = resp.text
-            else: return await ask_msg.edit_text("Input tidak valid. Dibatalkan.")
+            else: return await message.answer("❌ Input tidak valid. Dibatalkan.")
         except asyncio.TimeoutError: return await safe_reply(message, "⏱ Waktu habis.")
 
     video_event_for_task = link
+    fname = _get_fname(link, custom_file_name)
 
     try:
-        kb = ReplyKeyboardMarkup(keyboard=[[KeyboardButton(text="Ya"), KeyboardButton(text="Batal")]], resize_keyboard=True, one_time_keyboard=True)
-        menu_msg = await message.reply("**✨ Autocrop** akan otomatis membuang black bars dari video. Lanjutkan?", reply_markup=kb)
+        kb = _make_reply_kb(["✅ Autocrop", "❌ Batal"], 2)
+        conf_txt = (
+            f"**✨ KONFIRMASI AUTOCROP**\n\n"
+            f"🎬 File: `{fname}`\n"
+            f"🗑️ Tindakan: `Deteksi dan hapus bilah hitam (black bars) secara otomatis.`\n\n"
+            "Lanjutkan?"
+        )
+        menu_msg = await message.reply(conf_txt, reply_markup=kb)
         resp = await wait_for_message(chat_id, user_id, 120)
+        await _clean_msgs(menu_msg, resp)
         
-        if "batal" in (resp.text or "").lower(): return await message.reply("❌ Dibatalkan.", reply_markup=ReplyKeyboardRemove())
-        await message.reply("✅ Mempersiapkan autocrop...", reply_markup=ReplyKeyboardRemove())
+        if "batal" in (resp.text or "").lower(): return await message.answer("❌ Dibatalkan.", reply_markup=ReplyKeyboardRemove())
+        await message.answer("✅ Mempersiapkan autocrop...", reply_markup=ReplyKeyboardRemove())
         
-    except asyncio.TimeoutError: return await safe_reply(message, "⏱ Waktu habis.")
+    except asyncio.TimeoutError: return await message.answer("⏱ Waktu habis.", reply_markup=ReplyKeyboardRemove())
     except Exception as e:
         LOGGER.error(f"/autocrop error: {e}", exc_info=True)
         return await safe_reply(message, f"❌ Error: `{e}`")
@@ -476,9 +631,10 @@ async def _extension_changer(message: Message):
         try:
             ask_msg = await message.reply("Kirim file (video/audio/subtitle) yang ekstensinya ingin diubah.")
             resp = await wait_for_message(chat_id, user_id, 120)
+            await _clean_msgs(ask_msg, resp)
             if resp.document or resp.video or resp.audio: link = resp
             elif (resp.text or "").startswith("http"): link = resp.text
-            else: return await ask_msg.edit_text("Input tidak valid. Dibatalkan.")
+            else: return await message.answer("❌ Input tidak valid. Dibatalkan.")
         except asyncio.TimeoutError: return await safe_reply(message, "⏱ Waktu habis.")
 
     video_event_for_task = link
@@ -494,12 +650,42 @@ async def _extension_changer(message: Message):
     if file_type == "unknown": return await safe_reply(message, "❌ Jenis file tidak didukung.")
 
     try:
-        ask_ext = await message.reply(f"Anda mengirim berkas **{file_type}**. Kirim ekstensi baru (tanpa titik, contoh: `mp4` atau `mkv`):")
-        resp = await wait_for_message(chat_id, user_id, 120)
-        new_extension = (resp.text or "").strip().lstrip(".")
-        await ask_ext.edit_text(f"✅ Berkas akan diubah ke `.{new_extension}`. Mempersiapkan...")
+        if file_type == "video": opts = ["mp4", "mkv", "avi", "mov", "Kustom", "❌ Batal"]
+        elif file_type == "audio": opts = ["mp3", "m4a", "flac", "wav", "Kustom", "❌ Batal"]
+        else: opts = ["srt", "ass", "vtt", "Kustom", "❌ Batal"]
         
-    except asyncio.TimeoutError: return await safe_reply(message, "⏱ Waktu habis.")
+        kb_ext = _make_reply_kb(opts, 3)
+        ask_ext = await message.reply(f"Anda mengirim berkas **{file_type}**. Pilih atau kirim ekstensi baru:", reply_markup=kb_ext)
+        resp = await wait_for_message(chat_id, user_id, 120)
+        await _clean_msgs(ask_ext, resp)
+        
+        txt = (resp.text or "").strip()
+        if "batal" in txt.lower(): return await message.answer("❌ Dibatalkan.", reply_markup=ReplyKeyboardRemove())
+        if "kustom" in txt.lower():
+            ask_cust = await message.reply("Ketik ekstensi kustom tanpa titik (contoh `webm`):", reply_markup=ReplyKeyboardRemove())
+            cust_res = await wait_for_message(chat_id, user_id, 120)
+            await _clean_msgs(ask_cust, cust_res)
+            txt = cust_res.text
+            
+        new_extension = txt.lstrip(".")
+        
+        kb_conf = _make_reply_kb(["✅ Ubah", "❌ Batal"], 2)
+        conf_txt = (
+            f"**📁 KONFIRMASI UBAH EKSTENSI**\n\n"
+            f"🎬 Tipe Berkas: `{file_type.capitalize()}`\n"
+            f"🔄 Perubahan: `Menjadi .{new_extension}`\n\n"
+            "Lanjutkan?"
+        )
+        conf_msg = await message.reply(conf_txt, reply_markup=kb_conf)
+        press2 = await wait_for_message(chat_id, user_id, 120)
+        await _clean_msgs(conf_msg, press2)
+        
+        if "batal" in (press2.text or "").lower():
+            return await message.answer("❌ Dibatalkan.", reply_markup=ReplyKeyboardRemove())
+            
+        await message.answer(f"✅ Mempersiapkan konversi...", reply_markup=ReplyKeyboardRemove())
+        
+    except asyncio.TimeoutError: return await message.answer("⏱ Waktu habis.", reply_markup=ReplyKeyboardRemove())
     except Exception as e:
         LOGGER.error(f"/extension error: {e}", exc_info=True)
         return await safe_reply(message, f"❌ Error: `{e}`")
@@ -530,12 +716,14 @@ async def _extract_streams(message: Message):
         try:
             ask_msg = await message.reply("Kirim Video atau URL yang stream-nya ingin diekstrak.")
             resp = await wait_for_message(chat_id, user_id, 120)
+            await _clean_msgs(ask_msg, resp)
             if resp.video or resp.document: link = resp
             elif (resp.text or "").startswith("http"): link = resp.text
-            else: return await ask_msg.edit_text("Input tidak valid. Dibatalkan.")
+            else: return await message.answer("❌ Input tidak valid. Dibatalkan.")
         except asyncio.TimeoutError: return await safe_reply(message, "⏱ Waktu habis.")
 
     video_event_for_task = link
+    fname = _get_fname(link, custom_file_name)
     dling_msg = await message.reply("🔽 Mengunduh berkas untuk dianalisis...")
 
     async def _download_temp():
@@ -569,7 +757,7 @@ async def _extract_streams(message: Message):
         try: await asyncio.to_thread(rmtree, temp_ps.dir, ignore_errors=True)
         except Exception: pass
         return
-    await dling_msg.delete()
+    await _clean_msgs(dling_msg)
 
     try:
         proc = await create_subprocess_exec("ffprobe", "-v", "quiet", "-print_format", "json", "-show_streams", input_file, stdout=asyncioPIPE)
@@ -584,11 +772,39 @@ async def _extract_streams(message: Message):
 
     selected = []
     try:
-        ask_ex = await message.reply("Masukkan Index Stream yang ingin diekstrak (contoh: `1` atau `2,3`).\n(Balas dengan angka index)")
+        kb_ex = _make_reply_kb(["1", "2", "3", "1,2", "Kustom", "❌ Batal"], 3)
+        ask_ex = await message.reply("Pilih Index Stream yang ingin diekstrak:", reply_markup=kb_ex)
         resp = await wait_for_message(chat_id, user_id, 120)
-        selected = [int(i) for i in (resp.text or "").split(",") if i.strip().isdigit()]
-        await ask_ex.edit_text("✅ Mempersiapkan ekstraksi...")
-    except asyncio.TimeoutError: return await safe_reply(message, "⏱ Waktu habis.")
+        await _clean_msgs(ask_ex, resp)
+        
+        txt = (resp.text or "").strip()
+        if "batal" in txt.lower(): return await message.answer("❌ Dibatalkan.", reply_markup=ReplyKeyboardRemove())
+        if "kustom" in txt.lower():
+            ask_cust = await message.reply("Ketik angka index stream (pisahkan dengan koma jika jamak):", reply_markup=ReplyKeyboardRemove())
+            cust_res = await wait_for_message(chat_id, user_id, 120)
+            await _clean_msgs(ask_cust, cust_res)
+            txt = cust_res.text
+            
+        selected = [int(i) for i in txt.split(",") if i.strip().isdigit()]
+        
+        kb_conf = _make_reply_kb(["✅ Ekstrak", "❌ Batal"], 2)
+        idx_str = ", ".join(map(str, selected))
+        conf_txt = (
+            f"**🗜️ KONFIRMASI EKSTRAKSI STREAM**\n\n"
+            f"🎬 File: `{fname}`\n"
+            f"🔢 Index Stream: `{idx_str}`\n\n"
+            "Lanjutkan?"
+        )
+        conf_msg = await message.reply(conf_txt, reply_markup=kb_conf)
+        press2 = await wait_for_message(chat_id, user_id, 120)
+        await _clean_msgs(conf_msg, press2)
+        
+        if "batal" in (press2.text or "").lower():
+            return await message.answer("❌ Dibatalkan.", reply_markup=ReplyKeyboardRemove())
+            
+        await message.answer("✅ Mempersiapkan ekstraksi...", reply_markup=ReplyKeyboardRemove())
+        
+    except asyncio.TimeoutError: return await message.answer("⏱ Waktu habis.", reply_markup=ReplyKeyboardRemove())
     except Exception as e:
         LOGGER.error(f"/extract error: {e}", exc_info=True)
         return await safe_reply(message, f"❌ Error: `{e}`")
@@ -622,9 +838,10 @@ async def _media_info(message: Message):
         try:
             ask_msg = await message.reply("Kirim berkas media atau URL untuk analisis.")
             resp = await wait_for_message(chat_id, user_id, 120)
+            await _clean_msgs(ask_msg, resp)
             if resp.video or resp.document or resp.audio: link = resp
             elif (resp.text or "").startswith("http"): link = resp.text
-            else: return await ask_msg.edit_text("Input tidak valid. Dibatalkan.")
+            else: return await message.answer("❌ Input tidak valid. Dibatalkan.")
         except asyncio.TimeoutError: return await safe_reply(message, "⏱ Waktu habis.")
 
     video_event_for_task = link
