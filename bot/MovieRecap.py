@@ -1,9 +1,10 @@
 """
 ╔══════════════════════════════════════════════════════════════════════╗
 ║                    bot/MovieRecap.py — v3.1                          ║
-║       Movie Recap: Rangkuman Film Otomatis dengan Voiceover AI       ║
+║        Movie Recap: Rangkuman Film Otomatis dengan Voiceover AI      ║
 ╠══════════════════════════════════════════════════════════════════════╣
 ║  CHANGELOG: Migrasi total ke Aiogram 3.x Router & Message objects    ║
+║  [FIX HIGH] Implementasi CMD_SUFFIX pada semua Command filter        ║
 ╚══════════════════════════════════════════════════════════════════════╝
 """
 
@@ -373,7 +374,7 @@ def _build_dashboard(user_id, movie_title, mode, target_min, quality, narasi_on,
     buttons.append([_btn("▶️ Mulai Recap", f"rc_go_{user_id}"), _btn("❌ Batal", f"rc_cancel_{user_id}")])
     return dash, buttons
 
-@router.message(Command("recap"))
+@router.message(Command(f"recap{CMD_SUFFIX}"))
 async def recap_handler(message: Message, command: CommandObject) -> None:
     user_id = message.from_user.id
     if not _is_vip(user_id): return await message.reply("👑 **Fitur Eksklusif VIP**\nHanya untuk member Premium.", reply_markup=InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="💬 Hubungi Admin", url=f"https://t.me/{Config.BOT_USERNAME}")]]))
