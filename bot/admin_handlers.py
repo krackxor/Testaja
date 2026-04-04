@@ -1,6 +1,6 @@
 """
 ╔══════════════════════════════════════════════════════════════════════╗
-║       bot/admin_handlers.py                                          ║
+║       bot/admin_handlers.py — v3.3                                   ║
 ║       Admin & System Command Handlers (Aiogram 3.x)                  ║
 ╠══════════════════════════════════════════════════════════════════════╣
 ║  Commands: /start /time /restart /herokurestart /log /logs           ║
@@ -38,7 +38,7 @@ from aiogram.filters import Command
 from bot_helper.Aria2.Aria2_Engine import Aria2, getDownloadByGid
 from bot_helper.Database.User_Data import (
     get_data, new_user, change_task_limit, get_task_limit,
-    saveoptions, ensure_user_data_structure,
+    saveoptions, ensure_user_data_structure, resetdatabase
 )
 from bot_helper.Others.Helper_Functions import (
     delete_all, export_env_file, get_config,
@@ -513,9 +513,9 @@ async def _settings(message: Message):
     if user_id not in get_data(): await new_user(user_id, SAVE_TO_DATABASE)
         
     kb = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="👤 Profil", callback_data="profile_main")],
-        [InlineKeyboardButton(text="🎬 Encode",   callback_data="settings_media")],
-        [InlineKeyboardButton(text="🤖 Umum", callback_data="settings_bot")],
-        [InlineKeyboardButton(text="⭕ Tutup", callback_data="close_settings")],
+        [InlineKeyboardButton(text="👤 Profil Pengaturan", callback_data="profile_main")],
+        [InlineKeyboardButton(text="🎬 Pengaturan Media",   callback_data="settings_media")],
+        [InlineKeyboardButton(text="🤖 Pengaturan Umum & Tampilan", callback_data="settings_bot")],
+        [InlineKeyboardButton(text="⭕ Tutup Pengaturan", callback_data="close_settings")],
     ])
     await message.reply(f"⚙️ Hai {get_mention(message)} — Pilih Pengaturan Anda", reply_markup=kb)
