@@ -1,13 +1,14 @@
 """
 ╔══════════════════════════════════════════════════════════════════════╗
-║           bot_helper/callbacks.py — v3.2                             ║
-║           Callback Query Handler (Aiogram 3.x)                       ║
+║            bot_helper/callbacks.py — v3.2                            ║
+║            Callback Query Handler (Aiogram 3.x)                      ║
 ╠══════════════════════════════════════════════════════════════════════╣
 ║  FIXES dari versi lama:                                              ║
 ║  [NEW] Migrasi total dari Telethon CallbackQuery ke Aiogram          ║
 ║  [NEW] Menggunakan sistem wait_for_message dari shared.py            ║
 ║  [IMPROVE] Desain UI yang lebih interaktif, mudah dibaca, & rapi.    ║
 ║  [FIX] Menutup celah crash Markdown pada pesan respons.              ║
+║  [FIX] Menyelesaikan error Pydantic ValidationError (Frozen Object)  ║
 ╚══════════════════════════════════════════════════════════════════════╝
 """
 
@@ -407,17 +408,17 @@ async def general_callback(call: CallbackQuery, txt: str, user_id: int, chat_id:
         KB.append([InlineKeyboardButton(text=f"{label} — {val} {status_icon}".strip(), callback_data="nik66bots")])
         KB.extend(gen_keyboard(opts, val, f"general{key.replace('_','')}", items, False))
 
-    _row("🥝 Pilih Audio Otomatis", "select_stream", True, bool_list, 2)
-    _row("🍭 Aliran Audio Utama",   "stream",        "ENG",  ["ENG","HIN"], 2)
-    _row("🪓 Fitur Bagi Video",     "split_video",   True,  bool_list, 2)
-    _row("🛢 Batas Ukuran Bagi",    "split",         "2GB", ["2GB","4GB"], 2)
-    _row("🖼 Thumbnail Dinamis",   "custom_thumbnail", True, bool_list, 2)
+    _row("🥝 Audio Otomatis", "select_stream", True, bool_list, 2)
+    _row("🍭 Audio Utama",   "stream",        "ENG",  ["ENG","HIN"], 2)
+    _row("🪓 Bagi Video",     "split_video",   True,  bool_list, 2)
+    _row("🛢 Ukuran Bagi",    "split",         "2GB", ["2GB","4GB"], 2)
+    _row("🖼 Thumbnail",   "custom_thumbnail", True, bool_list, 2)
     _row("🧵 Unggah ke Telegram",  "upload_tg",      True,  bool_list, 2)
-    _row("🕹 Auto Drive (Awan)",   "auto_drive",     False, bool_list, 2)
-    _row("📷 Buat Screenshot",     "gen_ss",         True,  bool_list, 2)
+    _row("🕹 Auto Drive",   "auto_drive",     False, bool_list, 2)
+    _row("📷 Screenshot",     "gen_ss",         True,  bool_list, 2)
     _row("🎶 Jumlah Screenshot",   "ss_no",          5,     [3,5,7,10], 4)
-    _row("🎞 Buat Video Sampel",   "gen_sample",     True,  bool_list, 2)
-    _row("🛰 Dukungan Multi-Tugas","multi_tasks",    True,  bool_list, 2)
+    _row("🎞 Video Sampel",   "gen_sample",     True,  bool_list, 2)
+    _row("🛰 Multi-Tugas","multi_tasks",    True,  bool_list, 2)
     _row("⏹ Unggah Setiap File",  "upload_all",     False, bool_list, 2)
 
     drive_name = get_data().get(user_id, {}).get("drive_name", "")
@@ -954,9 +955,9 @@ async def callback(call: CallbackQuery):
             await call.message.edit_text(
                 msg,
                 reply_markup=InlineKeyboardMarkup(inline_keyboard=[
-                    [InlineKeyboardButton(text="👤 Profil Pengaturan (Load/Save)",       callback_data="profile_main")],
-                    [InlineKeyboardButton(text="🎬 Modul Pengolahan Media",        callback_data="settings_media")],
-                    [InlineKeyboardButton(text="🤖 Modul Umum & Tampilan", callback_data="settings_bot")],
+                    [InlineKeyboardButton(text="👤 Profil",       callback_data="profile_main")],
+                    [InlineKeyboardButton(text="🎬 Pengolahan Media",        callback_data="settings_media")],
+                    [InlineKeyboardButton(text="🤖 Umum & Tampilan", callback_data="settings_bot")],
                     [InlineKeyboardButton(text="⭕ Tutup Jendela",                  callback_data="close_settings")],
                 ])
             )
@@ -966,11 +967,11 @@ async def callback(call: CallbackQuery):
             await call.message.edit_text(
                 msg,
                 reply_markup=InlineKeyboardMarkup(inline_keyboard=[
-                    [InlineKeyboardButton(text="🎬 Pengaturan Video",    callback_data="video_settings"),  InlineKeyboardButton(text="🎧 Pengaturan Audio",  callback_data="audio_settings")],
-                    [InlineKeyboardButton(text="🛺 Sisipkan Watermark",callback_data="watermark_settings"), InlineKeyboardButton(text="🚜 Konversi Massa",callback_data="convert_settings")],
-                    [InlineKeyboardButton(text="🍧 Alat Gabung (Merge)",   callback_data="merge_settings"),  InlineKeyboardButton(text="⚙️ Mode MUX (Sub)",    callback_data="mux_settings")],
-                    [InlineKeyboardButton(text="🎞️ Penyemat Metadata", callback_data="metadata_settings")],
-                    [InlineKeyboardButton(text="↩️ Kembali ke Menu Utama", callback_data="settings")],
+                    [InlineKeyboardButton(text="🎬 Pengaturan Video",    callback_data="video_settings"),  InlineKeyboardButton(text="🎧 Audio",  callback_data="audio_settings")],
+                    [InlineKeyboardButton(text="🛺 Watermark",callback_data="watermark_settings"), InlineKeyboardButton(text="🚜 Konversi",callback_data="convert_settings")],
+                    [InlineKeyboardButton(text="🍧 Merge",   callback_data="merge_settings"),  InlineKeyboardButton(text="⚙️ MUX",    callback_data="mux_settings")],
+                    [InlineKeyboardButton(text="🎞️ Metadata", callback_data="metadata_settings")],
+                    [InlineKeyboardButton(text="↩️ Kembali", callback_data="settings")],
                 ])
             )
 
@@ -980,9 +981,9 @@ async def callback(call: CallbackQuery):
                 msg,
                 reply_markup=InlineKeyboardMarkup(inline_keyboard=[
                     [InlineKeyboardButton(text="#️⃣ Pengaturan Umum",              callback_data="general_settings")],
-                    [InlineKeyboardButton(text="🖥️ Bar Tampilan Progress", callback_data="progress_settings")],
-                    [InlineKeyboardButton(text="✈️ Pustaka Mesin Telegram",            callback_data="telegram_settings")],
-                    [InlineKeyboardButton(text="↩️ Kembali ke Menu Utama", callback_data="settings")],
+                    [InlineKeyboardButton(text="🖥️ Tampilan Progress", callback_data="progress_settings")],
+                    [InlineKeyboardButton(text="✈️ Pustaka Telegram",            callback_data="telegram_settings")],
+                    [InlineKeyboardButton(text="↩️ Kembali", callback_data="settings")],
                 ])
             )
 
@@ -996,15 +997,34 @@ async def callback(call: CallbackQuery):
             profile_name = parts[2] if len(parts) > 2 else None
             user_data    = get_data().get(user_id, {})
 
+            # 🛠 Fungsi Pembantu Untuk Refresh UI Kelola Profil Tanpa Pydantic Error 🛠
+            async def _refresh_manage_menu():
+                profiles = user_data.get("profiles", {})
+                active   = user_data.get("active_profile", "Default")
+                btns     = [[InlineKeyboardButton(text="✨ Reset Profil ke Bawaan (Default)", callback_data="profile_reset_default")]]
+                for name in profiles:
+                    if name == "Default":
+                        continue
+                    lbl = f"🟢 AKTIF: {name}" if name == active else f"📁 {name}"
+                    btns.append([InlineKeyboardButton(text=lbl, callback_data=f"profile_load_{name}"),
+                                  InlineKeyboardButton(text="🗑️ Hapus", callback_data=f"profile_delete_{name}")])
+                btns.append([InlineKeyboardButton(text="↩️ Kembali", callback_data="profile_main")])
+                
+                msg = _menu_header("Kelola Profil") + f"Mode Aktif: **{active}**" + _menu_footer()
+                try:
+                    await call.message.edit_text(msg, reply_markup=InlineKeyboardMarkup(inline_keyboard=btns))
+                except TelegramBadRequest:
+                    pass
+
             if action == "main":
                 active = user_data.get("active_profile", "Default")
                 msg = _menu_header("Profil Pengaturan") + f"Mode Aktif: **{active}**\nBantu pergantian pengaturan ganda secara kilat." + _menu_footer()
                 await call.message.edit_text(
                     msg,
                     reply_markup=InlineKeyboardMarkup(inline_keyboard=[
-                        [InlineKeyboardButton(text="💾 Simpan Profil Berjalan", callback_data="profile_save")],
-                        [InlineKeyboardButton(text="📂 Muat & Kelola Profil",          callback_data="profile_manage")],
-                        [InlineKeyboardButton(text="🚀 Template Profil Kilat",            callback_data="profile_quick")],
+                        [InlineKeyboardButton(text="💾 Simpan Profil", callback_data="profile_save")],
+                        [InlineKeyboardButton(text="📂 Kelola Profil",          callback_data="profile_manage")],
+                        [InlineKeyboardButton(text="🚀 Profil Kilat",            callback_data="profile_quick")],
                         [InlineKeyboardButton(text="↩️ Kembali",                callback_data="settings")],
                     ])
                 )
@@ -1022,31 +1042,19 @@ async def callback(call: CallbackQuery):
                 await call.message.answer("Aksi Selesai:", reply_markup=InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="Buka Menu Profil", callback_data="profile_main")]]))
 
             elif action == "manage":
-                profiles = user_data.get("profiles", {})
-                active   = user_data.get("active_profile", "Default")
-                btns     = [[InlineKeyboardButton(text="✨ Reset Profil ke Bawaan (Default)", callback_data="profile_reset_default")]]
-                for name in profiles:
-                    if name == "Default":
-                        continue
-                    lbl = f"🟢 AKTIF: {name}" if name == active else f"📁 {name}"
-                    btns.append([InlineKeyboardButton(text=lbl, callback_data=f"profile_load_{name}"),
-                                  InlineKeyboardButton(text="🗑️ Hapus", callback_data=f"profile_delete_{name}")])
-                btns.append([InlineKeyboardButton(text="↩️ Kembali", callback_data="profile_main")])
-                
-                msg = _menu_header("Kelola Profil") + f"Mode Aktif: **{active}**" + _menu_footer()
-                await call.message.edit_text(msg, reply_markup=InlineKeyboardMarkup(inline_keyboard=btns))
+                await _refresh_manage_menu()
 
             elif action == "load" and profile_name:
                 profiles = user_data.get("profiles", {})
                 if profile_name in profiles:
                     await apply_settings_from_profile(user_id, profiles[profile_name])
                     await saveoptions(user_id, "active_profile", profile_name, SAVE_TO_DATABASE)
+                    user_data["active_profile"] = profile_name
                     await call.answer(f"✅ Profil '{profile_name}' berhasil diterapkan.", show_alert=True)
                 else:
                     await call.answer("❌ Profil tidak ditemukan di sistem.", show_alert=True)
                 
-                call.data = "profile_manage"
-                await callback(call)
+                await _refresh_manage_menu()
 
             elif action == "delete" and profile_name:
                 profiles = user_data.get("profiles", {})
@@ -1055,13 +1063,13 @@ async def callback(call: CallbackQuery):
                     if user_data.get("active_profile") == profile_name:
                         await apply_settings_from_profile(user_id, profiles.get("Default", {}))
                         await saveoptions(user_id, "active_profile", "Default", SAVE_TO_DATABASE)
+                        user_data["active_profile"] = "Default"
                     await saveoptions(user_id, "profiles", profiles, SAVE_TO_DATABASE)
                     await call.answer(f"✅ Profil '{profile_name}' dihapus.", show_alert=True)
                 else:
                     await call.answer("❌ Profil dasar tidak bisa dihapus.", show_alert=True)
                 
-                call.data = "profile_manage"
-                await callback(call)
+                await _refresh_manage_menu()
 
             elif action == "reset" and profile_name == "default":
                 defaults = _get_default_user_data()
@@ -1077,9 +1085,9 @@ async def callback(call: CallbackQuery):
                     await call.message.edit_text(
                         msg,
                         reply_markup=InlineKeyboardMarkup(inline_keyboard=[
-                            [InlineKeyboardButton(text="🏆 Utamakan Kualitas Tinggi", callback_data="profile_quick_quality")],
-                            [InlineKeyboardButton(text="⚡ Utamakan File Kecil (Kompresi Ekstrem)",    callback_data="profile_quick_size")],
-                            [InlineKeyboardButton(text="⚖️ Mode Seimbang (Rekomendasi)",        callback_data="profile_quick_balance")],
+                            [InlineKeyboardButton(text="🏆 Kualitas Tinggi", callback_data="profile_quick_quality")],
+                            [InlineKeyboardButton(text="⚡ Kompresi Ekstrem",    callback_data="profile_quick_size")],
+                            [InlineKeyboardButton(text="⚖️ Seimbang",        callback_data="profile_quick_balance")],
                             [InlineKeyboardButton(text="↩️ Kembali",         callback_data="profile_main")],
                         ])
                     )
