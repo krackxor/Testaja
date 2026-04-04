@@ -11,10 +11,13 @@
 ╠══════════════════════════════════════════════════════════════════════╣
 ║  CHANGELOG:                                                          ║
 ║  [NEW] Migrasi ke Aiogram Router & Message objects                   ║
-║  [FIX] Tombol diubah menjadi InlineKeyboardMarkup & InlineKeyboardButton║
+║  [FIX] Tombol diubah menjadi InlineKeyboardMarkup & KeyboardButton   ║
 ║  [FIX] Pengiriman log & file menggunakan FSInputFile                 ║
 ║  [FIX] event.reply_to_msg_id diubah ke message.reply_to_message      ║
-║  [FIX] Emoji (*️⃣) diubah ke (📌) agar tidak konflik Markdown       ║
+║  [FIX] Emoji (*️⃣) diubah ke (📌) agar tidak konflik Markdown        ║
+║  [IMPROVE] Desain UI /changeconfig menjadi 2 kolom (grid)            ║
+║  [IMPROVE] Try-Except pada /speedtest untuk mencegah crash modul     ║
+║  [IMPROVE] Refactor logika izin pembatalan pada /cancel              ║
 ╚══════════════════════════════════════════════════════════════════════╝
 """
 
@@ -107,23 +110,27 @@ async def _speed_test(message: Message):
     if not sudo_user_checker_event(message):
         return
     reply = await message.reply("⏳ Menjalankan Tes Kecepatan, Harap Tunggu...")
-    result = await speedtest()
-    await reply.delete()
     
-    if result["success"]:
-        if result["image_url"]:
-            try:
-                await message.reply_photo(
-                    photo=result["image_url"],
-                    caption=result["text"],
-                    parse_mode="HTML"
-                )
-                return
-            except Exception:
-                pass
-        await message.reply(result["text"], parse_mode="HTML")
-    else:
-        await message.reply(result["text"])
+    try:
+        result = await speedtest()
+        await reply.delete()
+        
+        if result["success"]:
+            if result["image_url"]:
+                try:
+                    await message.reply_photo(
+                        photo=result["image_url"],
+                        caption=result["text"],
+                        parse_mode="HTML"
+                    )
+                    return
+                except Exception:
+                    pass
+            await message.reply(result["text"], parse_mode="HTML")
+        else:
+            await message.reply(result["text"])
+    except Exception as e:
+        await reply.edit_text(f"❗ **Gagal menjalankan Speedtest.**\nError: `{e}`\n\n💡 Pastikan modul `speedtest-cli` sudah terinstal di server Anda.")
 
 
 @router.message(Command("restart"))
@@ -249,11 +256,8 @@ async def _cancel(message: Message):
 
         if processx == "process":
             add_uid = get_user_id(process_id)
-            if add_uid and (add_uid == user_id or user_id == owner_id):
-                ok = await remove_running_process(process_id)
-                await remove_from_working_task(process_id)
-                await safe_reply(message, "✅ Berhasil Dibatalkan." if ok else "❗ Proses tidak ditemukan.")
-            elif user_id == owner_id:
+            # Disederhanakan untuk efisiensi pengecekan kepemilikan task
+            if add_uid == user_id or user_id == owner_id:
                 ok = await remove_running_process(process_id)
                 await remove_from_working_task(process_id)
                 await safe_reply(message, "✅ Berhasil Dibatalkan." if ok else "❗ Proses tidak ditemukan.")
@@ -387,9 +391,17 @@ async def _changeconfig(message: Message):
         await safe_reply(message, "❗ Tidak Ada Variabel Dalam Berkas `config.env`")
         return
         
+    # Mengelompokkan tombol menjadi 2 kolom agar lebih ringkas (UI Improvement)
     kb_layout = []
+    row = []
     for k in keys:
-        kb_layout.append([InlineKeyboardButton(text=k, callback_data=f"env_{k}")])
+        row.append(InlineKeyboardButton(text=k, callback_data=f"env_{k}"))
+        if len(row) == 2:
+            kb_layout.append(row)
+            row = []
+    if row:
+        kb_layout.append(row)
+        
     kb_layout.append([InlineKeyboardButton(text="⭕ Tutup", callback_data="close_settings")])
     
     kb = InlineKeyboardMarkup(inline_keyboard=kb_layout)
@@ -403,7 +415,7 @@ async def _clearconfig(message: Message):
     path = "./userdata/botconfig.env"
     if exists(path):
         remove(path)
-        await safe_reply(message, "✅ Berhasil Dihapus")
+        await safe_reply(message, "✅ Berhasil Dihapus. Silakan jalankan `/restart` agar perubahan diterapkan.")
     else:
         await safe_reply(message, "❗ Konfigurasi Tidak Ditemukan")
 
