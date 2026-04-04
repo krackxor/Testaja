@@ -1142,10 +1142,3 @@ async def set_gameplay_cb(call: CallbackQuery) -> None:
 async def set_yt_cb(call: CallbackQuery) -> None: 
     await call.answer()
     await call.message.answer(_dash("📺","YouTube Status",[("API Upload", "✅ Siap" if YOUTUBE_ENABLED else "❌ Belum diinstall"),("yt-dlp", "✅ Siap" if YTDLP_ENABLED else "❌ Belum diinstall"),("Token", "✅ Ada" if os.path.exists("token.json") else "❌ Belum login"),("Secret", "✅ Ada" if os.path.exists("client_secret.json") else "❌ Tidak ada")]))
-
-# ═══════════════════════════════════════════════════════════════════════
-#  START BACKGROUND TASKS
-# ═══════════════════════════════════════════════════════════════════════
-# Task cleaner dijalankan saat inisialisasi aplikasi (contoh di main.py)
-try: asyncio.create_task(auto_clean_temp_dir(TEMP_DIR, max_age_hours=24))
-except Exception: pass
