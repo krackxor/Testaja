@@ -1,9 +1,10 @@
 """
 ╔══════════════════════════════════════════════════════════════════════╗
 ║                    bot/YTUpload.py — v3.1                            ║
-║       YouTube Upload — Terintegrasi Penuh dengan Bot System          ║
+║        YouTube Upload — Terintegrasi Penuh dengan Bot System         ║
 ╠══════════════════════════════════════════════════════════════════════╣
 ║  CHANGELOG dari versi lama:                                          ║
+║  [FIX HIGH] Implementasi CMD_SUFFIX pada semua Command filter        ║
 ║  [NEW] Migrasi total ke Aiogram Router & CallbackQuery               ║
 ║  [NEW] Hybrid Downloader (Pyrogram dengan Progress Bar -> Aiogram)   ║
 ║  [FIX] TelegramBadRequest untuk edit_text handling                   ║
@@ -484,7 +485,7 @@ def _build_dashboard(user_id: int, yt_title: str, privacy: str) -> tuple[str, li
 #  HANDLER: /ytupload
 # ═══════════════════════════════════════════════════════════════════════
 
-@router.message(Command("ytupload"))
+@router.message(Command(f"ytupload{CMD_SUFFIX}"))
 async def ytupload_handler(message: Message, command: CommandObject) -> None:
     user_id = message.from_user.id
 
@@ -701,7 +702,7 @@ async def yt_status_cb(call: CallbackQuery) -> None:
 #  HANDLER: /yttoken — Setup token YouTube
 # ═══════════════════════════════════════════════════════════════════════
 
-@router.message(Command("yttoken"))
+@router.message(Command(f"yttoken{CMD_SUFFIX}"))
 async def yttoken_handler(message: Message) -> None:
     user_id = message.from_user.id
     if user_id != Config.OWNER_ID and user_id not in Config.SUDO_USERS:
