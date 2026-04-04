@@ -4,6 +4,9 @@
 ║            Callback Query Handler (Aiogram 3.x)                      ║
 ╠══════════════════════════════════════════════════════════════════════╣
 ║  FIXES dari versi lama:                                              ║
+║  [FIX HIGH] Menyuntikkan call.answer() untuk memutus loading tombol  ║
+║             sehingga respons UI bot menjadi secepat kilat (Instan).  ║
+║  [FIX HIGH] Implementasi CMD_SUFFIX pada teks panduan restart.       ║
 ║  [NEW] Migrasi total dari Telethon CallbackQuery ke Aiogram          ║
 ║  [NEW] Menggunakan sistem wait_for_message dari shared.py            ║
 ║  [IMPROVE] Desain UI yang lebih interaktif, mudah dibaca, & rapi.    ║
@@ -37,8 +40,8 @@ from bot_helper.Process.Running_Tasks import get_ffmpeg_log_file
 from bot_helper.Telegram.Telegram_Client import Telegram
 from config.config import Config
 
-# Memanggil fitur "Inline Waiter" dari shared.py
-from bot.shared import wait_for_message
+# Memanggil fitur "Inline Waiter" & Suffix dari shared.py
+from bot.shared import wait_for_message, CMD_SUFFIX
 
 SAVE_TO_DATABASE = Config.SAVE_TO_DATABASE
 LOGGER           = Config.LOGGER
@@ -182,31 +185,40 @@ async def audio_callback(call: CallbackQuery, txt: str, user_id: int) -> None:
         val = _safe_eval_bool(new_position)
         if val is not None:
             await saveconfig(user_id, "audio", "enabled", val, SAVE_TO_DATABASE)
-            await call.answer(f"✅ Audio {'Aktif' if val else 'Nonaktif'}")
+            try: await call.answer(f"✅ Audio {'Aktif' if val else 'Nonaktif'}")
+            except: pass
     elif txt.startswith("audiocodec_"):
         await saveconfig(user_id, "audio", "codec", new_position, SAVE_TO_DATABASE)
-        await call.answer(f"✅ Codec: {new_position.upper()}")
+        try: await call.answer(f"✅ Codec: {new_position.upper()}")
+        except: pass
     elif txt.startswith("audioprofile_"):
         await saveconfig(user_id, "audio", "codec_profile", new_position, SAVE_TO_DATABASE)
-        await call.answer(f"✅ Profil AAC: {new_position.upper()}")
+        try: await call.answer(f"✅ Profil AAC: {new_position.upper()}")
+        except: pass
     elif txt.startswith("audiobitrate_"):
         await saveconfig(user_id, "audio", "bitrate", new_position, SAVE_TO_DATABASE)
-        await call.answer(f"✅ Bitrate: {new_position}")
+        try: await call.answer(f"✅ Bitrate: {new_position}")
+        except: pass
     elif txt.startswith("audiochannels_"):
         await saveconfig(user_id, "audio", "channels", new_position, SAVE_TO_DATABASE)
-        await call.answer(f"✅ Channel: {new_position}")
+        try: await call.answer(f"✅ Channel: {new_position}")
+        except: pass
     elif txt.startswith("audiosamplerate_"):
         await saveconfig(user_id, "audio", "samplerate", new_position, SAVE_TO_DATABASE)
-        await call.answer(f"✅ Sample Rate: {int(new_position)/1000}kHz")
+        try: await call.answer(f"✅ Sample Rate: {int(new_position)/1000}kHz")
+        except: pass
     elif txt.startswith("audionorm_"):
         await saveconfig(user_id, "audio", "normalization", new_position, SAVE_TO_DATABASE)
-        await call.answer(f"✅ Normalisasi: {new_position}")
+        try: await call.answer(f"✅ Normalisasi: {new_position}")
+        except: pass
     elif txt.startswith("audiofilter_"):
         await saveconfig(user_id, "audio", "filter", new_position, SAVE_TO_DATABASE)
-        await call.answer(f"✅ Filter: {new_position}")
+        try: await call.answer(f"✅ Filter: {new_position}")
+        except: pass
     elif txt.startswith("audiodownmix_"):
         await saveconfig(user_id, "audio", "downmix", new_position, SAVE_TO_DATABASE)
-        await call.answer(f"✅ Downmix: {new_position}")
+        try: await call.answer(f"✅ Downmix: {new_position}")
+        except: pass
 
     audio = get_data().get(user_id, {}).get("audio", {})
     enabled = audio.get("enabled", True)
@@ -245,6 +257,11 @@ async def audio_callback(call: CallbackQuery, txt: str, user_id: int) -> None:
 
 async def video_callback(call: CallbackQuery, txt: str, user_id: int, edit: bool, chat_id: int) -> None:
     new_pos = txt.split("_", 1)[1] if "_" in txt else ""
+
+    # Instant UI response patch for video settings
+    if "_" in txt and not txt.startswith("videoresolution_Custom") and not txt.startswith("videocrf_Custom"):
+        try: await call.answer("✅ Pengaturan Video Diperbarui")
+        except: pass
 
     if txt.startswith("videoenable_"):
         val = _safe_eval_bool(new_pos)
@@ -353,6 +370,11 @@ async def video_callback(call: CallbackQuery, txt: str, user_id: int, edit: bool
 
 async def general_callback(call: CallbackQuery, txt: str, user_id: int, chat_id: int) -> None:
     new_pos = txt.split("_", 1)[1] if "_" in txt else ""
+    
+    if "_" in txt:
+        try: await call.answer("✅ Pengaturan Umum Diperbarui")
+        except: pass
+
     r_config    = f"./userdata/{user_id}_rclone.conf"
     check_cfg   = exists(r_config)
     drive_name  = get_data().get(user_id, {}).get("drive_name", "")
@@ -403,7 +425,6 @@ async def general_callback(call: CallbackQuery, txt: str, user_id: int, chat_id:
     KB  = []
     def _row(label, key, default, opts, items):
         val = ud.get(key, default)
-        # Tambahkan indikator status visual (ON/OFF)
         status_icon = "🟢" if val is True else "🔴" if val is False else ""
         KB.append([InlineKeyboardButton(text=f"{label} — {val} {status_icon}".strip(), callback_data="nik66bots")])
         KB.extend(gen_keyboard(opts, val, f"general{key.replace('_','')}", items, False))
@@ -439,6 +460,11 @@ async def general_callback(call: CallbackQuery, txt: str, user_id: int, chat_id:
 
 async def progress_callback(call: CallbackQuery, txt: str, user_id: int) -> None:
     new_pos = txt.split("_", 1)[1] if "_" in txt else ""
+    
+    if "_" in txt:
+        try: await call.answer("✅ Tampilan Diperbarui")
+        except: pass
+
     if txt.startswith("progressdetailedprogress"):
         val = _safe_eval_bool(new_pos)
         if val is not None: await saveoptions(user_id, "detailed_messages", val, SAVE_TO_DATABASE)
@@ -485,6 +511,11 @@ async def progress_callback(call: CallbackQuery, txt: str, user_id: int) -> None
 
 async def telegram_callback(call: CallbackQuery, txt: str, user_id: int, chat_id: int) -> None:
     new_pos = txt.split("_", 1)[1] if "_" in txt else ""
+    
+    if "_" in txt:
+        try: await call.answer("✅ Mesin Diperbarui")
+        except: pass
+
     if txt.startswith("telegramupload"):
         await saveoptions(user_id, "tgupload", new_pos, SAVE_TO_DATABASE)
     elif txt.startswith("telegramdownload"):
@@ -510,6 +541,11 @@ async def telegram_callback(call: CallbackQuery, txt: str, user_id: int, chat_id
 async def metadata_callback(call: CallbackQuery, txt: str, user_id: int, chat_id: int) -> None:
     new_pos = txt.split("_", 1)[1] if "_" in txt else ""
     edit = True
+    
+    if "_" in txt and not txt.startswith("metadatapreset_") and not txt.startswith("metadatacustom_"):
+        try: await call.answer("✅ Metadata Diperbarui")
+        except: pass
+
     if txt.startswith("metadataenable_"):
         val = _safe_eval_bool(new_pos)
         if val is not None: await saveconfig(user_id, "metadata", "enabled", val, SAVE_TO_DATABASE)
@@ -563,10 +599,14 @@ async def metadata_callback(call: CallbackQuery, txt: str, user_id: int, chat_id
 
 async def convert_callback(call: CallbackQuery, txt: str, user_id: int) -> None:
     current = get_data().get(user_id, {}).get("convert", {}).get("convert_list", [])
+    
+    if txt.startswith("convert_toggle_") or txt == "convert_clear_all":
+        try: await call.answer("✅ Target Resolusi Diperbarui")
+        except: pass
+
     if txt == "convert_clear_all":
         current = []
         await saveconfig(user_id, "convert", "convert_list", [], SAVE_TO_DATABASE)
-        await call.answer("✅ Pilihan dihapus semua.", show_alert=True)
     elif txt.startswith("convert_toggle_"):
         try:
             val = int(txt.split("_")[-1])
@@ -598,6 +638,11 @@ async def convert_callback(call: CallbackQuery, txt: str, user_id: int) -> None:
 
 async def mux_callback(call: CallbackQuery, txt: str, user_id: int) -> None:
     new_pos = txt.split("_", 1)[1] if "_" in txt else ""
+    
+    if "_" in txt:
+        try: await call.answer("✅ Pengaturan Diperbarui")
+        except: pass
+
     if txt.startswith("muxsubcodec_"):
         await saveconfig(user_id, "mux", "sub_codec", new_pos, SAVE_TO_DATABASE)
     mux_codec = get_data().get(user_id, {}).get("mux", {}).get("sub_codec", "copy")
@@ -616,6 +661,11 @@ async def mux_callback(call: CallbackQuery, txt: str, user_id: int) -> None:
 
 async def merge_callback(call: CallbackQuery, txt: str, user_id: int) -> None:
     new_pos = txt.split("_", 1)[1] if "_" in txt else ""
+    
+    if "_" in txt:
+        try: await call.answer("✅ Pengaturan Diperbarui")
+        except: pass
+
     if txt.startswith("mergemap"):
         val = _safe_eval_bool(new_pos)
         if val is not None: await saveconfig(user_id, "merge", "map", val, SAVE_TO_DATABASE)
@@ -640,6 +690,10 @@ async def merge_callback(call: CallbackQuery, txt: str, user_id: int) -> None:
 
 async def watermark_callback(call: CallbackQuery, txt: str, user_id: int, chat_id: int) -> None:
     settings = get_data().get(user_id, {}).get("watermark", {})
+
+    if txt.startswith("watermark_enable_") or txt.startswith("watermark_type_"):
+        try: await call.answer("✅ Pengaturan Watermark Diperbarui")
+        except: pass
 
     if txt.startswith("watermark_enable_"):
         val = _safe_eval_bool(txt.split("_")[-1])
@@ -689,6 +743,8 @@ async def watermark_image_menu(call: CallbackQuery, txt: str, user_id: int, chat
     wm_path = f"./userdata/{user_id}_watermark.jpg"
 
     if txt == "watermark_image_upload":
+        try: await call.answer()
+        except: pass
         await call.message.delete()
         resp = await get_text_data(chat_id, user_id, call, 120, "Kirim gambar (JPG/PNG) untuk dijadikan watermark.")
         if resp and (resp.photo or resp.document):
@@ -702,6 +758,8 @@ async def watermark_image_menu(call: CallbackQuery, txt: str, user_id: int, chat
 
     elif txt == "watermark_image_view":
         if exists(wm_path):
+            try: await call.answer()
+            except: pass
             await call.message.delete()
             from aiogram.types import FSInputFile
             await call.message.answer_photo(FSInputFile(wm_path), caption="🖼 Watermark gambar Anda saat ini.")
@@ -734,9 +792,10 @@ async def watermark_image_menu(call: CallbackQuery, txt: str, user_id: int, chat
             if resp and resp.text.isdigit():
                 setts["image"]["duration"]["interval"] = int(resp.text)
         await saveoptions(user_id, "watermark", setts, SAVE_TO_DATABASE)
-        await call.answer("✅ Pengaturan durasi gambar disimpan.")
+        try: await call.answer("✅ Pengaturan durasi gambar disimpan.")
+        except: pass
 
-    else:
+    elif "_" in txt and not txt == "watermark_image_menu":
         try:
             parts    = txt.split("_", 3)
             part_type = parts[2] if len(parts) > 2 else None
@@ -747,11 +806,13 @@ async def watermark_image_menu(call: CallbackQuery, txt: str, user_id: int, chat
         if part_type == "position" and new_pos:
             setts["image"]["position"] = new_pos
             await saveoptions(user_id, "watermark", setts, SAVE_TO_DATABASE)
-            await call.answer("✅ Posisi gambar diubah.")
+            try: await call.answer("✅ Posisi gambar diubah.")
+            except: pass
         elif part_type == "size" and new_pos:
             setts["image"]["size"] = new_pos
             await saveoptions(user_id, "watermark", setts, SAVE_TO_DATABASE)
-            await call.answer(f"✅ Skala Ukuran: {new_pos}%")
+            try: await call.answer(f"✅ Skala Ukuran: {new_pos}%")
+            except: pass
 
     setts      = get_data().get(user_id, {}).get("watermark", {})
     img        = setts.get("image", {})
@@ -802,6 +863,8 @@ async def watermark_text_menu(call: CallbackQuery, txt: str, user_id: int, chat_
     font_glob = f"./userdata/{user_id}_watermark_font.*"
 
     if txt == "watermark_text_input":
+        try: await call.answer()
+        except: pass
         await call.message.delete()
         resp = await get_text_data(chat_id, user_id, call, 120, "Kirim teks kalimat yang ingin dijadikan watermark:")
         if resp:
@@ -813,6 +876,8 @@ async def watermark_text_menu(call: CallbackQuery, txt: str, user_id: int, chat_
         return
 
     elif txt == "watermark_text_upload_font":
+        try: await call.answer()
+        except: pass
         await call.message.delete()
         resp = await get_text_data(chat_id, user_id, call, 120, "Kirim file font kustom berformat (`.ttf` atau `.otf`):")
         if resp and resp.document:
@@ -861,9 +926,10 @@ async def watermark_text_menu(call: CallbackQuery, txt: str, user_id: int, chat_
             if resp and resp.text.isdigit():
                 setts["text"]["duration"]["interval"] = int(resp.text)
         await saveoptions(user_id, "watermark", setts, SAVE_TO_DATABASE)
-        await call.answer("✅ Pengaturan durasi teks disimpan.")
+        try: await call.answer("✅ Pengaturan durasi teks disimpan.")
+        except: pass
 
-    else:
+    elif "_" in txt and not txt == "watermark_text_menu":
         try:
             parts    = txt.split("_", 3)
             part     = parts[2] if len(parts) > 2 else None
@@ -874,15 +940,18 @@ async def watermark_text_menu(call: CallbackQuery, txt: str, user_id: int, chat_
         if part == "position" and new_pos:
             setts["text"]["position"] = new_pos
             await saveoptions(user_id, "watermark", setts, SAVE_TO_DATABASE)
-            await call.answer("✅ Posisi teks diubah.")
+            try: await call.answer("✅ Posisi teks diubah.")
+            except: pass
         elif part == "size" and new_pos:
             setts["text"]["font_size"] = new_pos
             await saveoptions(user_id, "watermark", setts, SAVE_TO_DATABASE)
-            await call.answer(f"✅ Ukuran Font Teks: {new_pos}px")
+            try: await call.answer(f"✅ Ukuran Font Teks: {new_pos}px")
+            except: pass
         elif part == "color" and new_pos:
             setts["text"]["font_color"] = new_pos
             await saveoptions(user_id, "watermark", setts, SAVE_TO_DATABASE)
-            await call.answer(f"✅ Warna Teks: {new_pos}")
+            try: await call.answer(f"✅ Warna Teks: {new_pos}")
+            except: pass
 
     setts     = get_data().get(user_id, {}).get("watermark", {})
     ts        = setts.get("text", {})
@@ -945,6 +1014,12 @@ async def callback(call: CallbackQuery):
     txt     = call.data
     chat_id = call.message.chat.id
     user_id = call.from_user.id
+
+    # [UX PATCH] Putus animasi "Loading" di tombol secara instan untuk menu navigasi
+    nav_commands = {"settings", "settings_media", "settings_bot", "close_settings", "profile_main", "profile_manage", "profile_quick"}
+    if txt in nav_commands or txt.endswith("_settings"):
+        try: await call.answer()
+        except: pass
 
     try:
         await ensure_user_data_structure(user_id)
@@ -1131,7 +1206,7 @@ async def callback(call: CallbackQuery):
                 d = get_env_dict("./userdata/botconfig.env") or get_env_dict("config.env") or {}
                 d[key] = resp.text
                 export_env_file("./userdata/botconfig.env", d)
-                await resp.reply(f"✅ Variabel `{key}` berhasil diperbarui. Mulai ulang bot (Restart) untuk menerapkan konfigurasi sistem.")
+                await resp.reply(f"✅ Variabel `{key}` berhasil diperbarui. Gunakan perintah `/restart{CMD_SUFFIX}` untuk menerapkan konfigurasi sistem.")
 
         elif txt.startswith("renew"):
             val = _safe_eval_bool(txt.split("_", 1)[1])
