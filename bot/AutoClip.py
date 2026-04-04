@@ -5,6 +5,7 @@
 ╠══════════════════════════════════════════════════════════════════════╣
 ║  CHANGELOG: Migrasi total ke Aiogram 3.x Router & Message objects    ║
 ║  [FIX] Syntax error pada pesan help /clip diperbaiki                 ║
+║  [FIX] Penambahan fungsi callback handler yang sebelumnya terpotong  ║
 ╚══════════════════════════════════════════════════════════════════════╝
 """
 
@@ -372,4 +373,107 @@ async def autoclip_handler(message: Message, command: CommandObject) -> None:
         return await message.reply("👑 **Fitur Eksklusif VIP**\n\nAuto Clip membutuhkan resource render yang besar.\nFitur ini hanya untuk member **VIP/Premium**.\n\nHubungi admin untuk info berlangganan.", reply_markup=InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="💬 Hubungi Admin", url=f"https://t.me/{Config.BOT_USERNAME}")]]))
 
     if not message.reply_to_message:
-        return await message.reply(f"❌ **Cara Pakai:**\nBalas file `.txt` dengan perintah:\n`/clip{CMD_SUFFIX} NamaVideo`\n\n**Contoh isi .txt:**\n
+        return await message.reply(
+            f"❌ **Cara Pakai:**\nBalas file `.txt` dengan perintah:\n`/clip{CMD_SUFFIX} NamaVideo`\n\n"
+            "**Contoh isi .txt:**\n"
+            "00:00 - 00:30 | Momen Epik Pertama\n"
+            "01:15 - 01:45 | Pertarungan Bos Akhir"
+        )
+
+    topic = (command.args or "").strip()
+    if not topic:
+        return await message.reply(
+            "❌ **Nama Video Kosong**\n"
+            f"Silakan sertakan nama game/video yang ingin dipotong.\nContoh: `/clip{CMD_SUFFIX} Resident Evil 4`"
+        )
+
+    _clip_state[user_id] = {
+        "topic": topic,
+        "mode": "short",
+        "quality": "balanced",
+        "yt_enabled": False,
+        "yt_privacy": "private",
+        "reply_msg": message.reply_to_message
+    }
+
+    dash_text, buttons = _build_clip_dashboard(user_id, topic, "short", "balanced", False, "private")
+    await message.reply(dash_text, reply_markup=InlineKeyboardMarkup(inline_keyboard=buttons))
+
+# ═══════════════════════════════════════════════════════════════════════
+#  CALLBACK HANDLERS
+# ═══════════════════════════════════════════════════════════════════════
+
+def _check_state(call: CallbackQuery, user_id: int):
+    return (True, "") if call.from_user.id == user_id and user_id in _clip_state else (False, "❌ Sesi tidak valid atau telah kadaluarsa.")
+
+@router.callback_query(F.data.startswith("ac_mode_"))
+async def cb_ac_mode(call: CallbackQuery):
+    user_id = int(call.data.split("_")[2])
+    val = call.data.split("_")[3]
+    ok, msg = _check_state(call, user_id)
+    if not ok: return await call.answer(msg, show_alert=True)
+    
+    _clip_state[user_id]["mode"] = val
+    st = _clip_state[user_id]
+    dash, btns = _build_clip_dashboard(user_id, st["topic"], st["mode"], st["quality"], st["yt_enabled"], st["yt_privacy"])
+    await _safe_edit(call.message, dash, btns)
+
+@router.callback_query(F.data.startswith("ac_qual_"))
+async def cb_ac_qual(call: CallbackQuery):
+    user_id = int(call.data.split("_")[2])
+    val = call.data.split("_")[3]
+    ok, msg = _check_state(call, user_id)
+    if not ok: return await call.answer(msg, show_alert=True)
+    
+    _clip_state[user_id]["quality"] = val
+    st = _clip_state[user_id]
+    dash, btns = _build_clip_dashboard(user_id, st["topic"], st["mode"], st["quality"], st["yt_enabled"], st["yt_privacy"])
+    await _safe_edit(call.message, dash, btns)
+
+@router.callback_query(F.data.startswith("ac_yt_"))
+async def cb_ac_yt(call: CallbackQuery):
+    user_id = int(call.data.split("_")[2])
+    ok, msg = _check_state(call, user_id)
+    if not ok: return await call.answer(msg, show_alert=True)
+    
+    _clip_state[user_id]["yt_enabled"] = not _clip_state[user_id]["yt_enabled"]
+    st = _clip_state[user_id]
+    dash, btns = _build_clip_dashboard(user_id, st["topic"], st["mode"], st["quality"], st["yt_enabled"], st["yt_privacy"])
+    await _safe_edit(call.message, dash, btns)
+
+@router.callback_query(F.data.startswith("ac_prv_"))
+async def cb_ac_prv(call: CallbackQuery):
+    user_id = int(call.data.split("_")[2])
+    val = call.data.split("_")[3]
+    ok, msg = _check_state(call, user_id)
+    if not ok: return await call.answer(msg, show_alert=True)
+    
+    _clip_state[user_id]["yt_privacy"] = val
+    st = _clip_state[user_id]
+    dash, btns = _build_clip_dashboard(user_id, st["topic"], st["mode"], st["quality"], st["yt_enabled"], st["yt_privacy"])
+    await _safe_edit(call.message, dash, btns)
+
+@router.callback_query(F.data.startswith("ac_cancel_"))
+async def cb_ac_cancel(call: CallbackQuery):
+    user_id = int(call.data.split("_")[2])
+    ok, msg = _check_state(call, user_id)
+    if not ok: return await call.answer(msg, show_alert=True)
+    
+    _clip_state.pop(user_id, None)
+    await _safe_edit(call.message, "❌ **Auto Clip Dibatalkan.**")
+
+@router.callback_query(F.data.startswith("ac_go_"))
+async def cb_ac_go(call: CallbackQuery):
+    await call.answer("⏳ Menyiapkan Auto Clip...")
+    user_id = int(call.data.split("_")[2])
+    ok, msg = _check_state(call, user_id)
+    if not ok: return await call.answer(msg, show_alert=True)
+    
+    st = _clip_state[user_id]
+    sender_name = call.from_user.first_name or str(user_id)
+    ps = ProcessStatus(user_id, call.message.chat.id, call.from_user.username or "", sender_name, call.message, getattr(Names, "autoclip", "AutoClip"), "Telegram")
+    
+    init_text = f"✂️ **Memulai Auto Clip...**\n**Sumber:** `{st['topic']}`\n**ID:** `{ps.process_id}`\n`/cancel{CMD_SUFFIX} process {ps.process_id}`"
+    status_msg = await call.message.edit_text(init_text)
+    
+    asyncio.create_task(_start_autoclip_task(ps, call.message, st["reply_msg"], st["topic"], st["mode"], st["quality"], st["yt_enabled"], st["yt_privacy"], status_msg))
