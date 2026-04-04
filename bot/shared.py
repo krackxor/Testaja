@@ -1,6 +1,6 @@
 """
 ╔══════════════════════════════════════════════════════════════════════╗
-║         bot_helper/Handlers/shared.py — v3.1                         ║
+║         bot/shared.py — v3.1                                         ║
 ║         Shared utilities, helpers, dan base functions (Aiogram)      ║
 ╠══════════════════════════════════════════════════════════════════════╣
 ║  CHANGELOG dari versi lama:                                          ║
@@ -11,6 +11,7 @@
 ║  [FIX] `message.file` diganti ke pengecekan document/video/photo     ║
 ║  [FIX] Inline Button syntax Aiogram                                  ║
 ║  [FIX] Menambahkan kembali get_sudo_user_id untuk kompatibilitas     ║
+║  [FIX] Mengganti emoji asterisk (*️⃣) dengan (📌) agar aman          ║
 ╚══════════════════════════════════════════════════════════════════════╝
 """
 
@@ -284,7 +285,7 @@ async def get_url_from_message(message: Message):
 # ═══════════════════════════════════════════════════════════════════════
 
 async def ask_text(chat_id, user_id, message: Message, timeout, text_msg, text_type, include_list=False):
-    ask = await message.reply(f"*️⃣ {text_msg} [{timeout} detik]")
+    ask = await message.reply(f"📌 {text_msg} [{timeout} detik]")
     try:
         new_msg = await wait_for_message(chat_id, user_id, timeout)
     except asyncio.TimeoutError:
@@ -305,7 +306,7 @@ async def ask_text(chat_id, user_id, message: Message, timeout, text_msg, text_t
         return False
 
 async def ask_text_event(chat_id, user_id, message: Message, timeout, text_msg, message_hint=False):
-    msg = f"*️⃣ {text_msg} [{timeout} detik]"
+    msg = f"📌 {text_msg} [{timeout} detik]"
     if message_hint:
         msg += f"\n\n{message_hint}"
     ask = await message.reply(msg)
@@ -316,7 +317,7 @@ async def ask_text_event(chat_id, user_id, message: Message, timeout, text_msg, 
         return False
 
 async def ask_text_list(chat_id, user_id, message: Message, timeout, text_msg, include_list):
-    ask = await message.reply(f"*️⃣ {text_msg} [{timeout} detik]")
+    ask = await message.reply(f"📌 {text_msg} [{timeout} detik]")
     try:
         new_msg = await wait_for_message(chat_id, user_id, timeout)
         if (new_msg.text or "") in include_list:
@@ -331,7 +332,7 @@ async def ask_media_OR_url(
     message: Message, chat_id, user_id, keywords, text_msg, timeout, mtype, s_handle,
     allow_magnet=True, allow_url=True, message_hint=False, allow_command=False, stop_on_url=True,
 ):
-    msg = f"*️⃣ {text_msg} [{timeout} detik]"
+    msg = f"📌 {text_msg} [{timeout} detik]"
     if message_hint:
         msg += f"\n\n{message_hint}"
     ask = await message.reply(msg)
@@ -393,7 +394,7 @@ async def get_thumbnail(process_status, keywords, timeout) -> None:
     if not get_data().get(user_id, {}).get("custom_thumbnail"):
         return
 
-    ask = await process_status.event.reply(f"*️⃣ Kirim Thumbnail [{timeout} detik]")
+    ask = await process_status.event.reply(f"📌 Kirim Thumbnail [{timeout} detik]")
     try:
         new_msg = await wait_for_message(chat_id, user_id, timeout)
     except asyncio.TimeoutError:
