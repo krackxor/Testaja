@@ -10,6 +10,7 @@
 ║  [FIX] `message.message` diganti menjadi `message.text`              ║
 ║  [FIX] `message.file` diganti ke pengecekan document/video/photo     ║
 ║  [FIX] Inline Button syntax Aiogram                                  ║
+║  [FIX] Menambahkan kembali get_sudo_user_id untuk kompatibilitas     ║
 ╚══════════════════════════════════════════════════════════════════════╝
 """
 
@@ -105,6 +106,10 @@ def command(cmd: str):
 # ═══════════════════════════════════════════════════════════════════════
 #  AUTH HELPERS
 # ═══════════════════════════════════════════════════════════════════════
+
+def get_sudo_user_id() -> list:
+    """Mengembalikan daftar ID pengguna yang memiliki akses sudo."""
+    return sudo_users
 
 async def user_auth_checker(message: Message) -> bool:
     """Check apakah user boleh menggunakan bot."""
