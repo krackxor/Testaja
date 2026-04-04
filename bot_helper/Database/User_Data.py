@@ -1,20 +1,20 @@
 """
 ╔══════════════════════════════════════════════════════════════════════╗
-║           bot_helper/Database/User_Data.py                           ║
-║           Encoder1 Bot — v3.1                                        ║
+║            bot_helper/Database/User_Data.py                          ║
+║            Encoder1 Bot — v3.1                                       ║
 ╠══════════════════════════════════════════════════════════════════════╣
 ║  CHANGELOG dari versi lama:                                          ║
-║  [SECURITY] eval(fresh_data_str) → _deserialize() yang aman        ║
-║  [SECURITY] str(DATA) → json.dumps() di semua 6 fungsi save        ║
-║  [FIX HIGH] asyncio.Lock() untuk semua write ke global DATA dict    ║
-║  [FIX]      Database() di module level → get_db() lazy singleton    ║
-║  [FIX]      LOGGER.info(e) → LOGGER.error(..., exc_info=True)      ║
-║  [FIX]      Save seluruh DATA → save hanya user yang berubah       ║
-║  [FIX]      DATA.clear() saat reset → lock + flag                  ║
-║  [FIX]      DATA.update() overwrite → merge aman                   ║
-║  [IMPROVE]  ensure_user_data_structure: log sekali, bukan per key  ║
-║  [IMPROVE]  Type hints di semua fungsi publik                       ║
-║  [IMPROVE]  deepcopy konsisten untuk isolasi data                   ║
+║  [SECURITY] eval(fresh_data_str) → _deserialize() yang aman          ║
+║  [SECURITY] str(DATA) → json.dumps() di semua 6 fungsi save          ║
+║  [FIX HIGH] asyncio.Lock() untuk semua write ke global DATA dict     ║
+║  [FIX]      Database() di module level → get_db() lazy singleton     ║
+║  [FIX]      LOGGER.info(e) → LOGGER.error(..., exc_info=True)        ║
+║  [FIX]      Save seluruh DATA → save hanya user yang berubah         ║
+║  [FIX]      DATA.clear() saat reset → lock + flag                    ║
+║  [FIX]      DATA.update() overwrite → merge aman                     ║
+║  [IMPROVE]  ensure_user_data_structure: log sekali, bukan per key    ║
+║  [IMPROVE]  Type hints di semua fungsi publik                        ║
+║  [IMPROVE]  deepcopy konsisten untuk isolasi data                    ║
 ╚══════════════════════════════════════════════════════════════════════╝
 """
 
