@@ -1,17 +1,13 @@
 """
 ╔══════════════════════════════════════════════════════════════════════╗
-║       bot/media_handlers.py                                          ║
+║       bot_helper/Handlers/media_handlers.py — v3.4                   ║
 ║       Media Processing Command Handlers (Aiogram 3.x)                ║
 ╠══════════════════════════════════════════════════════════════════════╣
 ║  CHANGELOG dari versi lama:                                          ║
+║  [FIX HIGH] Menghapus reply_markup ilegal pada ask_text_event.       ║
+║  [FIX HIGH] Mengembalikan fungsi _generic_video_handler yang hilang. ║
 ║  [UX PREMIUM] Menerapkan Auto-Delete agar chat tetap bersih & rapi.  ║
 ║  [UX PREMIUM] Menerapkan Kotak Konfirmasi (Summary Box) pada fitur.  ║
-║  [NEW] Kelahiran /encode: Fitur dubbing audio & hardmux mandiri      ║
-║  [NEW] /convert interaktif: Bisa pilih banyak resolusi (240p - 8K)   ║
-║  [NEW] /watermark interaktif: Setup teks/gambar langsung di chat     ║
-║  [FIX HIGH] Implementasi CMD_SUFFIX pada semua Command filter        ║
-║  [NEW] Migrasi total decorator Telethon ke Aiogram Router            ║
-║  [FIX] Menutup celah Markdown Parser Crash pada variabel dinamis     ║
 ╚══════════════════════════════════════════════════════════════════════╝
 """
 
@@ -50,14 +46,12 @@ router = Router()
 # ═══════════════════════════════════════════════════════════════════════
 
 async def _clean_msgs(*msgs):
-    """Menghapus pesan untuk menjaga chat tetap rapi."""
     for m in msgs:
         if m:
             try: await m.delete()
             except Exception: pass
 
 def _make_reply_kb(options: list, row_width: int = 2) -> ReplyKeyboardMarkup:
-    """Membuat Reply Keyboard dengan mudah."""
     kb = []
     row = []
     for opt in options:
@@ -70,14 +64,12 @@ def _make_reply_kb(options: list, row_width: int = 2) -> ReplyKeyboardMarkup:
     return ReplyKeyboardMarkup(keyboard=kb, resize_keyboard=True, one_time_keyboard=True)
 
 def _get_fname(link, custom_file_name: str) -> str:
-    """Helper untuk mendapatkan nama file cantik untuk ditampilkan."""
     if custom_file_name: return custom_file_name
     if isinstance(link, str): return "Tautan / URL"
     doc = getattr(link, "document", None) or getattr(link, "video", None) or getattr(link, "audio", None)
     return getattr(doc, "file_name", "Berkas Media")
 
 def _sanitize_link_for_db(link):
-    """Membersihkan Tombol Keyboard dari Pesan agar bisa diubah ke JSON."""
     if not isinstance(link, str) and hasattr(link, 'reply_markup'):
         try: link.reply_markup = None
         except Exception: pass
@@ -85,7 +77,7 @@ def _sanitize_link_for_db(link):
 
 
 # ═══════════════════════════════════════════════════════════════════════
-#  MULTI-TASK SYSTEM (Legacy Support)
+#  MULTI-TASK SYSTEM & GENERIC FACTORY
 # ═══════════════════════════════════════════════════════════════════════
 
 async def hardmux_multi_task(multi_ps, message: Message, chat_id, user_id, process_command) -> bool:
@@ -132,6 +124,25 @@ async def multi_tasks(process_status, cmd) -> bool:
             p_cmd = msg_text; chat_message = result; q += 1
     return m_result
 
+async def _generic_video_handler(message: Message, process_name: str, cmd_name: str):
+    if not await vip_check(message): return
+    user_id, chat_id = message.from_user.id, message.chat.id
+    if user_id not in get_data(): await new_user(user_id, SAVE_TO_DATABASE)
+
+    link, custom_file_name = await get_link(message)
+    if link == "invalid": return await safe_reply(message, "❗ Tautan tidak valid")
+        
+    if not link:
+        ne = await ask_media_OR_url(message, chat_id, user_id, [f"/{cmd_name}{CMD_SUFFIX}", "stop"], "Kirim Video atau URL", 120, "video/", True)
+        if ne and ne not in ["cancelled", "stopped"]: link = await get_url_from_message(ne)
+        else: return
+
+    ps = ProcessStatus(user_id, chat_id, get_username(message), message.from_user.first_name, message, process_name, custom_file_name)
+    await get_thumbnail(ps, [f"/{cmd_name}{CMD_SUFFIX}", "pass"], 120)
+    task = build_task(ps, link)
+    await submit_task(task)
+    await update_status_message(message)
+
 # ═══════════════════════════════════════════════════════════════════════
 #  /encode - THE FLAGSHIP COMMAND (Dubbing & Hardmux Support)
 # ═══════════════════════════════════════════════════════════════════════
@@ -176,8 +187,7 @@ async def _encode_video(message: Message):
             aud_path = check_file(f"./temp/auds_{user_id}", aud_doc.file_name or "dub.mp3")
             aud_name_str = aud_doc.file_name or "Audio Dubbing"
             await Telegram.AIOGRAM_BOT.download(aud_doc, destination=aud_path)
-            
-    # Konfirmasi Akhir
+
     kb_conf = _make_reply_kb(["✅ Encode", "❌ Batal"], 2)
     conf_txt = (
         f"**⚙️ KONFIRMASI ENCODE VIDEO**\n\n"
@@ -195,10 +205,9 @@ async def _encode_video(message: Message):
          
     await message.answer("✅ Mempersiapkan proses encode...", reply_markup=ReplyKeyboardRemove())
 
-    # Menggunakan properti compress agar tunduk pada pengaturan global FFmpeg_Commands
     ps = ProcessStatus(user_id, chat_id, get_username(message), message.from_user.first_name, message, Names.compress, custom_file_name)
     if sub_path: ps.append_subtitles(sub_path)
-    if aud_path: ps.custom_dub_audio = aud_path  # Properti dinamis baru untuk dibaca FFmpeg_Commands
+    if aud_path: ps.custom_dub_audio = aud_path 
 
     await get_thumbnail(ps, [f"/encode{CMD_SUFFIX}", "pass"], 120)
     task = build_task(ps, link)
@@ -266,7 +275,7 @@ async def _convert_video(message: Message):
     await message.answer("✅ Mempersiapkan proses konversi...", reply_markup=ReplyKeyboardRemove())
 
     ps = ProcessStatus(user_id, chat_id, get_username(message), message.from_user.first_name, message, Names.convert, custom_file_name)
-    ps.custom_convert_list = sorted(resolutions, reverse=True) # Override pengaturan global Convert
+    ps.custom_convert_list = sorted(resolutions, reverse=True)
 
     await get_thumbnail(ps, [f"/convert{CMD_SUFFIX}", "pass"], 120)
     task = build_task(ps, link)
@@ -323,7 +332,7 @@ async def _add_watermark_interactive(message: Message):
         custom_wm["image"] = {"path": wm_path}
         wm_info_str = "Logo Kustom (Gambar)"
     else:
-        txt_msg = await ask_text_event(chat_id, user_id, message, 60, "✍️ Kirim teks untuk Watermark:", message_hint=None, reply_markup=ReplyKeyboardRemove())
+        txt_msg = await ask_text_event(chat_id, user_id, message, 60, "✍️ Kirim teks untuk Watermark:", message_hint=None)
         if not txt_msg: return await message.answer("❌ Dibatalkan.", reply_markup=ReplyKeyboardRemove())
         
         font_msg = await ask_media_OR_url(message, chat_id, user_id, ["skip", "batal"], "🔤 Kirim file Font (.ttf/.otf)\n\nATAU ketik `skip` untuk memakai font standar.", 60, False, True)
@@ -335,17 +344,19 @@ async def _add_watermark_interactive(message: Message):
             font_path = f"./temp/wm_{user_id}/custom_font.ttf"
             await Telegram.AIOGRAM_BOT.download(font_msg.document, destination=font_path)
             
-        color_msg = await ask_text_event(chat_id, user_id, message, 60, "🎨 Kirim warna teks (contoh: `white`, `red`, `yellow`, `#FF0000`)\n\nATAU ketik `skip` untuk warna default:", message_hint=None, reply_markup=ReplyKeyboardRemove())
+        color_msg = await ask_text_event(chat_id, user_id, message, 60, "🎨 Kirim warna teks (contoh: `white`, `red`, `yellow`, `#FF0000`)\n\nATAU ketik `skip` untuk warna default:", message_hint=None)
         color = "white" if not color_msg or color_msg.text.lower() == "skip" else color_msg.text.strip()
         
         custom_wm["text"] = {"content": txt_msg.text, "font_path": font_path, "color": color, "size": 32}
         wm_info_str = f"Teks: '{txt_msg.text}' ({color})"
 
     kb_pos = _make_reply_kb(["Kiri Atas", "Kanan Atas", "Tengah", "Kiri Bawah", "Kanan Bawah"], 2)
-    pos_msg = await ask_text_event(chat_id, user_id, message, 60, "📍 Pilih Posisi Watermark:", message_hint=None, reply_markup=kb_pos)
+    pos_msg = await message.reply("📍 Pilih Posisi Watermark:", reply_markup=kb_pos)
+    pos_resp = await wait_for_message(chat_id, user_id, 60)
+    await _clean_msgs(pos_msg, pos_resp)
     
     pos_map = {"kiri atas": "top_left", "kanan atas": "top_right", "tengah": "middle_center", "kiri bawah": "bottom_left", "kanan bawah": "bottom_right"}
-    pos = pos_map.get((pos_msg.text or "").strip().lower(), "bottom_right") if pos_msg else "bottom_right"
+    pos = pos_map.get((pos_resp.text or "").strip().lower(), "bottom_right") if pos_resp else "bottom_right"
     
     if mode == "image": custom_wm["image"]["position"] = pos
     else: custom_wm["text"]["position"] = pos
@@ -368,7 +379,7 @@ async def _add_watermark_interactive(message: Message):
          
     await message.answer("✅ Mempersiapkan proses watermark...", reply_markup=ReplyKeyboardRemove())
     
-    ps.custom_watermark = custom_wm # Override pengaturan global Watermark
+    ps.custom_watermark = custom_wm
 
     await get_thumbnail(ps, [f"/watermark{CMD_SUFFIX}", "pass"], 120)
     task = build_task(ps, link)
@@ -538,7 +549,7 @@ async def _change_metadata(message: Message):
     link = _sanitize_link_for_db(link)
     fname = _get_fname(link, custom_file_name)
 
-    me = await ask_text_event(chat_id, user_id, message, 120, "Kirim MetaData", message_hint=("Format:\n`a:0-BahasaAudio-JudulAudio`\n`s:0-BahasaSub-JudulSub`\n\nContoh: `a:1-eng-EncoderBot`"), reply_markup=ReplyKeyboardRemove())
+    me = await ask_text_event(chat_id, user_id, message, 120, "Kirim MetaData", message_hint=("Format:\n`a:0-BahasaAudio-JudulAudio`\n`s:0-BahasaSub-JudulSub`\n\nContoh: `a:1-eng-EncoderBot`"))
     if not me: return
 
     custom_metadata = []
@@ -563,7 +574,7 @@ async def _change_metadata(message: Message):
     press2 = await wait_for_message(chat_id, user_id, 120)
     await _clean_msgs(me, conf_msg, press2)
     
-    if "batal" in (press2.text or "").lower():
+    if not press2 or "batal" in (press2.text or "").lower():
         return await message.answer("❌ Dibatalkan.", reply_markup=ReplyKeyboardRemove())
         
     await message.answer("✅ Mempersiapkan proses...", reply_markup=ReplyKeyboardRemove())
@@ -596,7 +607,7 @@ async def _change_index(message: Message):
     link = _sanitize_link_for_db(link)
     fname = _get_fname(link, custom_file_name)
 
-    ie = await ask_text_event(chat_id, user_id, message, 120, "Kirim Indeks", message_hint=("`a` Audio | `s` Subtitle\nFormat: `a-3-1-2` (urutan 3,1,2)\nContoh: `s-2-1`"), reply_markup=ReplyKeyboardRemove())
+    ie = await ask_text_event(chat_id, user_id, message, 120, "Kirim Indeks", message_hint=("`a` Audio | `s` Subtitle\nFormat: `a-3-1-2` (urutan 3,1,2)\nContoh: `s-2-1`"))
     if not ie: return
 
     custom_index = []
@@ -623,7 +634,7 @@ async def _change_index(message: Message):
     press2 = await wait_for_message(chat_id, user_id, 120)
     await _clean_msgs(ie, conf_msg, press2)
     
-    if "batal" in (press2.text or "").lower():
+    if not press2 or "batal" in (press2.text or "").lower():
         return await message.answer("❌ Dibatalkan.", reply_markup=ReplyKeyboardRemove())
         
     await message.answer("✅ Mempersiapkan proses...", reply_markup=ReplyKeyboardRemove())
