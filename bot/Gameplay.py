@@ -1,16 +1,19 @@
-# ═══════════════════════════════════════════════════════════════════════
-#  bot/Gameplay.py — v4.3 (NETFLIX LORE EDITION - INTERNATIONAL)
-#  Studio Khoirul: Core Engine Video Production Bot (Aiogram 3.x)
-#  
-#  CHANGELOG v4.3:
-#  ✅ FIX HIGH: Threading (asyncio.to_thread) untuk operasi MoviePy & I/O 
-#               agar bot tidak membeku dan delay hingga ratusan detik!
-#  ✅ FIX HIGH: Command Filters sekarang membaca CMD_SUFFIX.
-#  ✅ UPGRADE: Migrasi total ke Aiogram Router & Message Objects
-#  ✅ UPGRADE: Pengiriman video native Aiogram (FSInputFile)
-#  ✅ UPGRADE: CallbackQuery handler menggunakan Aiogram Magic Filter (F)
-#  ✅ STABLE: Smart Subtitle Splitter + Ultrafast FFmpeg Chunking.
-# ═══════════════════════════════════════════════════════════════════════
+"""
+╔══════════════════════════════════════════════════════════════════════╗
+║    bot/Gameplay.py — v4.4 (NETFLIX LORE EDITION - INTERNATIONAL)     ║
+║    Studio Khoirul: Core Engine Video Production Bot (Aiogram 3.x)    ║
+╠══════════════════════════════════════════════════════════════════════╣
+║  CHANGELOG v4.4:                                                     ║
+║  [UX PREMIUM] Migrasi Total Dashboard Inline menjadi Interactive     ║
+║               Wizard (Step-by-step) dengan Reply Keyboard Singkat!   ║
+║  [UX PREMIUM] Auto-Delete disematkan di semua langkah setup produksi ║
+║               agar obrolan tidak dipenuhi pesan sampah.              ║
+║  [UX PREMIUM] Kotak Konfirmasi (Summary Box) diseragamkan dengan     ║
+║               desain modul admin dan media_handlers.                 ║
+║  [FIX HIGH] Threading untuk operasi MoviePy & I/O                    ║
+║  [FIX HIGH] Command Filters sekarang membaca CMD_SUFFIX.             ║
+╚══════════════════════════════════════════════════════════════════════╝
+"""
 
 # ── Standard Library ──────────────────────────────────────────────────
 import asyncio
@@ -28,7 +31,10 @@ from typing import Optional
 
 # ── Aiogram ───────────────────────────────────────────────────────────
 from aiogram import Router, F
-from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton, FSInputFile
+from aiogram.types import (
+    Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton, FSInputFile,
+    ReplyKeyboardMarkup, KeyboardButton, ReplyKeyboardRemove
+)
 from aiogram.filters import Command, CommandObject
 from aiogram.exceptions import TelegramBadRequest
 
@@ -59,6 +65,8 @@ from bot_helper.Process.Running_Tasks import (
 from bot_helper.Telegram.Telegram_Client import Telegram
 from config.config import Config
 
+from bot.shared import wait_for_message, CMD_SUFFIX
+
 try:
     from bot.YTUpload import upload_to_youtube, YOUTUBE_ENABLED, _is_vip as _yt_is_vip
     _HAS_YTUPLOAD = True
@@ -74,7 +82,6 @@ except ImportError:
     YTDLP_ENABLED = False
 
 LOGGER     = Config.LOGGER
-CMD_SUFFIX = Config.CMD_SUFFIX
 router     = Router()
 
 # ═══════════════════════════════════════════════════════════════════════
@@ -121,9 +128,32 @@ BURST_CYAN, BURST_MAGENTA, BURST_WHITE = (0, 230, 255), (255, 30, 120), (255, 25
 ARCHIVE_AMBER, LORE_PURPLE, LORE_GREEN = (255, 191, 0), (148, 0, 211), (57, 255, 20)
 RADAR_CYAN, RADAR_ORANGE, PATCH_RED, PATCH_YELLOW = (0, 255, 255), (255, 140, 0), (220, 20, 60), (255, 255, 0)
 
-_prod_state: dict = {}
 for _d in [GAMEPLAY_DIR, TEMP_DIR, THUMB_DIR, "./audio"]: os.makedirs(_d, exist_ok=True)
 
+
+# ═══════════════════════════════════════════════════════════════════════
+#  UI & CLEANUP HELPERS
+# ═══════════════════════════════════════════════════════════════════════
+
+async def _clean_msgs(*msgs):
+    """Menghapus pesan untuk menjaga chat tetap rapi."""
+    for m in msgs:
+        if m:
+            try: await m.delete()
+            except Exception: pass
+
+def _make_reply_kb(options: list, row_width: int = 2) -> ReplyKeyboardMarkup:
+    """Membuat Reply Keyboard dengan mudah."""
+    kb = []
+    row = []
+    for opt in options:
+        row.append(KeyboardButton(text=opt))
+        if len(row) == row_width:
+            kb.append(row)
+            row = []
+    if row:
+        kb.append(row)
+    return ReplyKeyboardMarkup(keyboard=kb, resize_keyboard=True, one_time_keyboard=True)
 
 def get_dynamic_semaphore():
     """Smart RAM Adaptor: Menyesuaikan jumlah paralel otomatis berdasar sisa RAM"""
@@ -135,9 +165,11 @@ def get_dynamic_semaphore():
     except:
         return 2
 
+
 # ═══════════════════════════════════════════════════════════════════════
 #  AUTO-CLEANER TASK
 # ═══════════════════════════════════════════════════════════════════════
+
 async def auto_clean_temp_dir(temp_dir=TEMP_DIR, max_age_hours=24):
     while True:
         try:
@@ -154,9 +186,11 @@ async def auto_clean_temp_dir(temp_dir=TEMP_DIR, max_age_hours=24):
         except Exception as e: pass
         await asyncio.sleep(6 * 3600)
 
+
 # ═══════════════════════════════════════════════════════════════════════
-#  UI HELPERS & UTILS
+#  CORE UTILS & NOTIFIERS
 # ═══════════════════════════════════════════════════════════════════════
+
 async def _send_thumb_and_video(message, title, scenes, video_path, gameplay_path, segment_name, res_label, is_portrait, mode, status_msg):
     try:
         await _safe_edit(status_msg, _st("Menyiapkan Thumbnail..."))
@@ -183,15 +217,6 @@ def _is_vip(user_id: int) -> bool:
     if not expiry_str: return False
     try: return datetime.now(datetime.fromisoformat(str(expiry_str)).tzinfo) < datetime.fromisoformat(str(expiry_str))
     except: return False
-
-def _vip_expiry_text(user_id: int) -> str:
-    if user_id == Config.OWNER_ID or user_id in Config.SUDO_USERS: return "♾️ Unlimited"
-    expiry_str = get_data().get(user_id, {}).get("premium_expiry_date")
-    if not expiry_str: return "❌ Tidak aktif"
-    try:
-        expiry = datetime.fromisoformat(str(expiry_str)); now = datetime.now(expiry.tzinfo)
-        return "❌ Kadaluarsa" if now >= expiry else f"✅ Aktif {(expiry - now).days} hari"
-    except: return "❓ Unknown"
 
 def _dash(icon: str, title: str, rows: list) -> str: return f"{icon} **{title}**\n`{'─'*30}`\n" + "\n".join(f"  {lbl:<13}{val}" for lbl, val in rows) + f"\n`{'─'*30}`"
 def _st(step: str, detail: str = "") -> str: return f"⏳ {step}" + (f"\n`{detail}`" if detail else "")
@@ -265,9 +290,11 @@ async def _queue_and_run(process_status: ProcessStatus, worker_coro, status_msg:
                     working_task.remove(task); break
         gc.collect()
 
+
 # ═══════════════════════════════════════════════════════════════════════
 #  VIDEO REFRAME & SMART SLICING (ALL SYNC FUNCTIONS)
 # ═══════════════════════════════════════════════════════════════════════
+
 def normalize_clip(clip, w=TARGET_W, h=TARGET_H, fps=TARGET_FPS):
     if clip.fps != fps: clip = clip.with_fps(fps)
     src_r = clip.w/clip.h; tgt_r = w/h
@@ -340,9 +367,11 @@ def get_hook_clip(path: str, is_portrait: bool, est_dur: float):
     t0_hook = random.uniform(0, max_start)
     return raw.with_subclip(t0_hook, t0_hook + est_dur)
 
+
 # ═══════════════════════════════════════════════════════════════════════
 #  ULTRA-FAST MERGE (FFMPEG CONCAT DEMUXER)
 # ═══════════════════════════════════════════════════════════════════════
+
 def _merge_with_ffmpeg_ultrafast(video_paths: list, output_path: str, ffmpeg_params: list, apply_bgm: bool = True) -> float:
     if not video_paths: return 0.0
     
@@ -417,9 +446,11 @@ def merge_clips(video_paths: list, output_path: str, apply_bgm: bool = True) -> 
 def merge_short_clips(video_paths: list, output_path: str, apply_bgm: bool = True) -> float: 
     return _merge_with_ffmpeg_ultrafast(video_paths, output_path, FFMPEG_SHORT, apply_bgm)
 
+
 # ═══════════════════════════════════════════════════════════════════════
 #  PILLOW TEXT SYSTEM & EFEK VISUAL
 # ═══════════════════════════════════════════════════════════════════════
+
 def _font(size: int, bold: bool = True):
     try: return ImageFont.truetype(FONT_BOLD if bold else FONT_REG, size)
     except: return ImageFont.load_default()
@@ -590,9 +621,11 @@ def generate_thumbnail(game_title, score=None, gameplay_path=None, save_path=Non
         
     img.save(save_path, "PNG", optimize=True); return save_path
 
+
 # ═══════════════════════════════════════════════════════════════════════
 #  UNIVERSAL TEXT PARSER & THEME
 # ═══════════════════════════════════════════════════════════════════════
+
 def parse_studio_txt(path: str) -> dict:
     scenes, errors, main_title, yt_description, rating_score = [], [], None, "", None
     with open(path, "r", encoding="utf-8", errors="replace") as f:
@@ -633,9 +666,11 @@ def get_segment_theme(segment_name):
     if nu == "THE LATEST PATCH": return {"title_color": (255,255,255), "subtitle_color": PATCH_YELLOW, "sub_bar_color": (*PATCH_RED, 230), "font_bold": True}
     return {"title_color": CINEMA_CREAM, "subtitle_color": CINEMA_GOLD, "sub_bar_color": (*CINEMA_RED, 200), "font_bold": True}
 
+
 # ═══════════════════════════════════════════════════════════════════════
 #  UNIVERSAL RENDERER (STRICT CLEANUP)
 # ═══════════════════════════════════════════════════════════════════════
+
 async def render_studio_clip(scene_dict, segment_name, output_name, game_title, bg_clip=None, res_mode="16:9", subtitles_on=True, show_badge=True) -> str:
     temp = []; is_portrait = (res_mode == "9:16"); W, H = (SHORT_W, SHORT_H) if is_portrait else (TARGET_W, TARGET_H)
     ffmpeg_cfg = FFMPEG_SHORT if is_portrait else FFMPEG_PARAMS; theme = get_segment_theme(segment_name)
@@ -685,7 +720,6 @@ async def render_studio_clip(scene_dict, segment_name, output_name, game_title, 
             ap = output_name.replace(".mp4", ".mp3"); temp.append(ap)
             await edge_tts.Communicate(tts_text, current_voice, rate=rate_setting, pitch=pitch_setting, volume=volume_setting).save(ap) 
             if os.path.exists(ap) and os.path.getsize(ap) > 512:
-                # Membaca AudioFileClip sync, cepat, aman jika durasi file kecil
                 vo = AudioFileClip(ap); dur = max(vo.duration, 1.0)
         else: dur = 3.0; subtitles_on = False 
         
@@ -770,9 +804,11 @@ async def render_studio_clip(scene_dict, segment_name, output_name, game_title, 
         
     return output_name
 
+
 # ═══════════════════════════════════════════════════════════════════════
 #  WORKER STUDIO (INCREMENTAL CHUNKING + SMART RAM)
 # ═══════════════════════════════════════════════════════════════════════
+
 async def _worker_studio_production(process_status: ProcessStatus, message: Message, st: dict, gameplay_path: str, status_msg: Message) -> None:
     scenes, total, t0 = st["scenes"], len(st["scenes"]), time.time()
     for res_mode in [r for r in ["16:9", "9:16"] if st["resolution"] in [r, "both"]]:
@@ -867,100 +903,18 @@ async def _worker_studio_production(process_status: ProcessStatus, message: Mess
     except: pass
     elapsed = time.time() - t0
     await _safe_edit(status_msg, _ok(f"✅ Produksi Selesai!\n{st['segment_name']} - {st['title']}", f"Total Waktu: {int(elapsed//60)}m {int(elapsed%60)}s"))
-    txt_path = st.get("txt_path", ""); cleanup_temp([txt_path] if txt_path else []); _prod_state.pop(process_status.user_id, None); gc.collect()
+    txt_path = st.get("txt_path", "")
+    cleanup_temp([txt_path] if txt_path else [])
+
 
 # ═══════════════════════════════════════════════════════════════════════
-#  SMART DASHBOARD BUILDER & CALLBACKS
+#  MASTER COMMAND HANDLER (WIZARD UI)
 # ═══════════════════════════════════════════════════════════════════════
-def _build_studio_dashboard(user_id: int) -> tuple:
-    st = _prod_state.get(user_id, {})
-    title, segment_name, total_scenes = st.get("title", "Tanpa Judul"), st.get("segment_name", "PRODUCTION"), len(st.get("scenes", []))
-    res_mode, subs_on, yt_on, yt_priv = st.get("resolution", "16:9"), st.get("subtitles", True), st.get("yt_enabled", False), st.get("yt_privacy", "private")
-    dash = (f"🎬 **{segment_name.upper()}**: {title[:35]}\n{'─'*30}\n  📝 Scene     `{total_scenes} klip`\n  📐 Resolusi  `{'🖥 16:9' if res_mode == '16:9' else '📱 9:16' if res_mode == '9:16' else '🖥📱 Keduanya'}`\n  💬 Subtitle  `{'✅ ON' if subs_on else '❌ OFF'}`\n  📺 YouTube   `{'✅ Upload ('+yt_priv.capitalize()+')' if yt_on else '❌ Skip'}`\n  👑 VIP       {_vip_expiry_text(user_id)}\n{'─'*30}\n_Sesuaikan pengaturan sebelum menekan MULAI RENDER_")
-    buttons = [
-        [InlineKeyboardButton(text="✅ 16:9" if res_mode == "16:9" else "16:9", callback_data=f"prod_res_{user_id}_16:9"), InlineKeyboardButton(text="✅ 9:16" if res_mode == "9:16" else "9:16", callback_data=f"prod_res_{user_id}_9:16"), InlineKeyboardButton(text="✅ Keduanya" if res_mode == "both" else "Keduanya", callback_data=f"prod_res_{user_id}_both")],
-        [InlineKeyboardButton(text=f"💬 Subtitle: {'✅ ON' if subs_on else '❌ OFF'}", callback_data=f"prod_sub_{user_id}"), InlineKeyboardButton(text=f"📺 YouTube: {'ON' if yt_on else 'OFF'}", callback_data=f"prod_yt_{user_id}")]
-    ]
-    if yt_on: buttons.append([InlineKeyboardButton(text="✅ Public" if yt_priv == "public" else "Public", callback_data=f"prod_prv_{user_id}_public"), InlineKeyboardButton(text="✅ Unlisted" if yt_priv == "unlisted" else "Unlisted", callback_data=f"prod_prv_{user_id}_unlisted"), InlineKeyboardButton(text="✅ Private" if yt_priv == "private" else "Private", callback_data=f"prod_prv_{user_id}_private")])
-    buttons.append([InlineKeyboardButton(text="▶️ MULAI RENDER", callback_data=f"prod_go_{user_id}"), InlineKeyboardButton(text="❌ Batal", callback_data=f"prod_cancel_{user_id}")])
-    return dash, buttons
 
-def _check_prod_state(call: CallbackQuery, user_id): return (True, "") if call.fromuser.id == user_id and user_id in _prod_state else (False, "❌ Sesi tidak valid atau milik orang lain.")
-
-@router.callback_query(F.data.startswith("prod_res_"))
-async def cb_prod_res(call: CallbackQuery):
-    user_id = int(call.data.split("_")[2]); value = call.data.split("_")[3]
-    ok, msg = _check_prod_state(call, user_id)
-    if not ok: return await call.answer(msg, show_alert=True)
-    _prod_state[user_id]["resolution"] = value; dash, btns = _build_studio_dashboard(user_id)
-    await _safe_edit(call.message, dash, buttons=btns)
-
-@router.callback_query(F.data.startswith("prod_sub_"))
-async def cb_prod_sub(call: CallbackQuery):
-    user_id = int(call.data.split("_")[2])
-    ok, msg = _check_prod_state(call, user_id)
-    if not ok: return await call.answer(msg, show_alert=True)
-    _prod_state[user_id]["subtitles"] = not _prod_state[user_id]["subtitles"]; dash, btns = _build_studio_dashboard(user_id)
-    await _safe_edit(call.message, dash, buttons=btns)
-
-@router.callback_query(F.data.startswith("prod_yt_"))
-async def cb_prod_yt(call: CallbackQuery):
-    user_id = int(call.data.split("_")[2])
-    ok, msg = _check_prod_state(call, user_id)
-    if not ok: return await call.answer(msg, show_alert=True)
-    _prod_state[user_id]["yt_enabled"] = not _prod_state[user_id]["yt_enabled"]; dash, btns = _build_studio_dashboard(user_id)
-    await _safe_edit(call.message, dash, buttons=btns)
-
-@router.callback_query(F.data.startswith("prod_prv_"))
-async def cb_prod_prv(call: CallbackQuery):
-    user_id = int(call.data.split("_")[2]); value = call.data.split("_")[3]
-    ok, msg = _check_prod_state(call, user_id)
-    if not ok: return await call.answer(msg, show_alert=True)
-    _prod_state[user_id]["yt_privacy"] = value; dash, btns = _build_studio_dashboard(user_id)
-    await _safe_edit(call.message, dash, buttons=btns)
-
-@router.callback_query(F.data.startswith("prod_cancel_"))
-async def cb_prod_cancel(call: CallbackQuery):
-    user_id = int(call.data.split("_")[2])
-    ok, msg = _check_prod_state(call, user_id)
-    if not ok: return await call.answer(msg, show_alert=True)
-    txt_path = _prod_state[user_id].get("txt_path", ""); cleanup_temp([txt_path] if txt_path else []); _prod_state.pop(user_id, None)
-    await _safe_edit(call.message, "❌ **Proses dibatalkan.**")
-
-@router.callback_query(F.data.startswith("prod_go_"))
-async def cb_prod_go(call: CallbackQuery):
-    await call.answer("⏳ Menyiapkan Mesin Produksi...")
-    user_id = int(call.data.split("_")[2])
-    ok, msg = _check_prod_state(call, user_id)
-    if not ok: return await call.answer(msg, show_alert=True)
-    if not _is_vip(user_id): return await call.message.edit_text("❌ Akses VIP habis.")
-    
-    st = _prod_state[user_id]; gpr = st["gameplay_reply"]
-    if gpr:
-        gp_path = tmp(f"studio_gp_{int(time.time())}.mp4"); status_tmp = await call.message.answer("⏳ Mengunduh video gameplay...")
-        if not await download_with_progress(call.message, gpr, gp_path, label="gameplay", status_msg=status_tmp): 
-            return await _safe_edit(status_tmp, "❌ Gagal download gameplay")
-        try: await status_tmp.delete()
-        except: pass
-    else:
-        gp_path = await asyncio.to_thread(find_gameplay_for_game, st["title"])
-        if not gp_path: return await call.message.edit_text(f"❌ Gameplay untuk `{st['title']}` tidak ditemukan di server!\n/addgameplay.")
-        
-    sender_name = call.from_user.first_name or str(user_id)
-    ps = ProcessStatus(user_id, call.message.chat.id, call.from_user.username or "", sender_name, call.message, getattr(Names,"studio_prod","Studio"), "Telegram")
-    init_text = f"🎬 **Produksi Dimulai: {st['segment_name']}**\n`{st['title']}` · `{len(st['scenes'])} scene`\n**ID:** `{ps.process_id}`\n`/cancel{CMD_SUFFIX} process {ps.process_id}`"
-    
-    try: 
-        status_msg = await call.message.edit_text(init_text, reply_markup=InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="❌ Batalkan", callback_data=f"prod_cancel_{user_id}_{ps.process_id}")]]))
-    except: 
-        status_msg = await call.message.answer(init_text)
-        
-    asyncio.create_task(_queue_and_run(ps, _worker_studio_production(ps, call.message, st, gp_path, status_msg), status_msg, f"⏳ **Antrian Produksi**\n🎬 `{st['segment_name']} - {st['title']}`"))
-
-# ═══════════════════════════════════════════════════════════════════════
-#  MASTER COMMAND HANDLER
-# ═══════════════════════════════════════════════════════════════════════
-STUDIO_COMMANDS = {"verdict": "THE VERDICT", "toptier": "TOP TIER", "archives": "THE ARCHIVES", "lore": "LORE & CONSPIRACIES", "radar": "ON THE RADAR", "patch": "THE LATEST PATCH"}
+STUDIO_COMMANDS = {
+    "verdict": "THE VERDICT", "toptier": "TOP TIER", "archives": "THE ARCHIVES", 
+    "lore": "LORE & CONSPIRACIES", "radar": "ON THE RADAR", "patch": "THE LATEST PATCH"
+}
 
 @router.message(Command(
     f"verdict{CMD_SUFFIX}", f"toptier{CMD_SUFFIX}", f"archives{CMD_SUFFIX}", 
@@ -968,11 +922,10 @@ STUDIO_COMMANDS = {"verdict": "THE VERDICT", "toptier": "TOP TIER", "archives": 
 ))
 async def master_studio_handler(message: Message) -> None:
     user_id = message.from_user.id
+    chat_id = message.chat.id
     if not _is_vip(user_id): return await message.reply("👑 **Fitur VIP** — Program Studio Khoirul hanya untuk member premium.")
     
-    # [FIX HIGH] Mengambil nama perintah dengan aman agar tidak crash
     raw_command = message.text.split()[0].replace("/", "")
-    # Menghilangkan suffix dari akhir perintah
     if CMD_SUFFIX and raw_command.endswith(CMD_SUFFIX):
         command_used = raw_command[:-len(CMD_SUFFIX)].lower()
     else:
@@ -997,12 +950,119 @@ async def master_studio_handler(message: Message) -> None:
     except ValueError as e: cleanup_temp([txt_path]); return await message.reply(f"❌ **Error Format TXT:**\n{str(e)}")
     
     await ensure_user_data_structure(user_id)
-    _prod_state[user_id] = {"segment_name": segment_name, "title": data["title"], "description": data["description"], "score": data["score"], "scenes": data["scenes"], "txt_path": txt_path, "gameplay_reply": gameplay_reply, "resolution": "16:9", "subtitles": True, "yt_enabled": False, "yt_privacy": "private"}
-    dash, buttons = _build_studio_dashboard(user_id); await message.reply(dash, reply_markup=InlineKeyboardMarkup(inline_keyboard=buttons))
+    
+    # --- WIZARD START ---
+    # Resolusi
+    kb_res = _make_reply_kb(["🖥 16:9", "📱 9:16", "🖥📱 Keduanya", "❌ Batal"], 3)
+    msg_res = await message.reply("📐 **Pilih Resolusi Video:**", reply_markup=kb_res)
+    resp_res = await wait_for_message(chat_id, user_id, 60)
+    await _clean_msgs(msg_res, resp_res)
+    if not resp_res or "batal" in (resp_res.text or "").lower():
+        cleanup_temp([txt_path])
+        return await message.answer("❌ Dibatalkan.", reply_markup=ReplyKeyboardRemove())
+    
+    res_txt = (resp_res.text or "").lower()
+    res_mode = "both" if "keduanya" in res_txt else "9:16" if "9:16" in res_txt else "16:9"
+    
+    # Subtitle
+    kb_sub = _make_reply_kb(["✅ ON", "❌ OFF", "❌ Batal"], 3)
+    msg_sub = await message.reply("💬 **Gunakan Subtitle Bergerak?**", reply_markup=kb_sub)
+    resp_sub = await wait_for_message(chat_id, user_id, 60)
+    await _clean_msgs(msg_sub, resp_sub)
+    if not resp_sub or "batal" in (resp_sub.text or "").lower():
+        cleanup_temp([txt_path])
+        return await message.answer("❌ Dibatalkan.", reply_markup=ReplyKeyboardRemove())
+        
+    subs_on = True if "on" in (resp_sub.text or "").lower() else False
+    
+    # YouTube
+    kb_yt = _make_reply_kb(["❌ Skip", "🌍 Public", "🔗 Unlisted", "🔒 Private", "❌ Batal"], 3)
+    msg_yt = await message.reply("📺 **Upload ke YouTube Otomatis?**", reply_markup=kb_yt)
+    resp_yt = await wait_for_message(chat_id, user_id, 60)
+    await _clean_msgs(msg_yt, resp_yt)
+    if not resp_yt or "batal" in (resp_yt.text or "").lower():
+        cleanup_temp([txt_path])
+        return await message.answer("❌ Dibatalkan.", reply_markup=ReplyKeyboardRemove())
+        
+    yt_txt = (resp_yt.text or "").lower()
+    yt_enabled = "skip" not in yt_txt
+    yt_privacy = "public" if "public" in yt_txt else "unlisted" if "unlisted" in yt_txt else "private"
+    
+    # Confirmation
+    st = {
+        "segment_name": segment_name, "title": data["title"], "description": data["description"], 
+        "score": data["score"], "scenes": data["scenes"], "txt_path": txt_path, 
+        "gameplay_reply": gameplay_reply, "resolution": res_mode, "subtitles": subs_on, 
+        "yt_enabled": yt_enabled, "yt_privacy": yt_privacy
+    }
+    
+    res_label = '🖥 16:9' if res_mode == '16:9' else '📱 9:16' if res_mode == '9:16' else '🖥📱 Keduanya'
+    yt_label = f'✅ Upload ({yt_privacy.capitalize()})' if yt_enabled else '❌ Skip'
+    
+    conf_txt = (
+        f"🎬 **KONFIRMASI PRODUKSI**\n\n"
+        f"🏷️ **Segmen:** `{segment_name}`\n"
+        f"📝 **Judul:** `{st['title'][:35]}...`\n"
+        f"🎬 **Total Scene:** `{len(st['scenes'])} klip`\n"
+        f"📐 **Resolusi:** `{res_label}`\n"
+        f"💬 **Subtitle:** `{'✅ ON' if subs_on else '❌ OFF'}`\n"
+        f"📺 **YouTube:** `{yt_label}`\n\n"
+        "Mulai Render?"
+    )
+    kb_conf = _make_reply_kb(["✅ Render", "❌ Batal"], 2)
+    msg_conf = await message.reply(conf_txt, reply_markup=kb_conf)
+    resp_conf = await wait_for_message(chat_id, user_id, 60)
+    await _clean_msgs(msg_conf, resp_conf)
+    
+    if not resp_conf or "batal" in (resp_conf.text or "").lower():
+        cleanup_temp([txt_path])
+        return await message.answer("❌ Dibatalkan.", reply_markup=ReplyKeyboardRemove())
+        
+    await message.answer("✅ Menyiapkan Mesin Produksi...", reply_markup=ReplyKeyboardRemove())
+    
+    # Initialize Process Status
+    sender_name = message.from_user.first_name or str(user_id)
+    ps = ProcessStatus(user_id, chat_id, message.from_user.username or "", sender_name, message, getattr(Names,"studio_prod","Studio"), "Telegram")
+    
+    # Download Gameplay if replied
+    if gameplay_reply:
+        gp_path = tmp(f"studio_gp_{int(time.time())}.mp4")
+        status_tmp = await message.answer("⏳ Mengunduh video gameplay...")
+        if not await download_with_progress(message, gameplay_reply, gp_path, label="gameplay", status_msg=status_tmp): 
+            cleanup_temp([txt_path])
+            return await _safe_edit(status_tmp, "❌ Gagal download gameplay")
+        await _clean_msgs(status_tmp)
+    else:
+        gp_path = await asyncio.to_thread(find_gameplay_for_game, st["title"])
+        if not gp_path: 
+            cleanup_temp([txt_path])
+            return await message.answer(f"❌ Gameplay untuk `{st['title']}` tidak ditemukan di server!\nGunakan `/addgameplay{CMD_SUFFIX}`.")
+            
+    init_text = f"🎬 **Produksi Dimulai: {st['segment_name']}**\n`{st['title']}` · `{len(st['scenes'])} scene`\n**ID:** `{ps.process_id}`\n`/cancel{CMD_SUFFIX} process {ps.process_id}`"
+    
+    kb_action = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="❌ Batalkan", callback_data=f"prod_cancel_{user_id}_{ps.process_id}")]])
+    status_msg = await message.answer(init_text, reply_markup=kb_action)
+    
+    asyncio.create_task(_queue_and_run(ps, _worker_studio_production(ps, message, st, gp_path, status_msg), status_msg, f"⏳ **Antrian Produksi**\n🎬 `{st['segment_name']} - {st['title']}`"))
+
+
+@router.callback_query(F.data.startswith("prod_cancel_"))
+async def cb_prod_cancel(call: CallbackQuery):
+    await call.answer("🚫 Membatalkan...", show_alert=False)
+    parts = call.data.split("_")
+    user_id = int(parts[2])
+    if call.from_user.id != user_id: return await call.answer("❌ Ini bukan milikmu!", show_alert=True)
+    
+    if len(parts) >= 4:
+        process_id = parts[3]
+        await remove_running_process(process_id)
+        await _safe_edit(call.message, "🚫 **Proses Produksi Dibatalkan.**")
+
 
 # ═══════════════════════════════════════════════════════════════════════
 #  HANDLERS LAINNYA & ADDSFX
 # ═══════════════════════════════════════════════════════════════════════
+
 @router.message(Command(f"addsfx{CMD_SUFFIX}"))
 async def addsfx_handler(message: Message, command: CommandObject) -> None:
     if not _is_vip(message.from_user.id): return
@@ -1090,6 +1150,7 @@ async def delete_gameplay_handler(message: Message, command: CommandObject) -> N
     if os.path.exists(path): os.remove(path); await message.reply(_ok(f"Dihapus: {name}"))
     else: await message.reply(_er(f"File `{name}` tidak ditemukan.\nCek: `/listgameplay{CMD_SUFFIX}`"))
 
+
 @router.message(Command(f"help{CMD_SUFFIX}"))
 async def help_handler(message: Message) -> None:
     btns = InlineKeyboardMarkup(inline_keyboard=[
@@ -1127,7 +1188,7 @@ async def _send_settings(message: Message) -> None:
         [InlineKeyboardButton(text="🎮 Gameplay", callback_data="set_gameplay"), InlineKeyboardButton(text="📺 YouTube", callback_data="set_yt")], 
         [InlineKeyboardButton(text="📖 Help", callback_data="help_tools")]
     ])
-    await message.answer(_dash("⚙️","Studio Khoirul — Konfigurasi",[("","─── Resolusi ───"),("Landscape", f"{TARGET_W}×{TARGET_H} · {TARGET_FPS}fps"),("Portrait",  f"{SHORT_W}×{SHORT_H} · {TARGET_FPS}fps"),("","─── Encode ───"),("Bitrate",  f"{BITRATE} video · {AUDIO_BR} audio"),("Preset",   PRESET),("TTS Voice",VOICE),("","─── Status ───"),("Gameplay",  f"{len(list_gameplay_videos())} video"),("YouTube", "✅ Aktif" if YOUTUBE_ENABLED else "❌ Nonaktif"),("yt-dlp", "✅ Aktif" if YTDLP_ENABLED else "❌ Nonaktif")]), reply_markup=btns)
+    await message.answer(_dash("⚙️","Studio Khoirul — Konfigurasi",[("","─── Resolusi ───"),("Landscape", f"{TARGET_W}×{TARGET_H} · {TARGET_FPS}fps"),("Portrait",  f"{SHORT_W}×{SHORT_H} · {TARGET_FPS}fps"),("","─── Encode ───"),("Bitrate",  f"{BITRATE} video · {AUDIO_BR} audio"),("Preset",  PRESET),("TTS Voice",VOICE),("","─── Status ───"),("Gameplay",  f"{len(list_gameplay_videos())} video"),("YouTube", "✅ Aktif" if YOUTUBE_ENABLED else "❌ Nonaktif"),("yt-dlp", "✅ Aktif" if YTDLP_ENABLED else "❌ Nonaktif")]), reply_markup=btns)
 
 @router.callback_query(F.data == "set_gameplay")
 async def set_gameplay_cb(call: CallbackQuery) -> None:
