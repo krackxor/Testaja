@@ -10,8 +10,7 @@
 ║  [FIX]      Setup Bot Commands dipindah dari Telethon ke Aiogram     ║
 ║  [FIX]      Inisialisasi semua client (Telethon & Pyrogram) async    ║
 ║  [FIX]      Jalur import shared.py disesuaikan ke folder bot/        ║
-║  [IMPROVE]  Penanganan error restart message lebih aman (split string)║
-║  [IMPROVE]  Parsing commands.txt pakai split("-", 1)                 ║
+║  [IMPROVE]  Auto-Loader Router untuk menghindari Unhandled Updates   ║
 ╚══════════════════════════════════════════════════════════════════════╝
 """
 
@@ -29,12 +28,7 @@ from aiogram import BaseMiddleware
 from config.config import Config
 from bot_helper.Aria2.Aria2_Engine import start_listener
 from bot_helper.Telegram.Telegram_Client import Telegram
-
-# [FIX] Import shared.py dari folder bot/ sesuai struktur file Anda
 from bot.shared import resolve_waiter
-
-# [FIX] Import router dari media_handlers di folder bot/
-from bot.media_handlers import router as media_router
 
 # Coba pasang uvloop untuk akselerasi (jika di Linux/VPS)
 try:
@@ -51,6 +45,23 @@ LOGGER = Config.LOGGER
 ###############------Load_Plugins------###############
 # Baris ini memuat handler Telethon lama dari bot/start.py
 import bot.start
+
+# Import semua modul bot untuk pengecekan Router Aiogram
+import bot.admin_handlers
+import bot.vip_handlers
+import bot.media_handlers
+import bot.advanced_media_handlers
+import bot.callbacks
+import bot.Gameplay
+import bot.AutoClip
+import bot.MovieRecap
+import bot.YTUpload
+
+# Import task background
+try:
+    from bot.Gameplay import auto_clean_temp_dir
+except ImportError:
+    auto_clean_temp_dir = None
 
 # ═══════════════════════════════════════════════════════════════════════
 #  GLOBAL MESSAGE CATCHER (UNTUK INLINE WAITER)
@@ -124,9 +135,26 @@ async def start_user_account():
 async def main():
     LOGGER.info("⚡ Starting Trinity Clients (Aiogram + Telethon + Pyrogram) ⚡")
 
-    # Mendaftarkan Middleware dan Router ke Dispatcher Utama
+    # Mendaftarkan Middleware Global
     Telegram.AIOGRAM_DP.message.outer_middleware(WaiterCatcherMiddleware())
-    Telegram.AIOGRAM_DP.include_router(media_router)
+
+    # ─── AUTO-LOADER ROUTERS ───
+    # Memasukkan semua Router Aiogram yang terdeteksi agar tidak ada 'Unhandled Update'
+    modules_to_include = [
+        bot.admin_handlers, bot.vip_handlers, bot.media_handlers,
+        bot.advanced_media_handlers, bot.callbacks, bot.Gameplay,
+        bot.AutoClip, bot.MovieRecap, bot.YTUpload
+    ]
+    
+    loaded_routers = 0
+    for mod in modules_to_include:
+        if hasattr(mod, 'router'):
+            Telegram.AIOGRAM_DP.include_router(mod.router)
+            loaded_routers += 1
+            LOGGER.info(f"✅ Router Attached: {mod.__name__}")
+    
+    LOGGER.info(f"🔗 Total {loaded_routers} Aiogram Routers Successfully Linked!")
+    # ────────────────────────────
 
     # 1. Start Telethon Bot
     LOGGER.info("🔶 Starting Telethon Bot")
@@ -161,9 +189,14 @@ async def main():
     if exists("commands.txt") and Config.AUTO_SET_BOT_CMDS:
         await set_bot_commands("commands.txt")
 
+    # 7. Start Auto-Cleaner Background Task
+    if auto_clean_temp_dir:
+        LOGGER.info("🧹 Starting Auto-Cleaner Background Task...")
+        asyncio.create_task(auto_clean_temp_dir("./temp/", max_age_hours=24))
+
     LOGGER.info("⚡ Bot Upgraded to Trinity Architecture (v3.1) ⚡")
 
-    # 7. Start Aiogram Polling
+    # 8. Start Aiogram Polling
     LOGGER.info("🔶 Starting Aiogram Polling...")
     await Telegram.AIOGRAM_DP.start_polling(Telegram.AIOGRAM_BOT, drop_pending_updates=True)
 
