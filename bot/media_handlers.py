@@ -10,6 +10,7 @@
 ║  [FIX] `event.message.file` → `message.document` atau `message.video`║
 ║  [FIX] `download_media()` → `Telegram.AIOGRAM_BOT.download()`        ║
 ║  [FIX] Mengambil teks dengan `message.text` bukan `message.message`  ║
+║  [FIX] Menutup celah Markdown Parser Crash pada variabel dinamis     ║
 ╚══════════════════════════════════════════════════════════════════════╝
 """
 
@@ -565,7 +566,7 @@ async def _change_metadata(message: Message):
                 f"-metadata:s:{sindex}", f"title={mtitle}",
             ])
         except (IndexError, Exception) as e:
-            await safe_reply(me, f"❗ Metadata Tidak Valid: {e}")
+            await safe_reply(me, f"❗ Metadata Tidak Valid: `{e}`")
             return
 
     ps = ProcessStatus(user_id, chat_id, get_username(message),
@@ -626,7 +627,7 @@ async def _change_index(message: Message):
                 custom_index += ["-map", f"0:{stream}:{si}"]
             custom_index += [f"-disposition:{stream}:0", "default"]
         except (ValueError, IndexError, Exception) as e:
-            await safe_reply(ie, f"❗ Indeks Tidak Valid: {e}")
+            await safe_reply(ie, f"❗ Indeks Tidak Valid: `{e}`")
             return
 
     ps = ProcessStatus(user_id, chat_id, get_username(message),
