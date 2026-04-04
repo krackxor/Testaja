@@ -1,21 +1,21 @@
 """
 ╔══════════════════════════════════════════════════════════════════════╗
-║           bot_helper/Process/Running_Tasks.py                        ║
-║           Encoder1 Bot — v3.1                                        ║
+║            bot_helper/Process/Running_Tasks.py                       ║
+║            Encoder1 Bot — v3.1                                       ║
 ╠══════════════════════════════════════════════════════════════════════╣
 ║  CHANGELOG dari versi lama:                                          ║
-║  [FIX HIGH]  pkill ffmpeg global → kill PID spesifik               ║
-║  [FIX HIGH]  get_data()[user_id] → .get() semua tempat             ║
-║  [FIX HIGH]  analyze_ffmpeg_error tuple → dict (Step 8 API)        ║
-║  [FIX HIGH]  refresh_tasks return di dalam while → logic benar     ║
-║  [FIX]       Iterasi working_task tanpa lock → list() snapshot     ║
-║  [FIX]       queued_task list → deque (O(1) popleft)               ║
-║  [FIX]       create_log_file sync → pathlib.touch()                ║
-║  [FIX]       handle_extract gather → Semaphore(3)                  ║
-║  [FIX]       bare except rmtree → (OSError, FileNotFoundError)     ║
-║  [FIX]       handle_autocrop stdout deadlock → DEVNULL             ║
-║  [IMPROVE]   process_status_checker log → LOGGER.debug             ║
-║  [IMPROVE]   upload_files cache user_data sekali                   ║
+║  [FIX HIGH]  pkill ffmpeg global → kill PID spesifik                 ║
+║  [FIX HIGH]  get_data()[user_id] → .get() semua tempat               ║
+║  [FIX HIGH]  analyze_ffmpeg_error tuple → dict (Step 8 API)          ║
+║  [FIX HIGH]  refresh_tasks return di dalam while → logic benar       ║
+║  [FIX]       Iterasi working_task tanpa lock → list() snapshot       ║
+║  [FIX]       queued_task list → deque (O(1) popleft)                 ║
+║  [FIX]       create_log_file sync → pathlib.touch()                  ║
+║  [FIX]       handle_extract gather → Semaphore(3)                    ║
+║  [FIX]       bare except rmtree → (OSError, FileNotFoundError)       ║
+║  [FIX]       handle_autocrop stdout deadlock → DEVNULL               ║
+║  [IMPROVE]   process_status_checker log → LOGGER.debug               ║
+║  [IMPROVE]   upload_files cache user_data sekali                     ║
 ╚══════════════════════════════════════════════════════════════════════╝
 """
 
