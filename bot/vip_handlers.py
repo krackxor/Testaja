@@ -1,6 +1,6 @@
 """
 ╔══════════════════════════════════════════════════════════════════════╗
-║    bot/vip_handlers.py                                               ║
+║    bot_helper/Handlers/vip_handlers.py — v3.2                        ║
 ║    VIP Management & Trakteer Payment Verification (Aiogram)          ║
 ╠══════════════════════════════════════════════════════════════════════╣
 ║  Commands: /verify /myvip /add_vip /delete_vip /view_vip             ║
@@ -9,12 +9,9 @@
 ║  [UX PREMIUM] Menerapkan Auto-Delete agar chat tetap bersih.         ║
 ║  [UX PREMIUM] Menerapkan Reply Keyboard "❌ Batal" yang konsisten.   ║
 ║  [UX PREMIUM] Penataan pesan info dengan Box Konfirmasi yang rapi.   ║
+║  [FIX HIGH] Menambahkan import 'exists' yang hilang.                 ║
 ║  [FIX HIGH] Implementasi CMD_SUFFIX pada semua Command filter        ║
 ║  [NEW] Migrasi total ke Aiogram Router & Message objects             ║
-║  [FIX] event.reply_to_msg_id diubah ke message.reply_to_message      ║
-║  [FIX] event.edit() diubah menjadi message.edit_text()               ║
-║  [FIX] Pengiriman dokumen lokal dengan FSInputFile                   ║
-║  [FIX] Menutup celah Markdown crash pada pesan error & API response  ║
 ╚══════════════════════════════════════════════════════════════════════╝
 """
 
@@ -22,6 +19,7 @@
 import asyncio
 from datetime import datetime, timedelta
 from os import remove
+from os.path import exists
 
 # ── Third Party ───────────────────────────────────────────────────────
 import requests
