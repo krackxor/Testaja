@@ -1,11 +1,12 @@
 """
 FSM Video Production Flow untuk STUDIO KHOIRUL
-Berkas ini murni menangani alur step-by-step Text-to-Video tanpa mengganggu fitur lama.
+Berkas ini menangani alur step-by-step Text-to-Video.
+Dilengkapi dengan Dummy AI Engine yang siap diganti dengan API sungguhan nanti.
 """
 
 import asyncio
 from aiogram import Router, F
-from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton, CallbackQuery, Message
+from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton, CallbackQuery, Message, URLInputFile
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.exceptions import TelegramBadRequest
@@ -42,11 +43,49 @@ def get_confirm_kb() -> InlineKeyboardMarkup:
     ])
 
 # ==========================================
-# 3. STEP 1: INPUT PROMPT
+# 3. DUMMY AI ENGINE (TEMPAT API NANTI)
+# ==========================================
+async def dummy_ai_video_engine(prompt: str, voice: str, style: str, callback: CallbackQuery):
+    """
+    FUNGSI PLACEHOLDER (MOCK-UP)
+    Di sinilah nanti kita menaruh script koneksi ke API AI aslinya (misal OpenAI/Runway).
+    Untuk sekarang, fungsi ini akan pura-pura memproses dan mengirimkan video MP4 sampel.
+    """
+    
+    # Animasi Loading (Fake Progress Bar)
+    frames = [
+        ("10%", f"Menganalisis prompt: '{prompt[:15]}...'...", "██░░░░░░░░░░░░░░░░░░"),
+        ("45%", f"Mensintesis suara ({voice})...", "█████████░░░░░░░░░░░"),
+        ("80%", f"Menerapkan filter visual ({style})...", "████████████████░░░░"),
+        ("100%", "Finalisasi metadata & rendering...", "████████████████████")
+    ]
+    
+    for pct, action, bar in frames:
+        text = f"""<blockquote>🚀 <b>RENDERING IN PROGRESS...</b>
+━━━━━━━━━━━━━━━━━━━━━━
+<code>[{bar}] {pct}</code>
+
+🔄 <i>{action}</i>
+━━━━━━━━━━━━━━━━━━━━━━</blockquote>"""
+        await callback.message.edit_text(text, parse_mode="HTML")
+        await asyncio.sleep(2) # Simulasi waktu tunggu server API (2 detik per frame)
+
+    # NANTI: URL/File ini diganti dengan hasil download dari API AI kamu
+    dummy_video_url = "https://www.w3schools.com/html/mov_bbb.mp4" 
+    video_file = URLInputFile(dummy_video_url, filename="Studio_Khoirul_Draft.mp4")
+
+    # Kirim Video Hasil
+    await callback.message.answer_video(
+        video=video_file,
+        caption=f"🎬 <b>Render Selesai!</b>\nPrompt: <i>{prompt}</i>\nStyle: <code>{style}</code>",
+        parse_mode="HTML"
+    )
+
+# ==========================================
+# 4. STEP 1: INPUT PROMPT
 # ==========================================
 @flow_router.callback_query(F.data == "prod_t2v")
 async def step1_ask_prompt(callback: CallbackQuery, state: FSMContext):
-    """Merespons saat tombol 'Text to Video' di Dashboard ditekan"""
     text = """<blockquote>📝 <b>TEXT TO VIDEO</b> | <i>Step 1 of 3</i>
 ━━━━━━━━━━━━━━━━━━━━━━
 Please <b>reply</b> to this message with your video script or prompt.
@@ -55,27 +94,21 @@ Please <b>reply</b> to this message with your video script or prompt.
     
     kb = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="❌ Cancel", callback_data="action_cancel")]])
     await callback.message.edit_text(text, reply_markup=kb, parse_mode="HTML")
-    
-    # Aktifkan FSM State
     await state.set_state(VideoProductionState.waiting_for_prompt)
     await callback.answer()
 
 # ==========================================
-# 4. STEP 2: CUSTOMIZE
+# 5. STEP 2: CUSTOMIZE
 # ==========================================
 @flow_router.message(VideoProductionState.waiting_for_prompt, F.text)
 async def step2_customize(message: Message, state: FSMContext):
-    """Menangkap balasan teks dari pengguna"""
     prompt = message.text
-    
-    # Simpan data ke memori sementara (FSM)
     await state.update_data(prompt=prompt, voice="EN-Male 1", style="Cinematic", bgm="Synthwave")
     
-    # [Premium Feel] Hapus pesan ketikan user agar chat tetap bersih
     try:
         await message.delete()
     except TelegramBadRequest:
-        pass # Abaikan jika tidak punya izin hapus
+        pass 
 
     prompt_display = prompt[:60] + "..." if len(prompt) > 60 else prompt
     text = f"""<blockquote>🎛 <b>CUSTOMIZE ASSETS</b> | <i>Step 2 of 3</i>
@@ -85,14 +118,11 @@ async def step2_customize(message: Message, state: FSMContext):
 Select your preferred AI Voice and Visual Style below:</blockquote>"""
 
     kb = get_customize_kb("EN-Male 1", "Cinematic", "Synthwave")
-    bot_msg = await message.answer(text, reply_markup=kb, parse_mode="HTML")
-    
-    # Simpan ID pesan bot untuk di-edit nanti
-    await state.update_data(last_bot_msg_id=bot_msg.message_id)
+    await message.answer(text, reply_markup=kb, parse_mode="HTML")
     await state.set_state(VideoProductionState.customizing)
 
 # ==========================================
-# 5. STEP 3: PRE-FLIGHT CHECK
+# 6. STEP 3: PRE-FLIGHT CHECK
 # ==========================================
 @flow_router.callback_query(VideoProductionState.customizing, F.data == "flow_continue")
 async def step3_confirm(callback: CallbackQuery, state: FSMContext):
@@ -115,37 +145,27 @@ Everything is set. Review your parameters:
     await callback.answer()
 
 # ==========================================
-# 6. STEP 4: PROCESSING & FINAL OUTPUT
+# 7. STEP 4: PROCESSING & FINAL OUTPUT
 # ==========================================
 @flow_router.callback_query(VideoProductionState.confirming, F.data == "flow_start")
 async def process_generation(callback: CallbackQuery, state: FSMContext):
-    # Hapus State karena proses sudah dikonfirmasi
+    # Ambil data dari memori sebelum dihapus
+    data = await state.get_data()
+    prompt = data.get("prompt", "Empty Prompt")
+    voice = data.get("voice", "Default Voice")
+    style = data.get("style", "Default Style")
+    
+    # Hapus State agar user bisa melakukan task lain
     await state.clear()
     
-    # Animasi Loading (Fake Progress Bar)
-    frames = [
-        ("10%", "Synthesizing AI voiceover...", "██░░░░░░░░░░░░░░░░░░"),
-        ("45%", "Applying cinematic color grading...", "█████████░░░░░░░░░░░"),
-        ("80%", "Rendering 4K output...", "████████████████░░░░"),
-        ("100%", "Finalizing metadata...", "████████████████████")
-    ]
-    
-    for pct, action, bar in frames:
-        text = f"""<blockquote>🚀 <b>RENDERING IN PROGRESS...</b>
-━━━━━━━━━━━━━━━━━━━━━━
-<code>[{bar}] {pct}</code>
+    # 1. Panggil Dummy AI Engine
+    await dummy_ai_video_engine(prompt, voice, style, callback)
 
-🔄 <i>{action}</i>
-━━━━━━━━━━━━━━━━━━━━━━</blockquote>"""
-        await callback.message.edit_text(text, parse_mode="HTML")
-        await asyncio.sleep(1.5) # Jeda simulasi (Nanti bisa diganti dengan FFmpeg aslimu)
-
-    # Hasil Akhir
+    # 2. Tampilkan Menu Akhir Setelah Video Dikirim
     final_text = """<blockquote>✅ <b>𝐑𝐄𝐍𝐃𝐄𝐑 𝐂𝐎𝐌𝐏𝐋𝐄𝐓𝐄𝐃</b>
 ━━━━━━━━━━━━━━━━━━━━━━
-🎬 <b>File:</b> <code>Cyberpunk_Scene_001.mp4</code>
-⏱️ <b>Duration:</b> <code>00:00:30</code>
-💽 <b>Size:</b> <code>14.2 MB</code>
+Sistem telah berhasil menyelesaikan tugas Anda.
+File video telah dikirim ke obrolan ini.
 ━━━━━━━━━━━━━━━━━━━━━━
 <i>What would you like to do next?</i></blockquote>"""
 
@@ -157,18 +177,15 @@ async def process_generation(callback: CallbackQuery, state: FSMContext):
     ])
     
     await callback.message.edit_text(final_text, reply_markup=kb, parse_mode="HTML")
-    # INFO: Di sini kamu nanti bisa memanggil `await callback.message.answer_video(...)` 
-    # untuk mengirim video aslinya.
 
 # ==========================================
-# 7. GLOBAL CANCEL ENHANCEMENT
+# 8. GLOBAL CANCEL ENHANCEMENT
 # ==========================================
 @flow_router.callback_query(F.data == "action_cancel")
 async def global_cancel(callback: CallbackQuery, state: FSMContext):
-    """Membatalkan seluruh proses dan menghapus State aktif"""
     current_state = await state.get_state()
     if current_state is not None:
-        await state.clear() # Bersihkan memori FSM
+        await state.clear()
         
     try:
         await callback.message.delete()
