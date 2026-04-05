@@ -1,7 +1,7 @@
 """
 UI Dashboard Template for STUDIO KHOIRUL (Aiogram 3.x)
-Versi: PREMIUM AESTHETIC v2.0 (Modern Gaming Theme)
-Fix: Enhanced Visual Hierarchy, Sophisticated Styling, One-Click Execution
+Versi: PREMIUM AESTHETIC v3.0 (Fully Backend-Integrated + Full Instructions)
+Fix: Direct Handler Routing, No FSM Conflicts, One-Click Application Mode
 """
 
 import asyncio
@@ -34,21 +34,6 @@ def get_status_bar(current: int, max_val: int, width: int = 12) -> str:
     filled = int((current / max_val) * width)
     empty = width - filled
     return f"[{'▓' * filled}{'░' * empty}]"
-
-# [CRITICAL] Variable untuk di-import oleh flow_edit.py
-VIDEO_EDIT_TEXT = """
-<blockquote>
-<b>✂️  V I D E O  E D I T I N G  S U I T E</b>
-{border}
-📎 <i>Kirim atau teruskan video ke obrolan ini</i>
-   Sistem akan mendeteksi file secara otomatis
-
-<code>✓ Support: MP4, MKV, AVI, MOV, WebM</code>
-<code>✓ Size: hingga 2GB per file</code>
-{border}
-<i>Pilih alat editing dari panel di bawah 👇</i>
-</blockquote>
-""".format(border=BORDER_PREMIUM)
 
 # ==========================================
 # 2. DASHBOARD TEXTS (Enhanced)
@@ -142,7 +127,7 @@ def get_main_menu_kb(is_admin: bool = False) -> InlineKeyboardMarkup:
          InlineKeyboardButton(text="📥 Cloud & Download", callback_data="menu_downloader")],
         
         # Settings & VIP
-        [InlineKeyboardButton(text="⚙️ Pengaturan", callback_data="menu_settings"),
+        [InlineKeyboardButton(text="⚙️ Pengaturan", callback_data="settings"), # Diarahkan langsung ke sistem callbacks.py
          InlineKeyboardButton(text="👑 VIP Membership", callback_data="menu_vip")],
     ]
     
@@ -230,16 +215,6 @@ def get_downloader_kb() -> InlineKeyboardMarkup:
         [InlineKeyboardButton(text="↩️ Kembali", callback_data="menu_main")]
     ])
 
-def get_settings_kb() -> InlineKeyboardMarkup:
-    return InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="👤 User Profile", callback_data="profile_main")],
-        [InlineKeyboardButton(text="🎬 Media Settings", callback_data="settings_media")],
-        [InlineKeyboardButton(text="🤖 Bot Configuration", callback_data="settings_bot")],
-        [InlineKeyboardButton(text="©️ Set Watermark", callback_data="cmd_savewatermark"),
-         InlineKeyboardButton(text="🖼️ Set Thumbnail", callback_data="cmd_savethumb")],
-        [InlineKeyboardButton(text="↩️ Kembali", callback_data="menu_main")]
-    ])
-
 def get_vip_kb() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="👑 Check VIP Status", callback_data="cmd_myvip")],
@@ -268,6 +243,10 @@ def get_admin_kb() -> InlineKeyboardMarkup:
         # System Control
         [InlineKeyboardButton(text="👮 Check Sudoers", callback_data="cmd_checksudo"),
          InlineKeyboardButton(text="🔄 Restart Bot", callback_data="cmd_restart")],
+         
+        # Settings Quick Links
+        [InlineKeyboardButton(text="©️ Set Watermark Default", callback_data="cmd_savewatermark"),
+         InlineKeyboardButton(text="🖼️ Set Thumb Default", callback_data="cmd_savethumb")],
         
         # Navigation
         [InlineKeyboardButton(text="↩️ Back to Menu", callback_data="menu_main")]
@@ -329,16 +308,6 @@ async def nav_downloader(callback: CallbackQuery):
     await safe_edit_message(callback.message, text, get_downloader_kb())
     await callback.answer()
 
-@ui_router.callback_query(F.data == "menu_settings")
-async def nav_settings(callback: CallbackQuery):
-    text = create_category_header(
-        "⚙️", "PENGATURAN AKUN",
-        "Sesuaikan profil, kualitas, & file default\n⚡ Customize pengalaman Anda",
-        "🎛️"
-    )
-    await safe_edit_message(callback.message, text, get_settings_kb())
-    await callback.answer()
-
 @ui_router.callback_query(F.data == "menu_vip")
 async def nav_vip(callback: CallbackQuery):
     text = create_category_header(
@@ -363,7 +332,7 @@ async def nav_admin(callback: CallbackQuery):
     await callback.answer()
 
 # ==========================================
-# 6. UNIVERSAL COMMAND CATCHER
+# 6. UNIVERSAL BACKEND COMMAND CATCHER
 # ==========================================
 
 @ui_router.callback_query(F.data.startswith("cmd_"))
@@ -371,41 +340,55 @@ async def catch_all_commands(callback: CallbackQuery):
     command_name = callback.data.split("_", 1)[1]
     user_id = callback.from_user.id
     
-    # Perintah yang langsung dieksekusi tanpa butuh input lanjutan
-    instant_commands = [
-        "speedtest", "status", "time", "stats", "restart", 
-        "renew", "myvip", "log", "checksudo", "logs", "vip_info"
-    ]
+    # Proteksi Akses Admin
+    admin_commands = ["speedtest", "restart", "renew", "log", "logs", "resetdb", "checksudo", "time", "stats", "savewatermark", "savethumb"]
+    if command_name in admin_commands and not check_is_admin(user_id):
+        return await callback.answer("⛔ Admin command only!", show_alert=True)
+            
+    await callback.answer(f"🚀 Memanggil Modul {command_name}...", show_alert=False)
     
-    if command_name in instant_commands:
-        if command_name in ["speedtest", "restart", "renew", "log", "logs"] and not check_is_admin(user_id):
-            return await callback.answer("⛔ Admin command only!", show_alert=True)
-            
-        await callback.answer(f"🚀 Executing /{command_name}...", show_alert=False)
+    # 1. Membuat "Pesan Tiruan" (Fake Message)
+    fake_msg = callback.message.model_copy(update={
+        "from_user": callback.from_user,
+        "chat": callback.message.chat,
+        "text": f"/{command_name}"
+    })
+    
+    try:
+        # 2. Mengimpor fungsi-fungsi dari Backend Handlers
+        from bot.admin_handlers import _speed_test, _timecmd, _stats_msg, _restart, _renew, _log, _logs, _checksudo, _resetdb, _savewatermark, _savethumb
+        from bot.media_handlers import _compress_video, _convert_video, _add_watermark_interactive, _merge_videos, _softmux, _hardmux, _softremux, _leech_file, _mirror_file, _status
+        from bot.advanced_media_handlers import _trim_video, _split_video, _cut_video, _rotate_video, _crop_video, _autocrop_video, _extract_streams, _change_metadata, _media_info
+        from bot.vip_handlers import _verify_payment, _my_vip_status
         
-        # Membuat salinan dari objek Message untuk menghindari error Frozen Instance
-        fake_msg = callback.message.model_copy(update={
-            "from_user": callback.from_user,
-            "text": f"/{command_name}"
-        })
+        # 3. Pemetaan Perintah (Mapping)
+        handlers = {
+            # Admin Handlers
+            "speedtest": _speed_test, "time": _timecmd, "stats": _stats_msg, "restart": _restart, "renew": _renew, 
+            "log": _log, "logs": _logs, "checksudo": _checksudo, "resetdb": _resetdb, "savewatermark": _savewatermark, "savethumb": _savethumb,
+            # Media Handlers
+            "compress": _compress_video, "convert": _convert_video, "watermark": _add_watermark_interactive, "merge": _merge_videos, 
+            "softmux": _softmux, "hardmux": _hardmux, "softremux": _softremux, "leech": _leech_file, "mirror": _mirror_file, "status": _status,
+            # Advanced Media Handlers
+            "trim": _trim_video, "split": _split_video, "cut": _cut_video, "rotate": _rotate_video, "crop": _crop_video, 
+            "autocrop": _autocrop_video, "extract": _extract_streams, "changemetadata": _change_metadata, "mediainfo": _media_info,
+            # VIP Handlers
+            "verify": _verify_payment, "myvip": _my_vip_status
+        }
         
-        try:
-            from bot.admin_handlers import _speedtest, _status, _time, _stats, _restart, _renew, _log, _logs
-            from bot.vip_handlers import _myvip, _checksudo
+        # 4. Jika fungsi terhubung di Backend, eksekusi langsung (Dashboard ditutup)
+        if command_name in handlers:
+            await callback.message.delete()
+            return await handlers[command_name](fake_msg)
             
-            handlers = {
-                "speedtest": _speedtest, "status": _status, "time": _time, "stats": _stats,
-                "restart": _restart, "renew": _renew, "myvip": _myvip, "log": _log,
-                "checksudo": _checksudo, "logs": _logs
-            }
-            
-            if command_name in handlers:
-                await callback.message.delete()
-                return await handlers[command_name](fake_msg)
-        except ImportError:
-            pass
+    except ImportError as e:
+        print(f"[UI ERROR] Gagal mengimpor backend module: {e}")
 
-    # --- DAFTAR INSTRUKSI KHUSUS UNTUK SETIAP TOMBOL ---
+    # ==========================================
+    # 5. FALLBACK: DAFTAR INSTRUKSI KHUSUS LENGKAP
+    # Jika suatu fitur belum di-import ke backend, 
+    # tampilkan instruksinya yang estetik di dalam Dashboard.
+    # ==========================================
     custom_instructions = {
         # Asset Manager
         "addgameplay": "🎮 Silakan kirimkan <b>Video Gameplay</b> atau <b>Link</b> ke obrolan ini.",
@@ -416,6 +399,7 @@ async def catch_all_commands(callback: CallbackQuery):
         # VIP & Admin
         "verify": "🔑 Silakan kirimkan <b>Kode Verifikasi Trakteer</b> Anda ke obrolan ini.",
         "resetdb": "⚠️ <b>PERINGATAN RESET DATABASE</b> ⚠️\n\nApakah Anda yakin ingin mereset database?\n<i>Ketik <b>YA</b> untuk melanjutkan, atau klik tombol <b>Batal/Tutup</b> di bawah.</i>",
+        "vip_info": "ℹ️ <b>INFO VIP MEMBER</b>\n\nUntuk mendapatkan akses VIP, silakan dukung pengembangan bot ini melalui Trakteer.",
         
         # Video Editing Suite
         "compress": "🗜️ Kirimkan <b>Video</b> yang ingin di-compress ukurannya.",
@@ -457,7 +441,7 @@ async def catch_all_commands(callback: CallbackQuery):
         "archives": "📚 Kirimkan link atau file untuk dimasukkan ke sistem Archives."
     }
     
-    # Mengambil pesan spesifik dari kamus, jika suatu tombol terlewat, gunakan pesan default
+    # Mengambil pesan dari kamus, atau berikan pesan dasar jika di luar daftar
     instruction_msg = custom_instructions.get(
         command_name, 
         "Modul ini memerlukan input atau file.\n<i>Silakan kirimkan file, media, atau link ke obrolan ini</i>"
@@ -471,9 +455,8 @@ async def catch_all_commands(callback: CallbackQuery):
 
 <b>╰───────────────╯</b>
 """
-    
     await safe_edit_message(callback.message, instruction_text, get_back_cancel_kb())
-    await callback.answer()
+
 
 # ==========================================
 # 7. GLOBAL HANDLERS
