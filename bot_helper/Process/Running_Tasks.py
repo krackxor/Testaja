@@ -18,6 +18,7 @@
 ║  [IMPROVE]   upload_files cache user_data sekali                     ║
 ║  [FIX CRIT]  Menghapus sisa Telethon Button → Aiogram Markup         ║
 ║  [FIX HIGH]  Fallback send_message jika pesan asli (reply) dihapus   ║
+║  [FIX BUG]   FFmpeg sukses tidak lanjut upload (process_completed)   ║
 ╚══════════════════════════════════════════════════════════════════════╝
 """
 
@@ -665,14 +666,16 @@ async def start_task(task: dict) -> None:
                 try:
                     await asyncio.wait_for(ffmpeg_process.wait(), timeout=7200)
 
+                    # [FIX BUG UPLOAD] Perbaikan logika kondisi sukses/gagal di sini!
                     if ffmpeg_process.returncode == 0:
                         output_list.append(output_file)
+                        process_completed = True
                     else:
                         log_path = f"{process_status.dir}/FFMPEG_LOG.txt"
 
                         if exists(log_path):
                             # [FIX HIGH] analyze_ffmpeg_error return dict bukan tuple
-                            result       = await analyze_ffmpeg_error(log_path)
+                            result        = await analyze_ffmpeg_error(log_path)
                             error_reason  = result.get("diagnosis", "Unknown Error")
                             suggestions   = result.get("solutions_text", "Tidak ada saran.")
 
@@ -694,8 +697,10 @@ async def start_task(task: dict) -> None:
                                 f"❌ Proses `{process_status.process_type}` gagal "
                                 f"(returncode: {ffmpeg_process.returncode})."
                             )
-                    process_completed = False
-                    break
+                        
+                        # Set False dan hentikan jika proses gagal
+                        process_completed = False
+                        break
 
                 except asyncio.TimeoutError:
                     LOGGER.error(
