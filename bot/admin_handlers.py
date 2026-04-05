@@ -16,6 +16,7 @@
 ║               krusial seperti /resetdb, /renew, dan /saveconfig.     ║
 ║  [FIX HIGH] Implementasi CMD_SUFFIX pada semua dekorator Command     ║
 ║  [FIX HIGH] Gunakan asyncio.to_thread pada subprocess srun (restart) ║
+║  [FIX HIGH] Memperbaiki error parse_mode pada perintah /log          ║
 ╚══════════════════════════════════════════════════════════════════════╝
 """
 
@@ -188,8 +189,14 @@ async def _log(message: Message):
     user_id = message.from_user.id
     if user_id not in get_data(): await new_user(user_id, SAVE_TO_DATABASE)
     log_file = "Logging.txt"
-    if exists(log_file): await message.reply(str(get_logs_msg(log_file)))
-    else: await message.reply("❗ Berkas Log Tidak Ditemukan")
+    if exists(log_file): 
+        # [FIX] Matikan parse_mode dan batasi teks agar Telegram tidak error
+        log_text = str(get_logs_msg(log_file))
+        if len(log_text) > 4000:
+            log_text = log_text[-4000:] # Batas aman Telegram
+        await message.reply(log_text, parse_mode=None)
+    else: 
+        await message.reply("❗ Berkas Log Tidak Ditemukan")
 
 
 @router.message(Command(f"logs{CMD_SUFFIX}"))
