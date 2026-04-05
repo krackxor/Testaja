@@ -1,7 +1,7 @@
 """
 UI Dashboard Template for STUDIO KHOIRUL (Aiogram 3.x)
-Versi: FULL APP NAVIGATION (47+ Commands Integrated)
-Fix: Menyelaraskan variabel teks untuk flow_edit & flow_studio
+Versi: FULL APP NAVIGATION (Trinity v3.1 Edition)
+Fitur: One-Click Execution, Massive Grid Layout, Dynamic Routing
 """
 
 import asyncio
@@ -18,22 +18,6 @@ ui_router = Router(name="ui_dashboard")
 # ==========================================
 # 1. CONSTANTS & TEXT TEMPLATES (HTML Mode)
 # ==========================================
-
-# Variabel ini WAJIB ada untuk di-import oleh flow_edit.py
-VIDEO_EDIT_TEXT = """
-<blockquote>✂️ <b>𝐕𝐈𝐃𝐄𝐎 𝐄𝐃𝐈𝐓𝐈𝐍𝐆 𝐒𝐔𝐈𝐓𝐄</b>
-━━━━━━━━━━━━━━━━━━━━━━
-Professional video manipulation tools.
-
-<b>Tersedia:</b>
-• Autocrop (Hapus Bilah Hitam)
-• Konversi Resolusi (480p, 720p, dll)
-• Ekstrak Audio/Subtitle
-• Pemotong Video (Split/Trim)
-━━━━━━━━━━━━━━━━━━━━━━
-📥 <b>Aksi Diperlukan:</b>
-<i>Silakan kirim atau teruskan (forward) video yang ingin Anda edit ke obrolan ini!</i></blockquote>
-"""
 
 MAIN_DASHBOARD_TEXT = """
 <blockquote>🎬 <b>𝐒 𝐓 𝐔 𝐃 𝐈 𝐎  𝐊 𝐇 𝐎 𝐈 𝐑 𝐔 𝐋</b>
@@ -84,7 +68,7 @@ def get_back_cancel_kb() -> InlineKeyboardMarkup:
 def get_main_menu_kb(is_admin: bool = False) -> InlineKeyboardMarkup:
     kb = [
         [InlineKeyboardButton(text="🎬 Studio Produksi", callback_data="menu_studio"),
-         InlineKeyboardButton(text="✂️ Video Editing", callback_data="menu_vid_edit")], # Sync dengan flow_edit
+         InlineKeyboardButton(text="✂️ Video Editing", callback_data="menu_vid_edit")],
         [InlineKeyboardButton(text="🎮 Manajemen Aset", callback_data="menu_assets"),
          InlineKeyboardButton(text="📥 Unduh & Cloud", callback_data="menu_downloader")],
         [InlineKeyboardButton(text="⚙️ Pengaturan Bot", callback_data="menu_settings"),
@@ -127,8 +111,7 @@ def get_assets_kb() -> InlineKeyboardMarkup:
 
 def get_downloader_kb() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="📥 Leech (ke Telegram)", callback_data="cmd_leech")],
-        [InlineKeyboardButton(text="☁️ Mirror (ke GDrive)", callback_data="cmd_mirror")],
+        [InlineKeyboardButton(text="📥 Leech", callback_data="cmd_leech"), InlineKeyboardButton(text="☁️ Mirror", callback_data="cmd_mirror")],
         [InlineKeyboardButton(text="⬅️ Back", callback_data="menu_main")]
     ])
 
@@ -143,7 +126,7 @@ def get_settings_kb() -> InlineKeyboardMarkup:
 
 def get_vip_kb() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="👑 Cek Status VIP Saya", callback_data="cmd_myvip")],
+        [InlineKeyboardButton(text="👑 Cek Status VIP", callback_data="cmd_myvip")],
         [InlineKeyboardButton(text="💳 Verifikasi Trakteer", callback_data="cmd_verify")],
         [InlineKeyboardButton(text="⬅️ Back", callback_data="menu_main")]
     ])
@@ -151,13 +134,15 @@ def get_vip_kb() -> InlineKeyboardMarkup:
 def get_admin_kb() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="⚡ Status Tasks", callback_data="cmd_status"), InlineKeyboardButton(text="🚀 Speedtest", callback_data="cmd_speedtest")],
+        [InlineKeyboardButton(text="⏱ Uptime", callback_data="cmd_time"), InlineKeyboardButton(text="📊 Server Stats", callback_data="cmd_stats")],
         [InlineKeyboardButton(text="🗒 Lihat Log", callback_data="cmd_log"), InlineKeyboardButton(text="📁 Unduh Log", callback_data="cmd_logs")],
-        [InlineKeyboardButton(text="🔄 Restart", callback_data="cmd_restart"), InlineKeyboardButton(text="💥 Reset DB", callback_data="cmd_resetdb")],
+        [InlineKeyboardButton(text="🧹 Renew Server", callback_data="cmd_renew"), InlineKeyboardButton(text="💥 Reset DB", callback_data="cmd_resetdb")],
+        [InlineKeyboardButton(text="👮 Cek Sudo", callback_data="cmd_checksudo"), InlineKeyboardButton(text="🔄 Restart", callback_data="cmd_restart")],
         [InlineKeyboardButton(text="⬅️ Back to Menu", callback_data="menu_main")]
     ])
 
 # ==========================================
-# 4. MENU NAVIGATION HANDLERS
+# 4. NAVIGATION HANDLERS
 # ==========================================
 
 @ui_router.callback_query(F.data == "menu_main")
@@ -169,19 +154,13 @@ async def nav_main(callback: CallbackQuery):
 
 @ui_router.callback_query(F.data == "menu_studio")
 async def nav_studio(callback: CallbackQuery):
-    text = CATEGORY_TEXT.format(icon="🎬", title="𝐒𝐓𝐔𝐃𝐈𝐎 𝐏𝐑𝐎𝐃𝐔𝐊𝐒𝐈 & 𝐀𝐈", desc="Produksi video otomatis menggunakan AI.")
+    text = CATEGORY_TEXT.format(icon="🎬", title="𝐒𝐓𝐔𝐃𝐈𝐎 𝐏𝐑𝐎𝐃𝐔𝐊𝐒𝐈 & 𝐀𝐈", desc="Produksi video otomatis menggunakan kekuatan AI & Scripting.")
     await safe_edit_message(callback.message, text, get_studio_kb())
-    await callback.answer()
-
-@ui_router.callback_query(F.data == "menu_editor")
-async def nav_editor(callback: CallbackQuery):
-    text = CATEGORY_TEXT.format(icon="✂️", title="𝐄𝐃𝐈𝐓𝐎𝐑 & 𝐏𝐄𝐌𝐑𝐎𝐒𝐄𝐒𝐀𝐍", desc="Fitur manipulasi video.")
-    await safe_edit_message(callback.message, text, get_editor_kb())
     await callback.answer()
 
 @ui_router.callback_query(F.data == "menu_assets")
 async def nav_assets(callback: CallbackQuery):
-    text = CATEGORY_TEXT.format(icon="🎮", title="𝐌𝐀𝐍𝐀𝐉𝐄𝐌𝐄𝐍 𝐀𝐒𝐄𝐓", desc="Kelola video gameplay & SFX.")
+    text = CATEGORY_TEXT.format(icon="🎮", title="𝐌𝐀𝐍𝐀𝐉𝐄𝐌𝐄𝐍 𝐀𝐒𝐄𝐓", desc="Kelola video gameplay dan efek suara kustom untuk produksi.")
     await safe_edit_message(callback.message, text, get_assets_kb())
     await callback.answer()
 
@@ -193,13 +172,13 @@ async def nav_downloader(callback: CallbackQuery):
 
 @ui_router.callback_query(F.data == "menu_settings")
 async def nav_settings(callback: CallbackQuery):
-    text = CATEGORY_TEXT.format(icon="⚙️", title="𝐏𝐄𝐍𝐆𝐀𝐓𝐔𝐑𝐀𝐍", desc="Sesuaikan profil dan kualitas.")
+    text = CATEGORY_TEXT.format(icon="⚙️", title="𝐏𝐄𝐍𝐆𝐀𝐓𝐔𝐑𝐀𝐍", desc="Sesuaikan profil, kualitas konversi, dan default file.")
     await safe_edit_message(callback.message, text, get_settings_kb())
     await callback.answer()
 
 @ui_router.callback_query(F.data == "menu_vip")
 async def nav_vip(callback: CallbackQuery):
-    text = CATEGORY_TEXT.format(icon="👑", title="𝐒𝐈𝐒𝐓𝐄𝐌 𝐕𝐈𝐏", desc="Cek benefit VIP Anda.")
+    text = CATEGORY_TEXT.format(icon="👑", title="𝐒𝐈𝐒𝐓𝐄𝐌 𝐕𝐈𝐏", desc="Cek masa aktif VIP atau klaim benefit.")
     await safe_edit_message(callback.message, text, get_vip_kb())
     await callback.answer()
 
@@ -207,22 +186,63 @@ async def nav_vip(callback: CallbackQuery):
 async def nav_admin(callback: CallbackQuery):
     if not check_is_admin(callback.from_user.id):
         return await callback.answer("⛔ Akses ditolak!", show_alert=True)
-    text = CATEGORY_TEXT.format(icon="💻", title="𝐒𝐘𝐒𝐓𝐄𝐌 𝐓𝐎𝐎𝐋𝐒", desc="Kontrol server & bot.")
+    text = CATEGORY_TEXT.format(icon="💻", title="𝐒𝐘𝐒𝐓𝐄𝐌 𝐓𝐎𝐎𝐋𝐒", desc="Kontrol penuh atas server, antrean, dan database.")
     await safe_edit_message(callback.message, text, get_admin_kb())
     await callback.answer()
 
 # ==========================================
-# 5. UNIVERSAL COMMAND CATCHER (JEMBATAN FITUR)
+# 5. [NEW] UNIVERSAL COMMAND CATCHER (ONE-CLICK EXECUTION)
 # ==========================================
 @ui_router.callback_query(F.data.startswith("cmd_"))
 async def catch_all_commands(callback: CallbackQuery):
     command_name = callback.data.split("_", 1)[1]
-    instruction_text = f"<blockquote>💡 <b>𝐌𝐎𝐃𝐔𝐋 𝐀𝐊𝐓𝐈𝐅: <code>/{command_name}</code></b>\n━━━━━━━━━━━━━━━━━━━━━━\nSilakan kirimkan File/Link ke sini, lalu gunakan perintah <code>/{command_name}</code> untuk memprosesnya.</blockquote>"
+    user_id = callback.from_user.id
+    
+    # ─── DAFTAR PERINTAH INSTAN (Tanpa Input Tambahan) ───
+    instant_commands = [
+        "speedtest", "status", "time", "stats", "restart", 
+        "renew", "myvip", "log", "checksudo", "logs"
+    ]
+    
+    if command_name in instant_commands:
+        # Pengecekan Sudo untuk perintah admin instan
+        if command_name in ["speedtest", "restart", "renew", "log", "logs"] and not check_is_admin(user_id):
+            return await callback.answer("⛔ Perintah ini hanya untuk Admin!", show_alert=True)
+            
+        await callback.answer(f"🚀 Menjalankan /{command_name}...", show_alert=False)
+        
+        # Buat objek Message palsu agar bisa diterima oleh handler lama
+        fake_msg = callback.message
+        fake_msg.from_user = callback.from_user
+        fake_msg.text = f"/{command_name}"
+        
+        # Import Handlers secara dinamis
+        from bot.admin_handlers import _speedtest, _status, _time, _stats, _restart, _renew, _log, _logs
+        from bot.vip_handlers import _myvip, _checksudo
+        
+        handlers = {
+            "speedtest": _speedtest, "status": _status, "time": _time, "stats": _stats,
+            "restart": _restart, "renew": _renew, "myvip": _myvip, "log": _log,
+            "checksudo": _checksudo, "logs": _logs
+        }
+        
+        if command_name in handlers:
+            # Sembunyikan dashboard sebelum eksekusi agar tidak menumpuk
+            await callback.message.delete()
+            return await handlers[command_name](fake_msg)
+
+    # ─── JIKA BUKAN INSTAN: Tampilkan Panduan ───
+    instruction_text = f"""<blockquote>💡 <b>𝐌𝐎𝐃𝐔𝐋 𝐀𝐊𝐓𝐈𝐅: <code>/{command_name}</code></b>
+━━━━━━━━━━━━━━━━━━━━━━
+Modul ini memerlukan input file atau parameter.
+Silakan kirimkan File/Link ke obrolan ini, lalu gunakan perintah <code>/{command_name}</code>.
+━━━━━━━━━━━━━━━━━━━━━━</blockquote>"""
+
     await safe_edit_message(callback.message, instruction_text, get_back_cancel_kb())
-    await callback.answer(f"/{command_name} dipilih")
+    await callback.answer()
 
 # ==========================================
-# 6. GLOBAL CANCEL & START DASHBOARD
+# 6. GLOBAL CANCEL & START
 # ==========================================
 @ui_router.callback_query(F.data == "action_cancel")
 async def handler_action_cancel(callback: CallbackQuery):
