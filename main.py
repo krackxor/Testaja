@@ -64,6 +64,7 @@ import bot.MovieRecap
 import bot.YTUpload
 
 # [TAMBAHAN BARU] Import UI Dashboard dan FSM yang baru kita buat
+import bot.flow_downloader # <--- FSM Downloader (Taruh Paling Atas)
 import bot.ui_dashboard 
 import bot.flow_video
 import bot.flow_edit
@@ -155,8 +156,9 @@ async def main():
 
     # ─── AUTO-LOADER ROUTERS ───
     # Memasukkan semua Router Aiogram yang terdeteksi agar tidak ada 'Unhandled Update'
-    # PENTING: File UI dan Flow baru diletakkan di atas agar terbaca lebih dulu!
+    # PENTING: File FSM diletakkan di atas agar terbaca lebih dulu!
     modules_to_include = [
+        bot.flow_downloader,
         bot.ui_dashboard,
         bot.flow_video,
         bot.flow_edit,
@@ -183,6 +185,10 @@ async def main():
             Telegram.AIOGRAM_DP.include_router(mod.edit_router)
             loaded_routers += 1
             LOGGER.info(f"✅ Edit Router Attached: {mod.__name__}")
+        elif hasattr(mod, 'down_router'):
+            Telegram.AIOGRAM_DP.include_router(mod.down_router)
+            loaded_routers += 1
+            LOGGER.info(f"✅ Downloader Router Attached: {mod.__name__}")
     
     LOGGER.info(f"🔗 Total {loaded_routers} Aiogram Routers Successfully Linked!")
     # ────────────────────────────
