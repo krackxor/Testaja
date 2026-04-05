@@ -13,26 +13,23 @@
 ║  [FIX]       create_log_file sync → pathlib.touch()                  ║
 ║  [FIX]       handle_extract gather → Semaphore(3)                    ║
 ║  [FIX]       bare except rmtree → (OSError, FileNotFoundError)       ║
-║  [FIX]       handle_autocrop stdout deadlock → DEVNULL               ║
-║  [IMPROVE]   process_status_checker log → LOGGER.debug               ║
-║  [IMPROVE]   upload_files cache user_data sekali                     ║
-║  [FIX CRIT]  Menghapus sisa Telethon Button → Aiogram Markup         ║
-║  [FIX HIGH]  Fallback send_message jika pesan asli (reply) dihapus   ║
 ║  [FIX BUG]   FFmpeg sukses tidak lanjut upload (process_completed)   ║
+║  [IMPROVE]   Mencegah Deadlock UI dengan asyncio.gather              ║
+║  [IMPROVE]   Timeout Dinamis & Penambahan Fungsi Startup Cleanup     ║
 ╚══════════════════════════════════════════════════════════════════════╝
 """
 
 # ── Standard Library ──────────────────────────────────────────────────
 import asyncio
 import re
+import os
+import shutil
 from asyncio import Lock, create_task, create_subprocess_exec, sleep
 from asyncio.subprocess import PIPE as asyncioPIPE, DEVNULL as asyncioDEVNULL
 from collections import deque
 from json import loads as json_loads
-from os import remove
 from os.path import exists, join as path_join
 from pathlib import Path
-from shutil import rmtree
 from time import time
 
 # ── Aiogram ───────────────────────────────────────────────────────────
@@ -62,16 +59,13 @@ LOGGER = Config.LOGGER
 # ── Task Queues ───────────────────────────────────────────────────────
 working_task: list       = []
 working_task_lock        = Lock()
-
-# [FIX] deque untuk O(1) popleft() bukan list.pop(0) O(n)
 queued_task: deque       = deque()
 queued_task_lock         = Lock()
 
 process_status_checker_value = [0]
 process_status_checker_lock  = Lock()
 
-# [FIX HIGH] Registry PID ffmpeg aktif — untuk kill spesifik, bukan pkill global
-_active_ffmpeg_pids: dict[str, list[int]] = {}   # process_id → [pid1, pid2, ...]
+_active_ffmpeg_pids: dict[str, list[int]] = {}
 _ffmpeg_pid_lock = Lock()
 
 
@@ -80,31 +74,24 @@ _ffmpeg_pid_lock = Lock()
 # ═══════════════════════════════════════════════════════════════════════
 
 async def _register_ffmpeg_pid(process_id: str, pid: int) -> None:
-    """Daftarkan PID ffmpeg ke registry agar bisa di-kill spesifik."""
     async with _ffmpeg_pid_lock:
         if process_id not in _active_ffmpeg_pids:
             _active_ffmpeg_pids[process_id] = []
         _active_ffmpeg_pids[process_id].append(pid)
 
-
 async def _kill_ffmpeg_pids(process_id: str) -> int:
-    """
-    [FIX HIGH] Kill hanya PID ffmpeg milik process_id ini.
-    Sebelumnya: pkill -f ffmpeg → bunuh SEMUA ffmpeg di sistem.
-    """
     async with _ffmpeg_pid_lock:
         pids = _active_ffmpeg_pids.pop(process_id, [])
 
     killed = 0
     for pid in pids:
         try:
-            import os
             import signal
             os.kill(pid, signal.SIGTERM)
             killed += 1
             LOGGER.debug(f"🔴 Kill FFmpeg PID {pid} (process: {process_id})")
         except ProcessLookupError:
-            pass   # Proses sudah selesai sendiri
+            pass
         except Exception as e:
             LOGGER.warning(f"⚠️  Gagal kill PID {pid}: {e}")
     return killed
@@ -115,10 +102,6 @@ async def _kill_ffmpeg_pids(process_id: str) -> int:
 # ═══════════════════════════════════════════════════════════════════════
 
 async def _safe_send(process_status, text: str, reply_markup=None):
-    """
-    [FIX HIGH] Kirim pesan dengan aman. Jika reply gagal (karena pesan dihapus),
-    maka fallback ke send_message biasa.
-    """
     try:
         kwargs = {}
         if reply_markup:
@@ -133,12 +116,7 @@ async def _safe_send(process_status, text: str, reply_markup=None):
         except Exception as err:
             LOGGER.error(f"Gagal mengirim pesan peringatan ke {process_status.chat_id}: {err}")
 
-
 def create_log_file(log_file: str) -> None:
-    """
-    Buat file log kosong.
-    [FIX] Pakai pathlib.touch() — lebih Pythonic, tidak perlu open/close manual.
-    """
     try:
         Path(log_file).parent.mkdir(parents=True, exist_ok=True)
         Path(log_file).touch(exist_ok=True)
@@ -146,13 +124,10 @@ def create_log_file(log_file: str) -> None:
     except OSError as e:
         LOGGER.warning(f"⚠️  Gagal buat log file {log_file}: {e}")
 
-
 def get_queued_tasks_len() -> int:
     return len(queued_task)
 
-
 def get_user_id(process_id: str):
-    """Return user_id dari process_id, atau False jika tidak ditemukan."""
     for task in working_task:
         if task["process_status"].process_id == process_id:
             return task["process_status"].user_id
@@ -164,12 +139,6 @@ def get_user_id(process_id: str):
 # ═══════════════════════════════════════════════════════════════════════
 
 async def clear_trash(task: dict, trash_objects: list, multi_tasks: list) -> None:
-    """
-    Cleanup setelah task selesai.
-
-    [FIX HIGH] Hapus pkill ffmpeg global → kill hanya PID task ini
-    [FIX]      bare except rmtree → (OSError, FileNotFoundError) dengan warning
-    """
     new_task = False
     process_id = task["process_status"].process_id
 
@@ -193,15 +162,12 @@ async def clear_trash(task: dict, trash_objects: list, multi_tasks: list) -> Non
             working_task.append(new_task)
 
     await remove_running_process(process_id)
-
-    # [FIX HIGH] Kill hanya PID ffmpeg milik task ini
     killed = await _kill_ffmpeg_pids(process_id)
     if killed:
         LOGGER.info(f"✅ Killed {killed} FFmpeg process(es) untuk task {process_id}")
 
-    # [FIX] bare except → specific exception dengan logging
     try:
-        rmtree(task["process_status"].dir, ignore_errors=False)
+        shutil.rmtree(task["process_status"].dir, ignore_errors=False)
     except (OSError, FileNotFoundError) as e:
         LOGGER.warning(f"⚠️  rmtree gagal untuk {task['process_status'].dir}: {e}")
 
@@ -217,13 +183,6 @@ async def clear_trash(task: dict, trash_objects: list, multi_tasks: list) -> Non
 # ═══════════════════════════════════════════════════════════════════════
 
 async def upload_files(process_status) -> None:
-    """
-    Upload files ke Telegram atau Drive.
-
-    [FIX HIGH] get_data()[user_id] → .get() dengan fallback
-    [IMPROVE]  Cache user_data sekali bukan panggil get_data() 2x
-    """
-    # [FIX] Cache user_data sekali
     user_data    = get_data().get(process_status.user_id, {})
     drive_upload = False
 
@@ -244,12 +203,6 @@ async def upload_files(process_status) -> None:
 # ═══════════════════════════════════════════════════════════════════════
 
 async def process_status_checker() -> None:
-    """
-    Background task: monitor dan kill task yang tidak responding > 10 menit.
-
-    [FIX]      Iterasi snapshot list(working_task) bukan langsung — cegah RuntimeError
-    [IMPROVE]  LOGGER.debug untuk routine check, bukan LOGGER.info
-    """
     async with process_status_checker_lock:
         if process_status_checker_value[0] == 1:
             LOGGER.debug("Process Status Checker sudah berjalan")
@@ -259,19 +212,15 @@ async def process_status_checker() -> None:
 
     while True:
         LOGGER.debug("Process Status Checker: cek dead processes")
-
         if not working_task and not queued_task:
             LOGGER.info("✅ Process Status Checker berhenti — tidak ada task aktif")
             break
 
         try:
-            # [FIX] Iterasi snapshot list() — cegah RuntimeError jika working_task dimodifikasi
             for task in list(working_task):
                 ps = task["process_status"]
                 if time() - ps.ping > 600:
-                    LOGGER.warning(
-                        f"⚠️  Task {ps.process_type} tidak respond 10 menit — dihapus"
-                    )
+                    LOGGER.warning(f"⚠️  Task {ps.process_type} tidak respond 10 menit — dihapus")
                     await _safe_send(ps, "❗ Task ini dihapus karena tidak ada respons selama 10 menit.")
                     await clear_trash(task, False, [])
                     await task_manager()
@@ -290,7 +239,6 @@ async def process_status_checker() -> None:
 # ═══════════════════════════════════════════════════════════════════════
 
 async def add_task(task: dict) -> None:
-    """Tambahkan task ke working atau queue."""
     async with working_task_lock:
         if len(working_task) < get_task_limit():
             LOGGER.info("➕ Task ditambahkan ke working")
@@ -300,28 +248,19 @@ async def add_task(task: dict) -> None:
             async with queued_task_lock:
                 queued_task.append(task)
                 LOGGER.info(f"⏳ Task ditambahkan ke queue (posisi: {len(queued_task)})")
-
     await process_status_checker()
 
-
 async def task_manager() -> None:
-    """Pindahkan task dari queue ke working jika ada slot."""
     async with working_task_lock:
         if len(working_task) < get_task_limit():
             async with queued_task_lock:
                 if queued_task:
-                    task = queued_task.popleft()   # [FIX] deque.popleft() O(1)
+                    task = queued_task.popleft()
                     LOGGER.info("🔄 Task dipindah dari queue ke working")
                     create_task(start_task(task))
                     working_task.append(task)
 
-
 async def refresh_tasks() -> None:
-    """
-    Pindahkan semua task dari queue ke working selama ada slot.
-
-    [FIX HIGH] return di dalam while loop → sekarang loop sampai kondisi habis
-    """
     while True:
         moved = False
         async with working_task_lock:
@@ -332,13 +271,10 @@ async def refresh_tasks() -> None:
                         create_task(start_task(task))
                         working_task.append(task)
                         moved = True
-        # [FIX] Break hanya jika tidak ada yang dipindah atau working penuh
         if not moved:
             break
 
-
 async def remove_from_working_task(process_id: str) -> bool:
-    """Hapus task dari working_task berdasarkan process_id."""
     async with working_task_lock:
         for task in list(working_task):
             if task["process_status"].process_id == process_id:
@@ -347,9 +283,7 @@ async def remove_from_working_task(process_id: str) -> bool:
                 return True
     return False
 
-
 async def get_ffmpeg_log_file(process_id: str) -> str | bool:
-    """Return path log file untuk process_id, atau False jika tidak ada."""
     async with working_task_lock:
         for task in list(working_task):
             if task["process_status"].process_id == process_id:
@@ -357,12 +291,9 @@ async def get_ffmpeg_log_file(process_id: str) -> str | bool:
                 return log_path if exists(log_path) else False
     return False
 
-
 async def get_status_message(reply) -> str | bool:
-    """Return status message semua working task untuk display."""
     if not working_task and not queued_task:
         return False
-
     retry = 0
     if not working_task:
         try:
@@ -372,13 +303,11 @@ async def get_status_message(reply) -> str | bool:
         while not working_task and retry < 30:
             await sleep(1)
             retry += 1
-
     if working_task:
         final_status = ""
         for task in list(working_task):
             final_status += task["process_status"].status_message + "\n\n"
         return final_status.strip()
-
     return False
 
 
@@ -387,23 +316,19 @@ async def get_status_message(reply) -> str | bool:
 # ═══════════════════════════════════════════════════════════════════════
 
 async def handle_autocrop(process_status) -> bool:
-    """
-    Deteksi dan crop black bars otomatis.
-
-    [FIX] stdout=DEVNULL — cegah deadlock karena stdout tidak di-drain
-    """
     input_file = process_status.send_files[-1]
     process_status.update_process_message("✨ Mendeteksi bilah hitam...")
 
+    # [IMPROVE] Menambahkan "-v", "warning" agar buffer terminal tidak penuh (deadlock buffer)
     detect_cmd = [
-        "ffmpeg", "-hide_banner",
+        "ffmpeg", "-hide_banner", "-v", "warning",
         "-i", input_file,
         "-vf", "cropdetect",
         "-f", "null", "-",
     ]
     process = await create_subprocess_exec(
         *detect_cmd,
-        stdout=asyncioDEVNULL,   # [FIX] Bukan default (tidak di-pipe tapi tidak di-drain)
+        stdout=asyncioDEVNULL,
         stderr=asyncioPIPE,
     )
     _, stderr = await process.communicate()
@@ -427,13 +352,16 @@ async def handle_autocrop(process_status) -> bool:
     create_log_file(log_file)
     ffmpeg_process = await create_subprocess_exec(*command, stdout=asyncioPIPE, stderr=asyncioPIPE)
 
-    # [FIX HIGH] Daftarkan PID agar bisa di-kill spesifik
     await _register_ffmpeg_pid(process_status.process_id, ffmpeg_process.pid)
 
     ffmpeg_status = FfmpegStatus(ffmpeg_process, log_file, input_file, output_file, file_duration)
     create_task(ffmpeg_status.logger(process_status.process_id, process_status.dir, command))
-    await process_status.update_status(ffmpeg_status)
-    await ffmpeg_process.wait()
+    
+    # [IMPROVE] Gunakan gather agar status updater dan proses jalan paralel
+    await asyncio.gather(
+        process_status.update_status(ffmpeg_status),
+        ffmpeg_process.wait()
+    )
 
     if ffmpeg_process.returncode == 0:
         process_status.replace_send_list([output_file])
@@ -452,13 +380,7 @@ async def handle_autocrop(process_status) -> bool:
             pass
     return False
 
-
 async def handle_extract(process_status) -> bool:
-    """
-    Extract stream dari video.
-
-    [FIX] asyncio.gather → Semaphore(3) cegah saturasi I/O
-    """
     input_file = process_status.send_files[-1]
     output_dir = f"{process_status.dir}/extract/"
     await make_direc(output_dir)
@@ -493,7 +415,6 @@ async def handle_extract(process_status) -> bool:
         codec_type = stream_info.get("codec_type", "")
         codec_name = stream_info.get("codec_name", "bin")
 
-        # Tentukan ekstensi output
         ext = codec_name
         if codec_type == "subtitle":
             ext_map = {"subrip": "srt", "ass": "ass", "mov_text": "srt"}
@@ -514,7 +435,6 @@ async def handle_extract(process_status) -> bool:
         await _safe_send(process_status, "❌ Tidak ada stream yang bisa diekstrak.")
         return False
 
-    # [FIX] Semaphore(3) — max 3 ekstraksi paralel bukan semua sekaligus
     semaphore = asyncio.Semaphore(3)
 
     async def _run_with_sem(cmd):
@@ -536,14 +456,6 @@ async def handle_extract(process_status) -> bool:
 # ═══════════════════════════════════════════════════════════════════════
 
 async def start_task(task: dict) -> None:
-    """
-    Main task runner — download → process → upload.
-
-    [FIX HIGH] get_data()[user_id] → .get() dengan fallback
-    [FIX HIGH] analyze_ffmpeg_error return dict → ambil ['diagnosis'] dan ['solutions_text']
-    [FIX HIGH] Daftarkan PID ffmpeg ke _active_ffmpeg_pids
-    [FIX CRIT] Menggunakan InlineKeyboardMarkup dari Aiogram (Bukan Button.inline Telethon)
-    """
     process_status = task["process_status"]
     multi_tasks    = process_status.multi_tasks
     process_status.update_start_time(time())
@@ -625,8 +537,6 @@ async def start_task(task: dict) -> None:
 
         elif process_status.process_type in Names.FFMPEG_PROCESSES:
             output_list = []
-
-            # [FIX HIGH] .get() dengan fallback
             user_data    = get_data().get(process_status.user_id, {})
             convert_list = (
                 user_data.get("convert", {}).get("convert_list", [720, 480])
@@ -641,7 +551,6 @@ async def start_task(task: dict) -> None:
 
                 command, log_file, input_file, output_file, file_duration = get_commands(process_status)
                 if not command:
-                    # Bisa jadi subtitle copy — output_file sudah ada
                     if output_file and exists(output_file):
                         output_list.append(output_file)
                     continue
@@ -651,7 +560,6 @@ async def start_task(task: dict) -> None:
                     *command, stdout=asyncioPIPE, stderr=asyncioPIPE
                 )
 
-                # [FIX HIGH] Daftarkan PID agar bisa di-kill spesifik
                 await _register_ffmpeg_pid(process_status.process_id, ffmpeg_process.pid)
 
                 ffmpeg_status = FfmpegStatus(
@@ -661,20 +569,25 @@ async def start_task(task: dict) -> None:
                     process_status.process_id, process_status.dir, command
                 ))
                 trash_objects.append(ffmpeg_status)
-                await process_status.update_status(ffmpeg_status)
 
                 try:
-                    await asyncio.wait_for(ffmpeg_process.wait(), timeout=7200)
+                    # [IMPROVE] Timeout Dinamis dan Menjalankan Update UI paralel
+                    timeout_limit = getattr(Config, 'FFMPEG_TIMEOUT', 7200)
+                    
+                    await asyncio.wait_for(
+                        asyncio.gather(
+                            process_status.update_status(ffmpeg_status),
+                            ffmpeg_process.wait()
+                        ),
+                        timeout=timeout_limit
+                    )
 
-                    # [FIX BUG UPLOAD] Perbaikan logika kondisi sukses/gagal di sini!
                     if ffmpeg_process.returncode == 0:
                         output_list.append(output_file)
                         process_completed = True
                     else:
                         log_path = f"{process_status.dir}/FFMPEG_LOG.txt"
-
                         if exists(log_path):
-                            # [FIX HIGH] analyze_ffmpeg_error return dict bukan tuple
                             result        = await analyze_ffmpeg_error(log_path)
                             error_reason  = result.get("diagnosis", "Unknown Error")
                             suggestions   = result.get("solutions_text", "Tidak ada saran.")
@@ -684,7 +597,6 @@ async def start_task(task: dict) -> None:
                                 f"**🔬 Diagnosis:**\n{error_reason}\n\n"
                                 f"**💡 Rekomendasi:**\n{suggestions}"
                             )
-                            # [FIX CRIT] Menggunakan InlineKeyboardMarkup dari Aiogram
                             markup = InlineKeyboardMarkup(inline_keyboard=[
                                 [InlineKeyboardButton(text="🎬 Pengaturan Video", callback_data="video_settings"),
                                  InlineKeyboardButton(text="🎧 Pengaturan Audio", callback_data="audio_settings")],
@@ -698,13 +610,12 @@ async def start_task(task: dict) -> None:
                                 f"(returncode: {ffmpeg_process.returncode})."
                             )
                         
-                        # Set False dan hentikan jika proses gagal
                         process_completed = False
                         break
 
                 except asyncio.TimeoutError:
                     LOGGER.error(
-                        f"❌ FFmpeg PID {ffmpeg_process.pid} timeout (>2 jam), dihentikan paksa"
+                        f"❌ FFmpeg PID {ffmpeg_process.pid} timeout (> {timeout_limit} detik), dihentikan paksa"
                     )
                     try:
                         ffmpeg_process.kill()
@@ -712,7 +623,7 @@ async def start_task(task: dict) -> None:
                         pass
                     await _safe_send(
                         process_status,
-                        "❌ Proses encoding terlalu lama (> 2 jam) dan dihentikan otomatis."
+                        "❌ Proses encoding terlalu lama dan dihentikan otomatis (Timeout Server)."
                     )
                     process_completed = False
                     break
@@ -762,3 +673,31 @@ async def start_task(task: dict) -> None:
 
     await clear_trash(task, trash_objects, multi_tasks)
     await task_manager()
+
+
+# ═══════════════════════════════════════════════════════════════════════
+#  STARTUP HELPERS
+# ═══════════════════════════════════════════════════════════════════════
+
+async def clear_all_trash_on_startup():
+    """
+    Fungsi ini memindai direktori download dan membersihkannya saat bot di-restart.
+    Panggil fungsi ini di dalam `main.py` sebelum dispatcher mulai menerima request.
+    Contoh: await clear_all_trash_on_startup()
+    """
+    try:
+        download_dir = getattr(Config, 'DOWNLOAD_DIR', './downloads')
+        if os.path.exists(download_dir):
+            LOGGER.info("🧹 Membersihkan sisa file di direktori kerja (Startup Cleanup)...")
+            for item in os.listdir(download_dir):
+                item_path = os.path.join(download_dir, item)
+                try:
+                    if os.path.isdir(item_path):
+                        shutil.rmtree(item_path)
+                    else:
+                        os.remove(item_path)
+                except Exception as e:
+                    LOGGER.warning(f"⚠️ Gagal menghapus {item_path}: {e}")
+            LOGGER.info("✨ Pembersihan selesai.")
+    except Exception as e:
+        LOGGER.error(f"Error saat startup cleanup: {e}")
