@@ -1,11 +1,11 @@
 """
 FSM Video Editing Suite untuk STUDIO KHOIRUL
 Menangkap video yang dikirim user dan memunculkan panel alat (Tools).
-100% TERINTEGRASI DENGAN MESIN FFMPEG (Tanpa Simulasi)
+100% TERINTEGRASI DENGAN MESIN FFMPEG & MENDUKUNG 20 ALAT EDITING
 """
 
 import asyncio
-from aiogram import Router, F, Bot
+from aiogram import Router, F
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton, CallbackQuery, Message
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
@@ -28,17 +28,46 @@ class VideoEditState(StatesGroup):
     choosing_tool = State()
 
 # ==========================================
-# 2. HELPER KEYBOARDS
+# 2. HELPER KEYBOARDS (FULL 20 FITUR)
 # ==========================================
 def get_editor_tools_kb() -> InlineKeyboardMarkup:
-    """Panel alat editing yang muncul setelah video dikirim"""
+    """Panel alat editing lengkap (20 Fitur) yang muncul setelah video dikirim"""
     return InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="🎛 Encode / Compress", callback_data="tool_encode"),
-         InlineKeyboardButton(text="✂️ Split Video", callback_data="tool_split")],
-        [InlineKeyboardButton(text="🎵 Extract Audio", callback_data="tool_extract"),
-         InlineKeyboardButton(text="🎞 Trim / Cut", callback_data="tool_trim")],
-        [InlineKeyboardButton(text="🎬 Autocrop (Remove Bars)", callback_data="tool_autocrop"),
-         InlineKeyboardButton(text="📸 Gen Screenshot", callback_data="tool_genss")],
+        # Baris 1: Dasar
+        [InlineKeyboardButton(text="🗜 Compress", callback_data="tool_compress"), 
+         InlineKeyboardButton(text="🔄 Convert", callback_data="tool_convert"), 
+         InlineKeyboardButton(text="🔗 Merge", callback_data="tool_merge")],
+        
+        # Baris 2: Pemotongan
+        [InlineKeyboardButton(text="🎞 Trim", callback_data="tool_trim"), 
+         InlineKeyboardButton(text="✂️ Split", callback_data="tool_split"), 
+         InlineKeyboardButton(text="🔪 Cut", callback_data="tool_cut")],
+        
+        # Baris 3: Rasio & Orientasi
+        [InlineKeyboardButton(text="📐 Crop", callback_data="tool_crop"), 
+         InlineKeyboardButton(text="🎬 Autocrop", callback_data="tool_autocrop"), 
+         InlineKeyboardButton(text="🔃 Rotate", callback_data="tool_rotate")],
+        
+        # Baris 4: Subtitle & Muxing
+        [InlineKeyboardButton(text="📌 Hardmux", callback_data="tool_hardmux"), 
+         InlineKeyboardButton(text="📝 Softmux", callback_data="tool_softmux"), 
+         InlineKeyboardButton(text="♻️ Remux", callback_data="tool_softremux")],
+        
+        # Baris 5: Ekstraksi & Index
+        [InlineKeyboardButton(text="🎵 Extract", callback_data="tool_extract"), 
+         InlineKeyboardButton(text="🗂 Extension", callback_data="tool_extension"), 
+         InlineKeyboardButton(text="🔢 Index", callback_data="tool_changeindex")],
+        
+        # Baris 6: Info & Metadata
+        [InlineKeyboardButton(text="🏷 Metadata", callback_data="tool_changemetadata"), 
+         InlineKeyboardButton(text="ℹ️ MediaInfo", callback_data="tool_mediainfo")],
+        
+        # Baris 7: Watermark & Gambar
+        [InlineKeyboardButton(text="©️ Watermark", callback_data="tool_watermark"), 
+         InlineKeyboardButton(text="📸 Screenshot", callback_data="tool_genss"), 
+         InlineKeyboardButton(text="🎞 Sample", callback_data="tool_gensample")],
+        
+        # Baris 8: Batal
         [InlineKeyboardButton(text="❌ Cancel & Delete", callback_data="action_cancel")]
     ])
 
@@ -90,7 +119,9 @@ async def process_selected_tool(callback: CallbackQuery, state: FSMContext):
     """Menangkap pilihan alat editing & Memicu fungsi FFmpeg Asli"""
     data = await state.get_data()
     original_message = data.get("original_message")
-    tool_selected = callback.data.split("_")[1] # mendapatkan kata 'encode', 'split', dll
+    
+    # Dapatkan nama alat, contoh: 'rotate', 'split', 'compress'
+    tool_selected = callback.data.split("_")[1] 
     
     # Bersihkan state agar user tidak tersangkut di Mode Edit
     await state.clear()
@@ -99,19 +130,11 @@ async def process_selected_tool(callback: CallbackQuery, state: FSMContext):
         await callback.message.edit_text("❌ Pesan video asli hilang dari memori. Silakan kirim ulang videonya.", parse_mode="HTML")
         return
         
-    await callback.message.edit_text(f"⏳ Menghubungkan tugas <b>{tool_selected.upper()}</b> ke server...", parse_mode="HTML")
+    await callback.message.edit_text(f"⏳ Menghubungkan tugas <b>{tool_selected.upper()}</b> ke server FFmpeg...", parse_mode="HTML")
     
-    # Mapping tombol ke Variabel Names.py asli
-    tool_map = {
-        "encode": Names.convert,
-        "split": Names.split,
-        "extract": Names.extract,
-        "trim": Names.trim,
-        "autocrop": Names.autocrop,
-        "genss": Names.genss
-    }
-    
-    process_type = tool_map.get(tool_selected, Names.convert)
+    # Mengambil variabel Proses secara dinamis dari file Names.py
+    # Jika fitur tidak ada di Names.py, ia akan memakai string aslinya.
+    process_type = getattr(Names, tool_selected, tool_selected)
     
     try:
         # 1. Inisialisasi Objek ProcessStatus
@@ -130,7 +153,6 @@ async def process_selected_tool(callback: CallbackQuery, state: FSMContext):
         await callback.message.delete()
         
     except Exception as e:
-        # Menangkap error jika argumen ProcessStatus butuh parameter yang sedikit berbeda
         await callback.message.edit_text(
             f"❌ <b>Terjadi Kesalahan Integrasi Task:</b>\n<code>{e}</code>\n\n"
             f"<i>Cek log terminal untuk detail argumen ProcessStatus.</i>",
