@@ -63,12 +63,8 @@ import bot.AutoClip
 import bot.MovieRecap
 import bot.YTUpload
 
-# [TAMBAHAN BARU] Import UI Dashboard dan Semua FSM
-import bot.flow_downloader # <--- FSM Downloader
-import bot.flow_studio     # <--- FSM Studio Produksi
+# [TAMBAHAN BARU] Import UI Dashboard (File Flow lama sudah dihapus)
 import bot.ui_dashboard 
-import bot.flow_video
-import bot.flow_edit
 
 # Import task background
 try:
@@ -157,13 +153,8 @@ async def main():
 
     # ─── AUTO-LOADER ROUTERS ───
     # Memasukkan semua Router Aiogram yang terdeteksi agar tidak ada 'Unhandled Update'
-    # PENTING: File FSM diletakkan di atas agar terbaca lebih dulu!
     modules_to_include = [
-        bot.flow_downloader,
-        bot.flow_studio,
         bot.ui_dashboard,
-        bot.flow_video,
-        bot.flow_edit,
         bot.admin_handlers, bot.vip_handlers, bot.media_handlers,
         bot.advanced_media_handlers, bot.callbacks, bot.Gameplay,
         bot.AutoClip, bot.MovieRecap, bot.YTUpload
@@ -179,22 +170,6 @@ async def main():
             Telegram.AIOGRAM_DP.include_router(mod.ui_router)
             loaded_routers += 1
             LOGGER.info(f"✅ UI Router Attached: {mod.__name__}")
-        elif hasattr(mod, 'flow_router'):
-            Telegram.AIOGRAM_DP.include_router(mod.flow_router)
-            loaded_routers += 1
-            LOGGER.info(f"✅ Flow Router Attached: {mod.__name__}")
-        elif hasattr(mod, 'edit_router'):
-            Telegram.AIOGRAM_DP.include_router(mod.edit_router)
-            loaded_routers += 1
-            LOGGER.info(f"✅ Edit Router Attached: {mod.__name__}")
-        elif hasattr(mod, 'down_router'):
-            Telegram.AIOGRAM_DP.include_router(mod.down_router)
-            loaded_routers += 1
-            LOGGER.info(f"✅ Downloader Router Attached: {mod.__name__}")
-        elif hasattr(mod, 'studio_router'):
-            Telegram.AIOGRAM_DP.include_router(mod.studio_router)
-            loaded_routers += 1
-            LOGGER.info(f"✅ Studio Router Attached: {mod.__name__}")
     
     LOGGER.info(f"🔗 Total {loaded_routers} Aiogram Routers Successfully Linked!")
     # ────────────────────────────
