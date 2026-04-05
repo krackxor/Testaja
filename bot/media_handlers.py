@@ -1,15 +1,15 @@
 """
 ╔══════════════════════════════════════════════════════════════════════╗
-║        bot_helper/Handlers/media_handlers.py — v3.8                  ║
-║        Media Processing Command Handlers (Aiogram 3.x)                 ║
+║       bot_helper/Handlers/media_handlers.py — v3.9                   ║
+║       Media Processing Command Handlers (Aiogram 3.x)                ║
 ╠══════════════════════════════════════════════════════════════════════╣
 ║  CHANGELOG dari versi lama:                                          ║
 ║  [FIX] Memisahkan /compress agar lebih instan (tanpa dub/sub).       ║
-║  [FIX] /convert kini menggunakan Reply Keyboard multi-pilih (240-8k).║
 ║  [FIX] /watermark kini menggunakan tombol Skip yang aman dari error. ║
 ║  [FIX] /hardmux kini hanya meminta 1 subtitle lalu otomatis lanjut.  ║
 ║  [NEW] /softmux & /softremux kini mendukung penambahan file Audio!   ║
-║  [FIX CRITICAL] Convert freeze diperbaiki, 1-click & auto regex multi║
+║  [NEW PREMIUM] /convert kini 100% FULL TOMBOL! Mendukung Multi-Select║
+║                dengan tombol "✅ Selesai" tanpa perlu mengetik koma. ║
 ╚══════════════════════════════════════════════════════════════════════╝
 """
 
@@ -146,8 +146,9 @@ async def _generic_video_handler(message: Message, process_name: str, cmd_name: 
     await submit_task(task)
     await update_status_message(message)
 
+
 # ═══════════════════════════════════════════════════════════════════════
-#  /encode - DUBBING & HARDMUX SUPPORT
+#  /encode - DUBBING & HARDMUX SUPPORT (MEMAKAI GLOBAL SETTINGS)
 # ═══════════════════════════════════════════════════════════════════════
 
 @router.message(Command(f"encode{CMD_SUFFIX}"))
@@ -219,7 +220,8 @@ async def _encode_video(message: Message):
          
     await message.answer("✅ Mempersiapkan proses encode...", reply_markup=ReplyKeyboardRemove())
 
-    ps = ProcessStatus(user_id, chat_id, get_username(message), message.from_user.first_name, message, Names.compress, custom_file_name)
+    # Namanya diganti jadi "encode" agar Backend tahu file ini harus membaca settingan Global
+    ps = ProcessStatus(user_id, chat_id, get_username(message), message.from_user.first_name, message, "encode", custom_file_name)
     if sub_path: ps.append_subtitles(sub_path)
     if aud_path: ps.custom_dub_audio = aud_path 
 
@@ -284,7 +286,7 @@ async def _compress_video(message: Message):
 
 
 # ═══════════════════════════════════════════════════════════════════════
-#  /convert - MANDIRI & INTERAKTIF (Bisa multi-resolusi)
+#  /convert - MANDIRI & BERANTAI FULL TOMBOL (MULTI SELECT)
 # ═══════════════════════════════════════════════════════════════════════
 
 @router.message(Command(f"convert{CMD_SUFFIX}"))
@@ -304,43 +306,70 @@ async def _convert_video(message: Message):
     link = _sanitize_link_for_db(link)
     fname = _get_fname(link, custom_file_name)
 
-    # Meminta resolusi dari pengguna.
-    # Kini tidak lagi menggunakan looping panjang, 1x klik/kirim langsung lanjut!
-    kb_res = _make_reply_kb(["240", "360", "480", "720", "1080", "❌ Batal"], 3)
-    ask_res = await message.reply("📺 **Pilih Resolusi Konversi**\nPilih dari tombol di bawah, ATAU ketik manual dan pisahkan dengan koma jika ingin multi-resolusi.\n\nContoh ketik: `480, 720, 1080`\nPilihan tersedia: `240, 360, 480, 540, 720, 1080, 1440, 2160, 4320`", reply_markup=kb_res)
-    
-    res_msg = await wait_for_message(chat_id, user_id, 120)
-    await _clean_msgs(ask_res, res_msg)
-    
-    if res_msg is None: 
-        return await message.answer("❌ Waktu habis. Dibatalkan.", reply_markup=ReplyKeyboardRemove())
-        
-    txt = (res_msg.text or "").lower()
-    if "batal" in txt:
-        return await message.answer("❌ Dibatalkan.", reply_markup=ReplyKeyboardRemove())
-        
-    # Ekstraksi semua angka valid menggunakan RegEx agar pintar & anti error!
-    nums = re.findall(r'\d+', txt)
+    # 🚨 FITUR BARU: FULL TOMBOL LOOP MULTI-SELECT 🚨
     resolutions = []
-    if nums:
-        for n in nums:
-            res = int(n)
-            if res not in resolutions:
-                resolutions.append(res)
+    opts_buttons = ["240", "360", "480", "720", "1080", "✅ Selesai", "❌ Batal"]
+    
+    ask_res = await message.reply(
+        "📺 **Pilih Resolusi Konversi**\n\n"
+        "Silakan tekan tombol angka di bawah. Anda bisa menekan beberapa tombol sekaligus.\n"
+        "Jika sudah selesai memilih, tekan tombol **✅ Selesai**.", 
+        reply_markup=_make_reply_kb(opts_buttons, 3)
+    )
+    
+    # Loop tanya-jawab hingga pengguna menekan Selesai atau Batal
+    while True:
+        res_msg = await wait_for_message(chat_id, user_id, 120)
+        await _clean_msgs(res_msg) # Bersihkan chat user yang mencet tombol agar rapi
+        
+        if res_msg is None: 
+            return await message.answer("❌ Waktu habis. Dibatalkan.", reply_markup=ReplyKeyboardRemove())
+            
+        txt = (res_msg.text or "").lower()
+        if "batal" in txt:
+            await _clean_msgs(ask_res)
+            return await message.answer("❌ Dibatalkan.", reply_markup=ReplyKeyboardRemove())
+            
+        if "selesai" in txt:
+            await _clean_msgs(ask_res)
+            break
+            
+        # Ekstrak angka resolusi dari tombol yang ditekan
+        nums = re.findall(r'\d+', txt)
+        if nums:
+            for n in nums:
+                res = int(n)
+                if res not in resolutions:
+                    resolutions.append(res)
+            
+            # Tampilkan resolusi yang sudah terpilih ke pengguna secara LIVE
+            sorted_res = sorted(resolutions, reverse=True)
+            res_str = ", ".join([f"{r}p" for r in sorted_res])
+            try:
+                await ask_res.edit_text(
+                    f"📺 **Pilih Resolusi Konversi**\n\n"
+                    f"✅ **Telah Memilih:** `{res_str}`\n\n"
+                    f"Tekan tombol angka lain untuk menambah, atau tekan **✅ Selesai** jika sudah cukup."
+                )
+            except Exception:
+                pass # Abaikan error jika isi pesan sama (Telegram tidak mengizinkan edit pesan dengan isi yang 100% sama)
+        else:
+            err = await message.answer("❌ Input tidak valid.")
+            await asyncio.sleep(1.5)
+            await _clean_msgs(err)
 
+    # Validasi Akhir
     if not resolutions:
-        err = await message.reply("❌ Input tidak valid atau tidak ada angka resolusi. Dibatalkan.", reply_markup=ReplyKeyboardRemove())
-        await asyncio.sleep(2)
-        await _clean_msgs(err)
-        return
+        return await message.answer("❌ Anda tidak memilih resolusi apapun. Dibatalkan.", reply_markup=ReplyKeyboardRemove())
 
-    # Lanjut konfirmasi jika sudah dapat resolusinya
-    res_str = ", ".join([f"{r}p" for r in sorted(resolutions, reverse=True)])
+    sorted_res = sorted(resolutions, reverse=True)
+    res_str = ", ".join([f"{r}p" for r in sorted_res])
+    
     kb_conf = _make_reply_kb(["✅ Convert", "❌ Batal"], 2)
     conf_txt = (
         f"**📺 KONFIRMASI KONVERSI RESOLUSI**\n\n"
         f"🎬 File: `{fname}`\n"
-        f"🎯 Resolusi Target: `{res_str}`\n\n"
+        f"🎯 Output File: `{len(sorted_res)} Resolusi ({res_str})`\n\n"
         "Lanjutkan?"
     )
     conf_msg = await message.reply(conf_txt, reply_markup=kb_conf)
@@ -350,14 +379,23 @@ async def _convert_video(message: Message):
     if not press or "batal" in (press.text or "").lower():
          return await message.answer("❌ Dibatalkan.", reply_markup=ReplyKeyboardRemove())
          
-    await message.answer("✅ Mempersiapkan proses konversi...", reply_markup=ReplyKeyboardRemove())
+    await message.answer(f"✅ Mengantrekan {len(sorted_res)} proses konversi secara berurutan...", reply_markup=ReplyKeyboardRemove())
 
+    # Membuat Tugas Berantai
     ps = ProcessStatus(user_id, chat_id, get_username(message), message.from_user.first_name, message, Names.convert, custom_file_name)
-    ps.custom_convert_list = sorted(resolutions, reverse=True)
+    ps.convert_quality = sorted_res[0]
+
+    # Tambahkan resolusi selanjutnya sebagai Sub-Tasks (Tugas Turunan) agar diproses sekaligus
+    if len(sorted_res) > 1:
+        for res in sorted_res[1:]:
+            mt_ps = ProcessStatus(user_id, chat_id, get_username(message), message.from_user.first_name, message, Names.convert, custom_file_name)
+            mt_ps.convert_quality = res
+            ps.append_multi_tasks(mt_ps)
 
     await get_thumbnail(ps, [f"/convert{CMD_SUFFIX}", "pass"], 120)
     task = build_task(ps, link)
 
+    # Cek opsi multi-task interaktif tambahan (opsional)
     if get_data().get(user_id, {}).get("multi_tasks"):
         if not await multi_tasks(ps, f"/convert{CMD_SUFFIX}"): del ps; return
         finalize_multi_tasks(ps)
