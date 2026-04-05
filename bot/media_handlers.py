@@ -1,7 +1,7 @@
 """
 ╔══════════════════════════════════════════════════════════════════════╗
-║       bot_helper/Handlers/media_handlers.py — v3.8                   ║
-║       Media Processing Command Handlers (Aiogram 3.x)                ║
+║        bot_helper/Handlers/media_handlers.py — v3.8                  ║
+║        Media Processing Command Handlers (Aiogram 3.x)                 ║
 ╠══════════════════════════════════════════════════════════════════════╣
 ║  CHANGELOG dari versi lama:                                          ║
 ║  [FIX] Memisahkan /compress agar lebih instan (tanpa dub/sub).       ║
@@ -9,12 +9,13 @@
 ║  [FIX] /watermark kini menggunakan tombol Skip yang aman dari error. ║
 ║  [FIX] /hardmux kini hanya meminta 1 subtitle lalu otomatis lanjut.  ║
 ║  [NEW] /softmux & /softremux kini mendukung penambahan file Audio!   ║
-║  [FIX CRITICAL] Hapus reply_markup ilegal saat edit_text di convert. ║
+║  [FIX CRITICAL] Convert freeze diperbaiki, 1-click & auto regex multi║
 ╚══════════════════════════════════════════════════════════════════════╝
 """
 
 # ── Standard Library ──────────────────────────────────────────────────
 import asyncio
+import re
 from os.path import exists
 
 # ── Aiogram ───────────────────────────────────────────────────────────
@@ -303,42 +304,37 @@ async def _convert_video(message: Message):
     link = _sanitize_link_for_db(link)
     fname = _get_fname(link, custom_file_name)
 
+    # Meminta resolusi dari pengguna.
+    # Kini tidak lagi menggunakan looping panjang, 1x klik/kirim langsung lanjut!
     kb_res = _make_reply_kb(["240", "360", "480", "720", "1080", "❌ Batal"], 3)
-    ask_res = await message.reply("📺 **Pilih Resolusi Konversi**\nKirim angka resolusi yang diinginkan. Untuk multi-resolusi, pisahkan dengan koma.\n\nContoh: `480, 720, 1080`\nPilihan: `240, 360, 480, 540, 720, 1080, 1440, 2160, 4320`", reply_markup=kb_res)
+    ask_res = await message.reply("📺 **Pilih Resolusi Konversi**\nPilih dari tombol di bawah, ATAU ketik manual dan pisahkan dengan koma jika ingin multi-resolusi.\n\nContoh ketik: `480, 720, 1080`\nPilihan tersedia: `240, 360, 480, 540, 720, 1080, 1440, 2160, 4320`", reply_markup=kb_res)
     
-    resolutions = []
-    while True:
-        res_msg = await wait_for_message(chat_id, user_id, 120)
-        await _clean_msgs(res_msg)
+    res_msg = await wait_for_message(chat_id, user_id, 120)
+    await _clean_msgs(ask_res, res_msg)
+    
+    if res_msg is None: 
+        return await message.answer("❌ Waktu habis. Dibatalkan.", reply_markup=ReplyKeyboardRemove())
         
-        if res_msg is None: 
-            return await message.answer("❌ Waktu habis. Dibatalkan.", reply_markup=ReplyKeyboardRemove())
-            
-        txt = (res_msg.text or "").lower()
-        if "batal" in txt:
-            await _clean_msgs(ask_res)
-            return await message.answer("❌ Dibatalkan.", reply_markup=ReplyKeyboardRemove())
-            
-        if "selesai" in txt:
-            await _clean_msgs(ask_res)
-            break
-            
-        num_str = "".join(filter(str.isdigit, txt))
-        if num_str:
-            res = int(num_str)
+    txt = (res_msg.text or "").lower()
+    if "batal" in txt:
+        return await message.answer("❌ Dibatalkan.", reply_markup=ReplyKeyboardRemove())
+        
+    # Ekstraksi semua angka valid menggunakan RegEx agar pintar & anti error!
+    nums = re.findall(r'\d+', txt)
+    resolutions = []
+    if nums:
+        for n in nums:
+            res = int(n)
             if res not in resolutions:
                 resolutions.append(res)
-            res_list_str = ", ".join([f"{r}p" for r in sorted(resolutions, reverse=True)])
-            # [FIX CRITICAL] Dihapus penggunaan reply_markup=kb_res di dalam edit_text
-            await ask_res.edit_text(f"📺 **Resolusi Terpilih:** `{res_list_str}`\n\nTekan opsi lain untuk menambah, atau tekan **✅ Selesai** jika sudah.")
-        else:
-            err = await message.reply("❌ Input tidak valid.")
-            await asyncio.sleep(2)
-            await _clean_msgs(err)
 
     if not resolutions:
-        return await message.answer("❌ Tidak ada resolusi valid yang dipilih. Dibatalkan.", reply_markup=ReplyKeyboardRemove())
+        err = await message.reply("❌ Input tidak valid atau tidak ada angka resolusi. Dibatalkan.", reply_markup=ReplyKeyboardRemove())
+        await asyncio.sleep(2)
+        await _clean_msgs(err)
+        return
 
+    # Lanjut konfirmasi jika sudah dapat resolusinya
     res_str = ", ".join([f"{r}p" for r in sorted(resolutions, reverse=True)])
     kb_conf = _make_reply_kb(["✅ Convert", "❌ Batal"], 2)
     conf_txt = (
