@@ -1,18 +1,17 @@
 """
 ╔══════════════════════════════════════════════════════════════════════╗
-║         bot/shared.py — v3.1                                         ║
+║         bot/shared.py — v3.2                                         ║
 ║         Shared utilities, helpers, dan base functions (Aiogram)      ║
 ╠══════════════════════════════════════════════════════════════════════╣
 ║  CHANGELOG dari versi lama:                                          ║
 ║  [NEW] Migrasi total ke Aiogram 3.x (Message objects)                ║
-║  [NEW] Sistem "Inline Waiter" (_waiters dict) pengganti              ║
+║  [NEW] Sistem "Inline Waiter" (USER_WAITERS) pengganti               ║
 ║        Telethon conversation untuk tanya-jawab interaktif.           ║
-║  [FIX] `message.message` diganti menjadi `message.text`              ║
-║  [FIX] `message.file` diganti ke pengecekan document/video/photo     ║
+║  [FIX] Menyelaraskan key Waiter ke `user_id` agar Dashboard App Mode ║
+║        (Auto-Detect) tidak bentrok dengan antrean backend.           ║
 ║  [FIX] Inline Button syntax Aiogram                                  ║
 ║  [FIX] Menambahkan kembali get_sudo_user_id untuk kompatibilitas     ║
 ║  [FIX] Mengganti emoji asterisk (*️⃣) dengan (📌) agar aman          ║
-║  [FIX] Membersihkan spasi tersembunyi & Exception handle untuk delete║
 ╚══════════════════════════════════════════════════════════════════════╝
 """
 
@@ -73,28 +72,33 @@ if not isdir("./userdata"):
 # ═══════════════════════════════════════════════════════════════════════
 #  AIOGRAM INLINE WAITER (PENGGANTI TELETHON CONVERSATION)
 # ═══════════════════════════════════════════════════════════════════════
-# Dictionary untuk melacak siapa yang sedang ditunggu balasannya
-_waiters = {}
+# Dictionary global untuk melacak siapa yang sedang ditunggu balasannya
+USER_WAITERS = {}
 
 async def wait_for_message(chat_id: int, user_id: int, timeout: int) -> Message:
     """Fungsi ajaib pengganti conv.wait_event milik Telethon."""
     loop = asyncio.get_running_loop()
     fut = loop.create_future()
-    _waiters[(chat_id, user_id)] = fut
+    # Menggunakan user_id sebagai key agar sinkron dengan Auto-Detect di Dashboard
+    USER_WAITERS[user_id] = fut
     try:
         # Menunggu sampai interceptor memberikan hasil atau timeout
         msg = await asyncio.wait_for(fut, timeout=timeout)
         return msg
     finally:
-        _waiters.pop((chat_id, user_id), None)
+        USER_WAITERS.pop(user_id, None)
 
 def resolve_waiter(message: Message) -> bool:
     """Jika fungsi ini mengembalikan True, berarti pesan ditangkap oleh conversation."""
-    key = (message.chat.id, message.from_user.id)
-    if key in _waiters and not _waiters[key].done():
-        _waiters[key].set_result(message)
+    user_id = message.from_user.id
+    if user_id in USER_WAITERS and not USER_WAITERS[user_id].done():
+        USER_WAITERS[user_id].set_result(message)
         return True
     return False
+
+def is_user_in_waiter(user_id: int) -> bool:
+    """Fungsi pembantu untuk mengecek apakah user sedang dalam proses tanya-jawab di Backend."""
+    return user_id in USER_WAITERS
 
 
 # ═══════════════════════════════════════════════════════════════════════
