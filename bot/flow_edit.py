@@ -1,6 +1,6 @@
 """
 FSM Video Editing Suite untuk STUDIO KHOIRUL
-Terintegrasi penuh dengan penangkap parameter (Interactive App Mode)
+Fix: Sinkronisasi Argumen ProcessStatus dengan Mesin v3.1
 """
 
 import asyncio
@@ -10,6 +10,7 @@ from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.exceptions import TelegramBadRequest
 
+# Ambil fungsi dan teks dari ui_dashboard
 from bot.ui_dashboard import VIDEO_EDIT_TEXT, get_back_cancel_kb, safe_edit_message
 from bot_helper.Process.Process_Status import ProcessStatus
 from bot_helper.Process.Running_Tasks import add_task
@@ -23,18 +24,28 @@ edit_router = Router(name="flow_edit")
 class VideoEditState(StatesGroup):
     waiting_for_video = State()
     choosing_tool = State()
-    waiting_for_param = State() # [BARU] Menunggu user mengetik parameter (waktu/resolusi)
+    waiting_for_param = State()
 
 # ==========================================
 # 2. HELPER KEYBOARDS
 # ==========================================
 def get_editor_tools_kb() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="🗜 Compress", callback_data="tool_compress"), InlineKeyboardButton(text="🔄 Convert", callback_data="tool_convert"), InlineKeyboardButton(text="🔗 Merge", callback_data="tool_merge")],
-        [InlineKeyboardButton(text="🎞 Trim", callback_data="tool_trim"), InlineKeyboardButton(text="✂️ Split", callback_data="tool_split"), InlineKeyboardButton(text="🔪 Cut", callback_data="tool_cut")],
-        [InlineKeyboardButton(text="📐 Crop", callback_data="tool_crop"), InlineKeyboardButton(text="🎬 Autocrop", callback_data="tool_autocrop"), InlineKeyboardButton(text="🔃 Rotate", callback_data="tool_rotate")],
-        [InlineKeyboardButton(text="📌 Hardmux", callback_data="tool_hardmux"), InlineKeyboardButton(text="📝 Softmux", callback_data="tool_softmux"), InlineKeyboardButton(text="♻️ Remux", callback_data="tool_softremux")],
-        [InlineKeyboardButton(text="🎵 Extract", callback_data="tool_extract"), InlineKeyboardButton(text="🗂 Extension", callback_data="tool_extension"), InlineKeyboardButton(text="🔢 Index", callback_data="tool_changeindex")],
+        [InlineKeyboardButton(text="🗜 Compress", callback_data="tool_compress"), 
+         InlineKeyboardButton(text="🔄 Convert", callback_data="tool_convert"), 
+         InlineKeyboardButton(text="🔗 Merge", callback_data="tool_merge")],
+        [InlineKeyboardButton(text="🎞 Trim", callback_data="tool_trim"), 
+         InlineKeyboardButton(text="✂️ Split", callback_data="tool_split"), 
+         InlineKeyboardButton(text="🔪 Cut", callback_data="tool_cut")],
+        [InlineKeyboardButton(text="📐 Crop", callback_data="tool_crop"), 
+         InlineKeyboardButton(text="🎬 Autocrop", callback_data="tool_autocrop"), 
+         InlineKeyboardButton(text="🔃 Rotate", callback_data="tool_rotate")],
+        [InlineKeyboardButton(text="📌 Hardmux", callback_data="tool_hardmux"), 
+         InlineKeyboardButton(text="📝 Softmux", callback_data="tool_softmux"), 
+         InlineKeyboardButton(text="♻️ Remux", callback_data="tool_softremux")],
+        [InlineKeyboardButton(text="🎵 Extract", callback_data="tool_extract"), 
+         InlineKeyboardButton(text="🗂 Extension", callback_data="tool_extension"), 
+         InlineKeyboardButton(text="🔢 Index", callback_data="tool_changeindex")],
         [InlineKeyboardButton(text="❌ Cancel & Delete", callback_data="action_cancel")]
     ])
 
@@ -65,22 +76,20 @@ async def catch_video_for_edit(message: Message, state: FSMContext):
     await message.reply(text, reply_markup=get_editor_tools_kb(), parse_mode="HTML")
 
 # ==========================================
-# 5. FILTER FITUR (Butuh Parameter vs Langsung Jalan)
+# 5. FILTER FITUR
 # ==========================================
 @edit_router.callback_query(VideoEditState.choosing_tool, F.data.startswith("tool_"))
 async def process_selected_tool(callback: CallbackQuery, state: FSMContext):
     tool_selected = callback.data.split("_")[1]
     
-    # Daftar alat yang butuh di-pause untuk minta parameter dari user
     tools_needing_params = {
-        "trim": "Kirimkan waktu mulai dan durasi (Format: <code>HH:MM:SS HH:MM:SS</code>).\n<i>Contoh: 00:01:00 00:00:30 (Mulai dari menit 1, potong selama 30 detik)</i>",
-        "split": "Berapa menit/detik durasi per potongan?\n<i>Contoh: 00:05:00 (untuk membagi video per 5 menit)</i>",
-        "crop": "Kirimkan resolusi potongan (Format: <code>Lebar:Tinggi</code>).\n<i>Contoh: 1080:1920 (untuk ukuran TikTok/Reels)</i>",
-        "watermark": "Silakan kirimkan gambar/foto (sebagai dokumen) yang akan dijadikan Watermark untuk video ini!"
+        "trim": "Kirimkan waktu mulai dan durasi (Format: <code>HH:MM:SS HH:MM:SS</code>).\n<i>Contoh: 00:01:00 00:00:30</i>",
+        "split": "Berapa menit/detik durasi per potongan?\n<i>Contoh: 00:05:00</i>",
+        "crop": "Kirimkan resolusi potongan (Format: <code>Lebar:Tinggi</code>).\n<i>Contoh: 1080:1920</i>",
+        "watermark": "Silakan kirimkan gambar/foto yang akan dijadikan Watermark!"
     }
     
     if tool_selected in tools_needing_params:
-        # Jika butuh parameter, tahan tugasnya!
         await state.update_data(selected_tool=tool_selected)
         await state.set_state(VideoEditState.waiting_for_param)
         await callback.message.edit_text(
@@ -88,14 +97,13 @@ async def process_selected_tool(callback: CallbackQuery, state: FSMContext):
             reply_markup=get_cancel_only_kb(), parse_mode="HTML"
         )
     else:
-        # Jika tidak butuh parameter (seperti Autocrop / Compress), eksekusi langsung!
-        await state.clear()
         data = await state.get_data()
         original_message = data.get("original_message")
+        await state.clear()
         await run_ffmpeg_engine(callback.message, original_message, tool_selected, param=None)
 
 # ==========================================
-# 6. TANGKAP PARAMETER DARI USER & JALANKAN
+# 6. TANGKAP PARAMETER
 # ==========================================
 @edit_router.message(VideoEditState.waiting_for_param)
 async def catch_parameter_and_execute(message: Message, state: FSMContext):
@@ -103,33 +111,44 @@ async def catch_parameter_and_execute(message: Message, state: FSMContext):
     original_message = data.get("original_message")
     tool_selected = data.get("selected_tool")
     
-    # Tangkap teks atau dokumen (untuk watermark)
-    param_value = message.text or getattr(message.document, "file_id", "Unknown_Param")
-    
+    param_value = message.text or getattr(message.document, "file_id", "Unknown")
     await state.clear()
     
-    msg = await message.reply(f"✅ Parameter <code>{param_value}</code> diterima. Meneruskan tugas ke server...", parse_mode="HTML")
+    msg = await message.reply(f"✅ Parameter diterima. Meneruskan ke server...", parse_mode="HTML")
     await run_ffmpeg_engine(msg, original_message, tool_selected, param=param_value)
 
 # ==========================================
-# 7. FUNGSI EKSEKUSI UTAMA
+# 7. FUNGSI EKSEKUSI UTAMA (FIXED ARGUMENTS)
 # ==========================================
 async def run_ffmpeg_engine(bot_message: Message, original_message: Message, tool_selected: str, param: str = None):
-    """Menghubungkan ke Mesin Running Tasks"""
     try:
-        # Sisipkan parameter ke dalam teks pesan asli agar terbaca oleh modul lamamu
+        user_id = original_message.from_user.id
+        chat_id = original_message.chat.id
+        username = original_message.from_user.username or ""
+        first_name = original_message.from_user.first_name or str(user_id)
+        
+        # Injeksi parameter ke pesan asli
         if param:
-            # Contoh: mengubah text seakan-akan user mengetik "/trim 00:01:00 00:00:30"
             fake_command = f"/{tool_selected} {param}"
             original_message = original_message.model_copy(update={"text": fake_command, "caption": fake_command})
 
-        await bot_message.edit_text(f"⏳ Menghubungkan tugas <b>{tool_selected.upper()}</b> ke server FFmpeg...", parse_mode="HTML")
-        process_type = getattr(Names, tool_selected, tool_selected)
+        await bot_message.edit_text(f"⏳ Menyiapkan tugas <b>{tool_selected.upper()}</b>...", parse_mode="HTML")
         
-        process_status = ProcessStatus(original_message, process_type)
-        task = {"process_status": process_status, "functions": [("telegram", original_message)]}
+        process_name = getattr(Names, tool_selected, tool_selected)
+        
+        # [FIXED] Sesuai konstruktor ProcessStatus di Process_Status.py v3.1
+        ps = ProcessStatus(
+            user_id=user_id,
+            chat_id=chat_id,
+            username=username,
+            first_name=first_name,
+            message=original_message,
+            process_name=process_name,
+            source_type="Telegram"
+        )
+        
+        task = {"process_status": ps, "functions": [("telegram", original_message)]}
         await add_task(task)
-        
         await bot_message.delete()
         
     except Exception as e:
