@@ -1,6 +1,6 @@
 """
 FSM Video Editing Suite untuk STUDIO KHOIRUL
-Fix: Sinkronisasi Argumen ProcessStatus dengan Mesin v3.1
+Trinity v3.1 Edition — Full App UX with UI Cleanup (Opsi 3)
 """
 
 import asyncio
@@ -66,14 +66,22 @@ async def trigger_edit_mode(callback: CallbackQuery, state: FSMContext):
 # ==========================================
 @edit_router.message(VideoEditState.waiting_for_video, F.video | F.document)
 async def catch_video_for_edit(message: Message, state: FSMContext):
-    await state.update_data(original_message=message)
+    # Catat ID pesan video user untuk dibersihkan nanti (Opsional)
+    garbage = [message.message_id]
+    
+    await state.update_data(original_message=message, garbage=garbage)
+    
     file_name = message.video.file_name if message.video else (message.document.file_name if message.document else "Video File")
     size_mb = round((message.video.file_size if message.video else message.document.file_size) / (1024 * 1024), 2)
     
     text = f"<blockquote>✂️ <b>𝐕𝐈𝐃𝐄𝐎 𝐄𝐃𝐈𝐓𝐈𝐍𝐆 𝐒𝐔𝐈𝐓𝐄</b>\n━━━━━━━━━━━━━━━━━━━━━━\n📥 <b>File:</b> <code>{file_name[:30]}...</code>\n💽 <b>Ukuran:</b> <code>{size_mb} MB</code>\n━━━━━━━━━━━━━━━━━━━━━━\n<i>Pilih operasi yang ingin diterapkan:</i></blockquote>"
     
     await state.set_state(VideoEditState.choosing_tool)
-    await message.reply(text, reply_markup=get_editor_tools_kb(), parse_mode="HTML")
+    sent_msg = await message.reply(text, reply_markup=get_editor_tools_kb(), parse_mode="HTML")
+    
+    # Tambahkan ID pesan panel ke daftar sampah
+    garbage.append(sent_msg.message_id)
+    await state.update_data(garbage=garbage)
 
 # ==========================================
 # 5. FILTER FITUR
@@ -81,6 +89,8 @@ async def catch_video_for_edit(message: Message, state: FSMContext):
 @edit_router.callback_query(VideoEditState.choosing_tool, F.data.startswith("tool_"))
 async def process_selected_tool(callback: CallbackQuery, state: FSMContext):
     tool_selected = callback.data.split("_")[1]
+    data = await state.get_data()
+    garbage = data.get("garbage", [])
     
     tools_needing_params = {
         "trim": "Kirimkan waktu mulai dan durasi (Format: <code>HH:MM:SS HH:MM:SS</code>).\n<i>Contoh: 00:01:00 00:00:30</i>",
@@ -97,10 +107,10 @@ async def process_selected_tool(callback: CallbackQuery, state: FSMContext):
             reply_markup=get_cancel_only_kb(), parse_mode="HTML"
         )
     else:
-        data = await state.get_data()
         original_message = data.get("original_message")
         await state.clear()
-        await run_ffmpeg_engine(callback.message, original_message, tool_selected, param=None)
+        # Jalankan mesin dengan daftar sampah yang sudah terkumpul
+        await run_ffmpeg_engine(callback.message, original_message, tool_selected, garbage, param=None)
 
 # ==========================================
 # 6. TANGKAP PARAMETER
@@ -110,17 +120,24 @@ async def catch_parameter_and_execute(message: Message, state: FSMContext):
     data = await state.get_data()
     original_message = data.get("original_message")
     tool_selected = data.get("selected_tool")
+    garbage = data.get("garbage", [])
+    
+    # Tambahkan pesan parameter user ke daftar sampah
+    garbage.append(message.message_id)
     
     param_value = message.text or getattr(message.document, "file_id", "Unknown")
     await state.clear()
     
     msg = await message.reply(f"✅ Parameter diterima. Meneruskan ke server...", parse_mode="HTML")
-    await run_ffmpeg_engine(msg, original_message, tool_selected, param=param_value)
+    # Tambahkan pesan "Parameter diterima" ke daftar sampah
+    garbage.append(msg.message_id)
+    
+    await run_ffmpeg_engine(msg, original_message, tool_selected, garbage, param=param_value)
 
 # ==========================================
-# 7. FUNGSI EKSEKUSI UTAMA (FIXED ARGUMENTS)
+# 7. FUNGSI EKSEKUSI UTAMA (FIXED ARGUMENTS + CLEANUP)
 # ==========================================
-async def run_ffmpeg_engine(bot_message: Message, original_message: Message, tool_selected: str, param: str = None):
+async def run_ffmpeg_engine(bot_message: Message, original_message: Message, tool_selected: str, garbage: list, param: str = None):
     try:
         user_id = original_message.from_user.id
         chat_id = original_message.chat.id
@@ -147,9 +164,17 @@ async def run_ffmpeg_engine(bot_message: Message, original_message: Message, too
             source_type="Telegram"
         )
         
+        # SUNTIKKAN DAFTAR SAMPAH KE OBJEK PROCESS STATUS (OPSI 3)
+        ps.garbage_messages = garbage
+
         task = {"process_status": ps, "functions": [("telegram", original_message)]}
         await add_task(task)
-        await bot_message.delete()
+        
+        # Hapus pesan loading terakhir agar digantikan pesan progres asli
+        try:
+            await bot_message.delete()
+        except:
+            pass
         
     except Exception as e:
         await bot_message.edit_text(f"❌ <b>Gagal Menambahkan Task:</b>\n<code>{e}</code>", parse_mode="HTML")
