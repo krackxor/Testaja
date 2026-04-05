@@ -13,6 +13,7 @@
 ║  [IMPROVE]  Auto-Loader Router untuk menghindari Unhandled Updates   ║
 ║  [FIX]      Inisialisasi Aria2 Engine sebelum listener               ║
 ║  [NEW]      Startup Cleanup otomatis membersihkan folder downloads/  ║
+║  [NEW]      Integrasi Premium UI Dashboard (STUDIO KHOIRUL)          ║
 ╚══════════════════════════════════════════════════════════════════════╝
 """
 
@@ -32,7 +33,7 @@ from bot_helper.Aria2.Aria2_Engine import start_listener, Aria2
 from bot_helper.Telegram.Telegram_Client import Telegram
 from bot.shared import resolve_waiter
 
-# [TAMBAHAN] Import fungsi auto-cleaner yang kita buat sebelumnya
+# Import fungsi auto-cleaner
 from bot_helper.Process.Running_Tasks import clear_all_trash_on_startup
 
 # Coba pasang uvloop untuk akselerasi (jika di Linux/VPS)
@@ -61,6 +62,9 @@ import bot.Gameplay
 import bot.AutoClip
 import bot.MovieRecap
 import bot.YTUpload
+
+# [TAMBAHAN BARU] Import UI Dashboard yang baru kita buat
+import bot.ui_dashboard 
 
 # Import task background
 try:
@@ -140,7 +144,7 @@ async def start_user_account():
 async def main():
     LOGGER.info("⚡ Starting Trinity Clients (Aiogram + Telethon + Pyrogram) ⚡")
 
-    # ─── [TAMBAHAN] PEMBERSIHAN FILE SISA (STARTUP CLEANUP) ───
+    # ─── PEMBERSIHAN FILE SISA (STARTUP CLEANUP) ───
     await clear_all_trash_on_startup()
     # ──────────────────────────────────────────────────────────
 
@@ -152,7 +156,8 @@ async def main():
     modules_to_include = [
         bot.admin_handlers, bot.vip_handlers, bot.media_handlers,
         bot.advanced_media_handlers, bot.callbacks, bot.Gameplay,
-        bot.AutoClip, bot.MovieRecap, bot.YTUpload
+        bot.AutoClip, bot.MovieRecap, bot.YTUpload,
+        bot.ui_dashboard  # <--- [TAMBAHAN BARU] Router UI Dashboard didaftarkan di sini
     ]
     
     loaded_routers = 0
@@ -161,6 +166,11 @@ async def main():
             Telegram.AIOGRAM_DP.include_router(mod.router)
             loaded_routers += 1
             LOGGER.info(f"✅ Router Attached: {mod.__name__}")
+        # Tambahan proteksi jika nama router berbeda di UI
+        elif hasattr(mod, 'ui_router'):
+            Telegram.AIOGRAM_DP.include_router(mod.ui_router)
+            loaded_routers += 1
+            LOGGER.info(f"✅ UI Router Attached: {mod.__name__}")
     
     LOGGER.info(f"🔗 Total {loaded_routers} Aiogram Routers Successfully Linked!")
     # ────────────────────────────
