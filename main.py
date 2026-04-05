@@ -12,6 +12,7 @@
 ║  [FIX]      Jalur import shared.py disesuaikan ke folder bot/        ║
 ║  [IMPROVE]  Auto-Loader Router untuk menghindari Unhandled Updates   ║
 ║  [FIX]      Inisialisasi Aria2 Engine sebelum listener               ║
+║  [NEW]      Startup Cleanup otomatis membersihkan folder downloads/  ║
 ╚══════════════════════════════════════════════════════════════════════╝
 """
 
@@ -30,6 +31,9 @@ from config.config import Config
 from bot_helper.Aria2.Aria2_Engine import start_listener, Aria2
 from bot_helper.Telegram.Telegram_Client import Telegram
 from bot.shared import resolve_waiter
+
+# [TAMBAHAN] Import fungsi auto-cleaner yang kita buat sebelumnya
+from bot_helper.Process.Running_Tasks import clear_all_trash_on_startup
 
 # Coba pasang uvloop untuk akselerasi (jika di Linux/VPS)
 try:
@@ -135,6 +139,10 @@ async def start_user_account():
 ###############------Main_Async_Loop------###############
 async def main():
     LOGGER.info("⚡ Starting Trinity Clients (Aiogram + Telethon + Pyrogram) ⚡")
+
+    # ─── [TAMBAHAN] PEMBERSIHAN FILE SISA (STARTUP CLEANUP) ───
+    await clear_all_trash_on_startup()
+    # ──────────────────────────────────────────────────────────
 
     # Mendaftarkan Middleware Global
     Telegram.AIOGRAM_DP.message.outer_middleware(WaiterCatcherMiddleware())
