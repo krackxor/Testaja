@@ -1,7 +1,7 @@
 """
 UI Dashboard Template for STUDIO KHOIRUL (Aiogram 3.x)
 Versi: FULL APP NAVIGATION (Trinity v3.1 Edition)
-Fitur: One-Click Execution, Massive Grid Layout, Dynamic Routing
+Fix: Menyelesaikan ImportError VIDEO_EDIT_TEXT & One-Click Execution
 """
 
 import asyncio
@@ -18,6 +18,16 @@ ui_router = Router(name="ui_dashboard")
 # ==========================================
 # 1. CONSTANTS & TEXT TEMPLATES (HTML Mode)
 # ==========================================
+
+# [CRITICAL FIX] Variabel ini wajib ada untuk di-import oleh flow_edit.py
+VIDEO_EDIT_TEXT = """
+<blockquote>✂️ <b>𝐕𝐈𝐃𝐄𝐎 𝐄𝐃𝐈𝐓𝐈𝐍𝐆 𝐒𝐔𝐈𝐓𝐄</b>
+━━━━━━━━━━━━━━━━━━━━━━
+Silakan <b>kirim atau teruskan (forward)</b> video yang ingin Anda edit ke obrolan ini.
+
+Sistem akan secara otomatis mendeteksi file dan memunculkan panel alat editing (Trim, Crop, Compress, dll).
+━━━━━━━━━━━━━━━━━━━━━━</blockquote>
+"""
 
 MAIN_DASHBOARD_TEXT = """
 <blockquote>🎬 <b>𝐒 𝐓 𝐔 𝐃 𝐈 𝐎  𝐊 𝐇 𝐎 𝐈 𝐑 𝐔 𝐋</b>
@@ -68,7 +78,7 @@ def get_back_cancel_kb() -> InlineKeyboardMarkup:
 def get_main_menu_kb(is_admin: bool = False) -> InlineKeyboardMarkup:
     kb = [
         [InlineKeyboardButton(text="🎬 Studio Produksi", callback_data="menu_studio"),
-         InlineKeyboardButton(text="✂️ Video Editing", callback_data="menu_vid_edit")],
+         InlineKeyboardButton(text="✂️ Video Editing", callback_data="menu_vid_edit")], # Mengarah ke state flow_edit
         [InlineKeyboardButton(text="🎮 Manajemen Aset", callback_data="menu_assets"),
          InlineKeyboardButton(text="📥 Unduh & Cloud", callback_data="menu_downloader")],
         [InlineKeyboardButton(text="⚙️ Pengaturan Bot", callback_data="menu_settings"),
@@ -205,7 +215,6 @@ async def catch_all_commands(callback: CallbackQuery):
     ]
     
     if command_name in instant_commands:
-        # Pengecekan Sudo untuk perintah admin instan
         if command_name in ["speedtest", "restart", "renew", "log", "logs"] and not check_is_admin(user_id):
             return await callback.answer("⛔ Perintah ini hanya untuk Admin!", show_alert=True)
             
@@ -216,7 +225,7 @@ async def catch_all_commands(callback: CallbackQuery):
         fake_msg.from_user = callback.from_user
         fake_msg.text = f"/{command_name}"
         
-        # Import Handlers secara dinamis
+        # Import Handlers secara dinamis dari file aslimu
         from bot.admin_handlers import _speedtest, _status, _time, _stats, _restart, _renew, _log, _logs
         from bot.vip_handlers import _myvip, _checksudo
         
@@ -227,14 +236,13 @@ async def catch_all_commands(callback: CallbackQuery):
         }
         
         if command_name in handlers:
-            # Sembunyikan dashboard sebelum eksekusi agar tidak menumpuk
             await callback.message.delete()
             return await handlers[command_name](fake_msg)
 
     # ─── JIKA BUKAN INSTAN: Tampilkan Panduan ───
     instruction_text = f"""<blockquote>💡 <b>𝐌𝐎𝐃𝐔𝐋 𝐀𝐊𝐓𝐈𝐅: <code>/{command_name}</code></b>
 ━━━━━━━━━━━━━━━━━━━━━━
-Modul ini memerlukan input file atau parameter.
+Modul ini memerlukan input file atau naskah.
 Silakan kirimkan File/Link ke obrolan ini, lalu gunakan perintah <code>/{command_name}</code>.
 ━━━━━━━━━━━━━━━━━━━━━━</blockquote>"""
 
