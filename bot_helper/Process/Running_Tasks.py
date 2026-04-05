@@ -1,18 +1,14 @@
 """
 ╔══════════════════════════════════════════════════════════════════════╗
-║            bot_helper/Process/Running_Tasks.py                       ║
-║            Encoder1 Bot — v3.1 (Aiogram 3.x)                         ║
+║             bot_helper/Process/Running_Tasks.py                      ║
+║             Encoder1 Bot — v3.1 (Aiogram 3.x)                         ║
 ╠══════════════════════════════════════════════════════════════════════╣
 ║  CHANGELOG dari versi lama:                                          ║
 ║  [FIX HIGH]  pkill ffmpeg global → kill PID spesifik                 ║
 ║  [FIX HIGH]  get_data()[user_id] → .get() semua tempat               ║
 ║  [FIX HIGH]  analyze_ffmpeg_error tuple → dict (Step 8 API)          ║
 ║  [FIX HIGH]  refresh_tasks return di dalam while → logic benar       ║
-║  [FIX]       Iterasi working_task tanpa lock → list() snapshot       ║
-║  [FIX]       queued_task list → deque (O(1) popleft)                 ║
-║  [FIX]       create_log_file sync → pathlib.touch()                  ║
-║  [FIX]       handle_extract gather → Semaphore(3)                    ║
-║  [FIX]       bare except rmtree → (OSError, FileNotFoundError)       ║
+║  [NEW]       Opsi 3: UI Cleanup (Hapus pesan instruksi otomatis)     ║
 ║  [FIX BUG]   FFmpeg sukses tidak lanjut upload (process_completed)   ║
 ║  [IMPROVE]   Mencegah Deadlock UI dengan asyncio.gather              ║
 ║  [IMPROVE]   Timeout Dinamis & Penambahan Fungsi Startup Cleanup     ║
@@ -135,20 +131,32 @@ def get_user_id(process_id: str):
 
 
 # ═══════════════════════════════════════════════════════════════════════
-#  TRASH CLEANUP
+#  TRASH CLEANUP (MODIFIED FOR OPSI 3)
 # ═══════════════════════════════════════════════════════════════════════
 
 async def clear_trash(task: dict, trash_objects: list, multi_tasks: list) -> None:
     new_task = False
     process_id = task["process_status"].process_id
+    ps = task["process_status"]
+
+    # ── LOGIKA OPSI 3: UI CLEANUP ──
+    # Menghapus semua pesan loading/instruksi yang tersisa
+    if hasattr(ps, "garbage_messages") and ps.garbage_messages:
+        LOGGER.info(f"🧹 Membersihkan {len(ps.garbage_messages)} pesan sampah untuk {process_id}")
+        for msg_id in ps.garbage_messages:
+            try:
+                await Telegram.AIOGRAM_BOT.delete_message(ps.chat_id, msg_id)
+            except Exception:
+                pass
+        ps.garbage_messages = []
 
     if len(multi_tasks):
         if check_running_process(process_id):
             new_process_status = multi_tasks[0]
-            new_process_status.move_send_files(task["process_status"].send_files)
+            new_process_status.move_send_files(ps.send_files)
             multi_tasks.pop(0)
             new_process_status.replace_multi_tasks(multi_tasks)
-            new_process_status.move_custom_thumbnail(task["process_status"].thumbnail)
+            new_process_status.move_custom_thumbnail(ps.thumbnail)
             new_task = {"process_status": new_process_status, "functions": []}
         else:
             for t in multi_tasks:
@@ -167,9 +175,9 @@ async def clear_trash(task: dict, trash_objects: list, multi_tasks: list) -> Non
         LOGGER.info(f"✅ Killed {killed} FFmpeg process(es) untuk task {process_id}")
 
     try:
-        shutil.rmtree(task["process_status"].dir, ignore_errors=False)
+        shutil.rmtree(ps.dir, ignore_errors=False)
     except (OSError, FileNotFoundError) as e:
-        LOGGER.warning(f"⚠️  rmtree gagal untuk {task['process_status'].dir}: {e}")
+        LOGGER.warning(f"⚠️  rmtree gagal untuk {ps.dir}: {e}")
 
     del task["process_status"]
     if trash_objects:
@@ -319,7 +327,6 @@ async def handle_autocrop(process_status) -> bool:
     input_file = process_status.send_files[-1]
     process_status.update_process_message("✨ Mendeteksi bilah hitam...")
 
-    # [IMPROVE] Menambahkan "-v", "warning" agar buffer terminal tidak penuh (deadlock buffer)
     detect_cmd = [
         "ffmpeg", "-hide_banner", "-v", "warning",
         "-i", input_file,
@@ -357,7 +364,6 @@ async def handle_autocrop(process_status) -> bool:
     ffmpeg_status = FfmpegStatus(ffmpeg_process, log_file, input_file, output_file, file_duration)
     create_task(ffmpeg_status.logger(process_status.process_id, process_status.dir, command))
     
-    # [IMPROVE] Gunakan gather agar status updater dan proses jalan paralel
     await asyncio.gather(
         process_status.update_status(ffmpeg_status),
         ffmpeg_process.wait()
@@ -403,7 +409,7 @@ async def handle_extract(process_status) -> bool:
         await _safe_send(process_status, f"❌ Gagal membaca stream dari video: `{e}`")
         return False
 
-    commands     = []
+    commands      = []
     output_files = []
 
     for stream_map in process_status.extract_maps:
@@ -426,7 +432,7 @@ async def handle_extract(process_status) -> bool:
             elif "ac3" in codec_name: ext = "ac3"
             else:                     ext = "mka"
 
-        lang        = stream_info.get("tags", {}).get("language", "und")
+        lang         = stream_info.get("tags", {}).get("language", "und")
         output_file = path_join(output_dir, f"track_{stream_index}_{lang}.{ext}")
         output_files.append(output_file)
         commands.append(["ffmpeg", "-hide_banner", "-i", input_file, "-map", stream_map, "-c", "copy", "-y", output_file])
@@ -506,7 +512,6 @@ async def start_task(task: dict) -> None:
         await task_manager()
         return
 
-    # Pre-download only — skip upload
     if process_status.process_type == Names.pre_download:
         LOGGER.info(f"Pre-download selesai untuk {process_status.process_id}")
         async with working_task_lock:
@@ -571,7 +576,6 @@ async def start_task(task: dict) -> None:
                 trash_objects.append(ffmpeg_status)
 
                 try:
-                    # [IMPROVE] Timeout Dinamis dan Menjalankan Update UI paralel
                     timeout_limit = getattr(Config, 'FFMPEG_TIMEOUT', 7200)
                     
                     await asyncio.wait_for(
@@ -682,15 +686,13 @@ async def start_task(task: dict) -> None:
 async def clear_all_trash_on_startup():
     """
     Fungsi ini memindai direktori download dan membersihkannya saat bot di-restart.
-    Panggil fungsi ini di dalam `main.py` sebelum dispatcher mulai menerima request.
-    Contoh: await clear_all_trash_on_startup()
     """
     try:
-        download_dir = getattr(Config, 'DOWNLOAD_DIR', './downloads')
-        if os.path.exists(download_dir):
+        d_dir = getattr(Config, 'DOWNLOAD_DIR', './downloads')
+        if os.path.exists(d_dir):
             LOGGER.info("🧹 Membersihkan sisa file di direktori kerja (Startup Cleanup)...")
-            for item in os.listdir(download_dir):
-                item_path = os.path.join(download_dir, item)
+            for item in os.listdir(d_dir):
+                item_path = os.path.join(d_dir, item)
                 try:
                     if os.path.isdir(item_path):
                         shutil.rmtree(item_path)
