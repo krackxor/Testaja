@@ -1,14 +1,14 @@
 """
 ╔══════════════════════════════════════════════════════════════════════╗
 ║            bot_helper/FFMPEG/FFMPEG_Commands.py                      ║
-║            Encoder1 Bot — v3.2                                       ║
+║            Encoder1 Bot — v3.4 (Strict Encode Isolation)             ║
 ╠══════════════════════════════════════════════════════════════════════╣
 ║  CHANGELOG dari versi lama:                                          ║
 ║  [FIX CRITICAL] Memasukkan kembali semua instruksi untuk Split,      ║
 ║                 Extract, Autocrop, GenSample, dan GenSS.             ║
 ║  [NEW]      Alat cepat (/trim, /cut) menggunakan Stream Copy instan  ║
-║  [NEW]      Perintah modifikasi piksel (Watermark/Crop/Rotate) kebal ║
-║             dari settingan global agar menghindari re-encode lambat. ║
+║  [NEW]      Pemisahan Mutlak: Pengaturan Global HANYA berfungsi      ║
+║             untuk perintah /encode. Sisanya DIABAIKAN total!         ║
 ║  [SECURITY] get_data()[user_id] → .get() — tidak crash KeyError      ║
 ║  [SECURITY] drawtext escape lebih ketat — cegah filter injection     ║
 ╚══════════════════════════════════════════════════════════════════════╝
@@ -114,12 +114,25 @@ class FFmpegCommandBuilder:
         self.ps        = process_status
         self.user_id   = process_status.user_id
         self.user_data = get_data().get(self.user_id, {})
-        self.video_settings    = self.user_data.get("video", {})
-        self.audio_settings    = self.user_data.get("audio", {})
-        self.watermark_settings = self.user_data.get("watermark", {})
-        self.metadata_settings = self.user_data.get("metadata", {})
-        self.merge_settings    = self.user_data.get("merge", {})
-        self.mux_settings      = self.user_data.get("mux", {})
+        
+        # 🚨 ISOLASI PENGATURAN GLOBAL: Hanya berlaku untuk /encode
+        if self.ps.process_type == "encode":
+            self.video_settings     = self.user_data.get("video", {})
+            self.audio_settings     = self.user_data.get("audio", {})
+            self.metadata_settings  = self.user_data.get("metadata", {})
+            self.watermark_settings = self.user_data.get("watermark", {})
+            self.merge_settings     = self.user_data.get("merge", {})
+            self.mux_settings       = self.user_data.get("mux", {})
+        else:
+            # Jika perintah lain (Convert, Compress, Trim, dll), KOSONGKAN SEMUA SETTINGAN GLOBAL
+            # Agar ffmpeg bekerja secara bersih, independen, tanpa watermark bocor, dan instan!
+            self.video_settings     = {}
+            self.audio_settings     = {}
+            self.metadata_settings  = {}
+            self.watermark_settings = {}
+            self.merge_settings     = {}
+            self.mux_settings       = {}
+            
         self.command              = ["ffmpeg", "-hide_banner", "-loglevel", "warning", "-stats"]
         self.video_filters        = []
         self.audio_filters        = []
@@ -159,7 +172,7 @@ class FFmpegCommandBuilder:
 
     def build_audio_filters(self) -> None:
         if not self.audio_settings.get("enabled", False) and self.ps.process_type not in [Names.cut]: return
-        if self.ps.process_type == Names.cut and self.ps.cut_ranges:
+        if self.ps.process_type == Names.cut and hasattr(self.ps, "cut_ranges") and self.ps.cut_ranges:
             select_parts = [f"between(t,{start},{end})" for start, end in self.ps.cut_ranges]
             self.audio_filters.append(f"aselect='not({'+'.join(select_parts)})',asetpts=N/SR/TB")
         normalization = self.audio_settings.get("normalization", "Off")
@@ -175,10 +188,9 @@ class FFmpegCommandBuilder:
         codec = self.audio_settings.get("codec", "Auto")
         if self.ps.process_type == Names.cut: codec = "aac"
         
-        # [NEW FIX] Mendukung Dubbing Audio Khusus dari /encode
         if hasattr(self.ps, "custom_dub_audio") and self.ps.custom_dub_audio:
             if os.path.exists(self.ps.custom_dub_audio):
-                codec = "aac"  # Wajib encode ulang jika ada dubbing
+                codec = "aac" 
             
         if codec == "Auto":
             if self.stream_info and self.stream_info.has_audio: self.command.extend(["-c:a", "copy"])
@@ -203,22 +215,32 @@ class FFmpegCommandBuilder:
         if samplerate != "Auto": self.command.extend(["-ar", samplerate])
 
     def build_video_filters(self) -> None:
-        if self.ps.process_type == Names.cut and self.ps.cut_ranges:
+        if self.ps.process_type == Names.cut and hasattr(self.ps, "cut_ranges") and self.ps.cut_ranges:
             select_parts = [f"between(t,{start},{end})" for start, end in self.ps.cut_ranges]
             self.video_filters.append(f"select='not({'+'.join(select_parts)})',setpts=N/FRAME_RATE/TB")
-        if self.ps.process_type == Names.convert and self.ps.convert_quality: self.video_filters.append(f"scale=-2:{self.ps.convert_quality}")
-        if self.ps.process_type == Names.rotate and self.ps.rotate_option: self.video_filters.append(self.ps.rotate_option)
-        if self.ps.process_type == Names.crop and self.ps.crop_params: self.video_filters.append(self.ps.crop_params)
-        if self.ps.process_type in [Names.convert, Names.compress]:
+        
+        # Eksekusi Resolusi Khusus Convert
+        if self.ps.process_type == Names.convert and hasattr(self.ps, "convert_quality") and self.ps.convert_quality: 
+            self.video_filters.append(f"scale=-2:{self.ps.convert_quality}")
+            
+        if self.ps.process_type == Names.rotate and hasattr(self.ps, "rotate_option") and self.ps.rotate_option: 
+            self.video_filters.append(self.ps.rotate_option)
+        if self.ps.process_type == Names.crop and hasattr(self.ps, "crop_params") and self.ps.crop_params: 
+            self.video_filters.append(self.ps.crop_params)
+            
+        if self.ps.process_type in ["encode", Names.compress]:
             resolution = self.video_settings.get("resolution", "Auto")
             if resolution != "Auto":
                 if "x" in resolution: self.video_filters.append(f"scale={resolution}")
                 elif resolution.isdigit(): self.video_filters.append(f"scale=-2:{resolution}")
 
     def build_watermark(self) -> None:
-        if hasattr(self.ps, "custom_watermark") and self.ps.custom_watermark: wm_settings = self.ps.custom_watermark
+        # Walaupun global watermark dimatikan/dikosongkan, jika perintahnya adalah /watermark (interaktif),
+        # dia akan tetap membawa custom_watermark miliknya sendiri secara independen!
+        if hasattr(self.ps, "custom_watermark") and self.ps.custom_watermark: 
+            wm_settings = self.ps.custom_watermark
         else:
-            if not self.watermark_settings.get("enabled") or self.ps.process_type not in [Names.compress, Names.convert, Names.watermark]: return
+            if not self.watermark_settings.get("enabled") or self.ps.process_type not in [Names.compress, Names.convert, Names.watermark, "encode"]: return
             wm_settings = self.watermark_settings
             
         wm_type = wm_settings.get("type", "image"); duration_settings = wm_settings.get(wm_type, {}).get("duration", {}); mode = duration_settings.get("mode", "full")
@@ -257,7 +279,7 @@ class FFmpegCommandBuilder:
             self.use_filter_complex  = True
 
     def build_hardmux_subtitle(self) -> None:
-        if self.ps.process_type not in [Names.hardmux, Names.compress, Names.convert]: return
+        if self.ps.process_type not in [Names.hardmux, Names.compress, Names.convert, "encode"]: return
         if not hasattr(self.ps, "subtitles") or not self.ps.subtitles: return
         sub_file = str(self.ps.subtitles[-1])
         if not exists(sub_file): return
@@ -268,16 +290,21 @@ class FFmpegCommandBuilder:
         self.use_filter_complex  = True
 
     def build_video_codec(self) -> None:
-        needs_encode = (self.video_filters or self.use_filter_complex or (self.video_settings.get("enabled", True) and self.ps.process_type in [Names.compress, Names.convert]) or self.ps.process_type in [Names.cut, Names.crop, Names.rotate, Names.watermark, Names.hardmux])
+        needs_encode = (self.video_filters or self.use_filter_complex or (self.video_settings.get("enabled", True) and self.ps.process_type in [Names.compress, Names.convert, "encode"]) or self.ps.process_type in [Names.cut, Names.crop, Names.rotate, Names.watermark, Names.hardmux])
         if not needs_encode: self.command.extend(["-c:v", "copy"]); return
 
-        if self.ps.process_type in [Names.cut, Names.crop, Names.rotate, Names.watermark, Names.hardmux]: encoder, preset, crf = "libx264", "fast", 24
-        else: encoder, preset, crf = self.video_settings.get("encoder", "libx264"), self.video_settings.get("preset", DEFAULT_PRESET), _safe_crf(self.video_settings.get("crf", DEFAULT_CRF))
+        # 🚨 KECEPATAN INSTAN: Jika perintah BUKAN encode, paksa ffmpeg berjalan sangat cepat!
+        if self.ps.process_type == "encode":
+            encoder = self.video_settings.get("encoder", "libx264")
+            preset  = self.video_settings.get("preset", DEFAULT_PRESET)
+            crf     = _safe_crf(self.video_settings.get("crf", DEFAULT_CRF))
+        else:
+            encoder, preset, crf = "libx264", "veryfast", 24
 
         self.command.extend(["-c:v", encoder, "-preset", preset, "-crf", str(crf)])
         if encoder == "libx265": self.command.extend(["-vtag", "hvc1"])
 
-        if self.ps.process_type in [Names.compress, Names.convert]:
+        if self.ps.process_type in ["encode", Names.compress, Names.convert]:
             tune = self.video_settings.get("tune", "None")
             if tune and tune != "None": self.command.extend(["-tune", tune.lower()])
             pixel_format = self.video_settings.get("pixel_format", "Auto")
@@ -314,9 +341,10 @@ class FFmpegCommandBuilder:
     # ── Command Builders ─────────────────────────────────────────────
 
     def build_compress_convert_command(self):
-        dir_name = self.ps.process_type.lower(); self.create_directory(f"{self.ps.dir}/{dir_name}/")
+        dir_name = self.ps.process_type.lower()
+        self.create_directory(f"{self.ps.dir}/{dir_name}/")
         log_file = f"{self.ps.dir}/{dir_name}/{dir_name}_logs_{self.ps.process_id}.txt"
-        output_file = f"{self.ps.dir}/{dir_name}/{self.get_output_name(convert_quality=self.ps.convert_quality if self.ps.process_type == Names.convert else False)}"
+        output_file = f"{self.ps.dir}/{dir_name}/{self.get_output_name(convert_quality=getattr(self.ps, 'convert_quality', False) if self.ps.process_type == Names.convert else False)}"
         input_file = str(self.ps.send_files[-1]) if self.ps.send_files else ""
         if not input_file: return None, None, None, None, 0
         stream_info = self.probe_input_file(input_file)
@@ -327,7 +355,7 @@ class FFmpegCommandBuilder:
         self.command.extend(["-y", output_file])
         
         file_duration = stream_info.duration
-        if self.ps.process_type == Names.cut and self.ps.cut_ranges:
+        if self.ps.process_type == Names.cut and hasattr(self.ps, "cut_ranges") and self.ps.cut_ranges:
             total_cut = sum(end - start for start, end in self.ps.cut_ranges)
             file_duration = max(0, file_duration - total_cut)
         return self.command, log_file, input_file, output_file, file_duration
@@ -574,7 +602,7 @@ class FFmpegCommandBuilder:
     def build(self):
         process_type = self.ps.process_type
         try:
-            if process_type in [Names.compress, Names.watermark, Names.convert, Names.hardmux, Names.cut, Names.rotate, Names.crop]:
+            if process_type in [Names.compress, Names.watermark, Names.convert, Names.hardmux, Names.cut, Names.rotate, Names.crop, "encode"]:
                 return self.build_compress_convert_command()
             elif process_type == Names.trim: return self.build_trim_command()
             elif process_type == Names.extension: return self.build_extension_command()
