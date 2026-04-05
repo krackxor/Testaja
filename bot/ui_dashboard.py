@@ -371,6 +371,7 @@ async def catch_all_commands(callback: CallbackQuery):
     command_name = callback.data.split("_", 1)[1]
     user_id = callback.from_user.id
     
+    # Perintah yang langsung dieksekusi tanpa butuh input lanjutan
     instant_commands = [
         "speedtest", "status", "time", "stats", "restart", 
         "renew", "myvip", "log", "checksudo", "logs", "vip_info"
@@ -382,9 +383,11 @@ async def catch_all_commands(callback: CallbackQuery):
             
         await callback.answer(f"🚀 Executing /{command_name}...", show_alert=False)
         
-        fake_msg = callback.message
-        fake_msg.from_user = callback.from_user
-        fake_msg.text = f"/{command_name}"
+        # Membuat salinan dari objek Message untuk menghindari error Frozen Instance
+        fake_msg = callback.message.model_copy(update={
+            "from_user": callback.from_user,
+            "text": f"/{command_name}"
+        })
         
         try:
             from bot.admin_handlers import _speedtest, _status, _time, _stats, _restart, _renew, _log, _logs
@@ -402,13 +405,69 @@ async def catch_all_commands(callback: CallbackQuery):
         except ImportError:
             pass
 
-    # Untuk commands yang butuh input
+    # --- DAFTAR INSTRUKSI KHUSUS UNTUK SETIAP TOMBOL ---
+    custom_instructions = {
+        # Asset Manager
+        "addgameplay": "🎮 Silakan kirimkan <b>Video Gameplay</b> atau <b>Link</b> ke obrolan ini.",
+        "deletegameplay": "🗑️ Silakan cek <b>List Gameplay</b>, lalu kirimkan <b>ID Gameplay</b> yang ingin dihapus ke obrolan ini.",
+        "addsfx": "🔊 Silakan kirimkan file <b>Audio/SFX</b> ke obrolan ini.",
+        "listgameplay": "📋 <i>Mengarahkan ke daftar...</i>\n\nJika daftar tidak muncul otomatis, silakan ketik perintah <code>/listgameplay</code> di obrolan.",
+        
+        # VIP & Admin
+        "verify": "🔑 Silakan kirimkan <b>Kode Verifikasi Trakteer</b> Anda ke obrolan ini.",
+        "resetdb": "⚠️ <b>PERINGATAN RESET DATABASE</b> ⚠️\n\nApakah Anda yakin ingin mereset database?\n<i>Ketik <b>YA</b> untuk melanjutkan, atau klik tombol <b>Batal/Tutup</b> di bawah.</i>",
+        
+        # Video Editing Suite
+        "compress": "🗜️ Kirimkan <b>Video</b> yang ingin di-compress ukurannya.",
+        "convert": "🔄 Kirimkan <b>Video</b> yang formatnya ingin diubah.",
+        "merge": "🔗 Kirimkan beberapa <b>Video</b> yang ingin digabungkan.",
+        "trim": "🎞️ Kirimkan <b>Video</b> beserta waktu potong (Trim).",
+        "split": "✂️ Kirimkan <b>Video</b> yang ingin di-split (dibagi menjadi beberapa bagian).",
+        "cut": "🔪 Kirimkan <b>Video</b> yang ingin di-cut bagian tengahnya.",
+        "crop": "📐 Kirimkan <b>Video</b> yang ingin di-crop (potong frame layarnya).",
+        "autocrop": "🎬 Kirimkan <b>Video</b> untuk proses Autocrop (hilangkan bar hitam otomatis).",
+        "rotate": "🔃 Kirimkan <b>Video</b> yang ingin dirotasi derajatnya.",
+        "hardmux": "📌 Kirimkan <b>Video</b> beserta file <b>Subtitle (.srt/.ass)</b> untuk di-Hardmux (nempel permanen).",
+        "softmux": "📝 Kirimkan <b>Video</b> beserta file <b>Subtitle</b> untuk di-Softmux.",
+        "softremux": "♻️ Kirimkan <b>Video</b> untuk di-Remux formatnya.",
+        "extract": "🎵 Kirimkan <b>Video</b> yang ingin diekstrak (diambil) audionya.",
+        "changemetadata": "🏷️ Kirimkan <b>Video atau File Media</b> untuk diubah metadatanya (judul, author, dll).",
+        "mediainfo": "ℹ️ Kirimkan <b>File Media</b> untuk melihat detail informasi teknisnya (MediaInfo).",
+        "watermark": "©️ Kirimkan <b>Video</b> yang ingin diberi Watermark.",
+        "genss": "📸 Kirimkan <b>Video</b> untuk men-generate Screenshot layar.",
+        "gensample": "🎞️ Kirimkan <b>Video</b> untuk dibuatkan klip Sample/Preview pendek.",
+        
+        # Downloader
+        "leech": "📥 Kirimkan <b>Link</b> (Direct, Torrent, atau Magnet) yang ingin di-download ke Telegram.",
+        "mirror": "☁️ Kirimkan <b>Link</b> atau <b>File</b> yang ingin di-upload ke Cloud Storage (Gdrive, dll).",
+        
+        # Settings
+        "savewatermark": "©️ Kirimkan <b>Gambar (PNG transparan)</b> ke obrolan ini untuk disimpan sebagai Watermark default.",
+        "savethumb": "🖼️ Kirimkan <b>Gambar</b> ke obrolan ini untuk disimpan sebagai Thumbnail default.",
+        
+        # Studio Produksi
+        "recap": "🎬 Kirimkan <b>Video</b> beserta <b>Teks Script</b> untuk dibuatkan Film Recap.",
+        "clip": "🎥 Kirimkan <b>Video Full</b> yang ingin dijadikan Clip pendek secara otomatis.",
+        "ytupload": "▶️ Kirimkan <b>Video</b> yang sudah siap untuk di-upload ke YouTube.",
+        "toptier": "🏆 Kirimkan materi untuk analisis Top Tier List.",
+        "verdict": "📊 Kirimkan materi untuk diberikan rating/Verdict.",
+        "lore": "📖 Kirimkan materi untuk analisis Lore/Cerita.",
+        "radar": "🎯 Kirimkan input untuk masuk ke sistem Radar.",
+        "patch": "⚡ Kirimkan teks atau link Patch Notes yang ingin dibahas.",
+        "archives": "📚 Kirimkan link atau file untuk dimasukkan ke sistem Archives."
+    }
+    
+    # Mengambil pesan spesifik dari kamus, jika suatu tombol terlewat, gunakan pesan default
+    instruction_msg = custom_instructions.get(
+        command_name, 
+        "Modul ini memerlukan input atau file.\n<i>Silakan kirimkan file, media, atau link ke obrolan ini</i>"
+    )
+
     instruction_text = f"""
 <b>╭─ ACTIVE MODULE ─╮</b>
 <code>/{command_name}</code>
 
-Modul ini memerlukan input atau file.
-<i>Silakan kirimkan file atau link ke obrolan ini</i>
+{instruction_msg}
 
 <b>╰───────────────╯</b>
 """
