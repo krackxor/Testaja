@@ -63,8 +63,10 @@ import bot.AutoClip
 import bot.MovieRecap
 import bot.YTUpload
 
-# [TAMBAHAN BARU] Import UI Dashboard yang baru kita buat
+# [TAMBAHAN BARU] Import UI Dashboard dan FSM yang baru kita buat
 import bot.ui_dashboard 
+import bot.flow_video
+import bot.flow_edit
 
 # Import task background
 try:
@@ -153,11 +155,14 @@ async def main():
 
     # ─── AUTO-LOADER ROUTERS ───
     # Memasukkan semua Router Aiogram yang terdeteksi agar tidak ada 'Unhandled Update'
+    # PENTING: File UI dan Flow baru diletakkan di atas agar terbaca lebih dulu!
     modules_to_include = [
+        bot.ui_dashboard,
+        bot.flow_video,
+        bot.flow_edit,
         bot.admin_handlers, bot.vip_handlers, bot.media_handlers,
         bot.advanced_media_handlers, bot.callbacks, bot.Gameplay,
-        bot.AutoClip, bot.MovieRecap, bot.YTUpload,
-        bot.ui_dashboard  # <--- [TAMBAHAN BARU] Router UI Dashboard didaftarkan di sini
+        bot.AutoClip, bot.MovieRecap, bot.YTUpload
     ]
     
     loaded_routers = 0
@@ -166,11 +171,18 @@ async def main():
             Telegram.AIOGRAM_DP.include_router(mod.router)
             loaded_routers += 1
             LOGGER.info(f"✅ Router Attached: {mod.__name__}")
-        # Tambahan proteksi jika nama router berbeda di UI
         elif hasattr(mod, 'ui_router'):
             Telegram.AIOGRAM_DP.include_router(mod.ui_router)
             loaded_routers += 1
             LOGGER.info(f"✅ UI Router Attached: {mod.__name__}")
+        elif hasattr(mod, 'flow_router'):
+            Telegram.AIOGRAM_DP.include_router(mod.flow_router)
+            loaded_routers += 1
+            LOGGER.info(f"✅ Flow Router Attached: {mod.__name__}")
+        elif hasattr(mod, 'edit_router'):
+            Telegram.AIOGRAM_DP.include_router(mod.edit_router)
+            loaded_routers += 1
+            LOGGER.info(f"✅ Edit Router Attached: {mod.__name__}")
     
     LOGGER.info(f"🔗 Total {loaded_routers} Aiogram Routers Successfully Linked!")
     # ────────────────────────────
