@@ -1,7 +1,7 @@
 """
 UI Dashboard Template for STUDIO KHOIRUL (Aiogram 3.x)
-Versi: PREMIUM AESTHETIC v3.0 (Fully Backend-Integrated + Full Instructions)
-Fix: Direct Handler Routing, No FSM Conflicts, One-Click Application Mode
+Versi: PREMIUM AESTHETIC v3.1 (Fully Backend-Integrated + Smart Auto-Detect)
+Fix: Auto-detect tidak lagi bentrok dengan antrean Waiter.
 """
 
 import asyncio
@@ -499,12 +499,22 @@ async def cmd_dashboard(message: Message):
 # ==========================================
 # 9. AUTO-DETECT MEDIA (APP MODE)
 # ==========================================
+
+def is_user_in_waiter(user_id: int) -> bool:
+    """Fungsi pembantu untuk mengecek apakah user sedang dalam proses tanya-jawab di Backend."""
+    from bot.shared import USER_WAITERS
+    return user_id in USER_WAITERS
+
 @ui_router.message(F.video | F.document | F.audio | F.photo)
 async def auto_detect_media(message: Message):
     """
     Menangkap media yang dikirim pengguna saat sedang tidak menjalankan perintah apa pun.
     Memunculkan menu aksi langsung ke file tersebut layaknya Aplikasi.
     """
+    # 🚨 PENTING: Cek apakah pengguna sedang ditanya video oleh fitur lain!
+    if is_user_in_waiter(message.from_user.id):
+        return # Abaikan. Biarkan WaiterCatcherMiddleware di main.py yang memprosesnya!
+
     is_admin = check_is_admin(message.from_user.id)
     
     # Deteksi jenis file
@@ -541,7 +551,7 @@ async def auto_detect_media(message: Message):
             "<b>🎬 Video Terdeteksi!</b>\n"
             f"<code>Ukuran: {round(size_mb, 2)} MB</code>\n\n"
             "<i>Pilih aksi yang ingin dilakukan pada video ini 👇</i>\n\n"
-            "⚠️ <b>Tips:</b> Klik tombol di bawah. Saat bot meminta video, cukup <b>Balas (Reply)</b> pesan video Anda ini."
+            "⚠️ <b>Tips:</b> Jika bot belum memproses, cukup <b>Balas (Reply)</b> pesan video Anda ini saat diminta."
         )
         await message.reply(text, reply_markup=kb, parse_mode="HTML")
 
