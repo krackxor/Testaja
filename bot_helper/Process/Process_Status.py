@@ -271,6 +271,7 @@ class ProcessStatus:
         self.user_name      = user_name
         self.user_first_name = user_first_name
         self.event          = event
+        self.garbage_messages = []
         self.dir            = f"{download_dir}/{user_id}/{gen_random_string(5)}"
         self.send_files     = []
         self.dw_files       = []
