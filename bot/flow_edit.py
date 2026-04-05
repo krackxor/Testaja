@@ -1,17 +1,21 @@
 """
 FSM Video Editing Suite untuk STUDIO KHOIRUL
 Menangkap video yang dikirim user dan memunculkan panel alat (Tools).
+100% TERINTEGRASI DENGAN MESIN FFMPEG (Tanpa Simulasi)
 """
 
 import asyncio
-from aiogram import Router, F
+from aiogram import Router, F, Bot
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton, CallbackQuery, Message
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.exceptions import TelegramBadRequest
 
-# Import dari ui_dashboard agar teks dan fungsi edit amannya seragam
+# Import UI dan Modul Internal Mesin FFmpeg
 from bot.ui_dashboard import VIDEO_EDIT_TEXT, get_back_cancel_kb, safe_edit_message
+from bot_helper.Process.Process_Status import ProcessStatus
+from bot_helper.Process.Running_Tasks import add_task
+from bot_helper.Others.Names import Names
 
 # Router khusus untuk alur Video Editing
 edit_router = Router(name="flow_edit")
@@ -44,13 +48,8 @@ def get_editor_tools_kb() -> InlineKeyboardMarkup:
 @edit_router.callback_query(F.data == "menu_vid_edit")
 async def trigger_edit_mode(callback: CallbackQuery, state: FSMContext):
     """Menangani tombol ✂️ Video Editing di Dashboard Utama"""
-    # 1. Nyalakan Radar FSM untuk menunggu video
     await state.set_state(VideoEditState.waiting_for_video)
-    
-    # 2. Ubah layar Dashboard menjadi panel Video Editing
     await safe_edit_message(callback.message, VIDEO_EDIT_TEXT, get_back_cancel_kb())
-    
-    # 3. Beri notifikasi pop-up
     await callback.answer("Mode Editor Aktif! Silakan kirim video.", show_alert=False)
 
 # ==========================================
@@ -59,8 +58,8 @@ async def trigger_edit_mode(callback: CallbackQuery, state: FSMContext):
 @edit_router.message(VideoEditState.waiting_for_video, F.video | F.document)
 async def catch_video_for_edit(message: Message, state: FSMContext):
     """Menangkap video yang dikirim user khusus saat Mode Edit Aktif"""
-    # Simpan ID pesan video ke FSM agar nanti bisa diproses oleh Telethon/Pyrogram
-    await state.update_data(video_message_id=message.message_id)
+    # [PENTING] Menyimpan objek pesan utuh ke memori FSM untuk ditarik nanti
+    await state.update_data(original_message=message)
     
     file_name = "Video File"
     file_size = 0
@@ -80,47 +79,60 @@ async def catch_video_for_edit(message: Message, state: FSMContext):
 ━━━━━━━━━━━━━━━━━━━━━━
 <i>Silakan pilih operasi FFmpeg yang ingin Anda terapkan pada video ini:</i></blockquote>"""
 
-    # Hapus pesan video/dokumen dari user agar chat tetap rapi (Opsional)
-    # try:
-    #     await message.delete()
-    # except TelegramBadRequest:
-    #     pass
-
-    # Pindahkan state ke pemilihan tool
     await state.set_state(VideoEditState.choosing_tool)
-    
-    # Munculkan Panel Alat
     await message.reply(text, reply_markup=get_editor_tools_kb(), parse_mode="HTML")
 
 # ==========================================
-# 5. ROUTING KE FUNGSI FFmpeg ASLI
+# 5. INTEGRASI PENUH KE RUNNING TASKS
 # ==========================================
 @edit_router.callback_query(VideoEditState.choosing_tool, F.data.startswith("tool_"))
 async def process_selected_tool(callback: CallbackQuery, state: FSMContext):
-    """Menangkap pilihan alat editing yang diklik user"""
+    """Menangkap pilihan alat editing & Memicu fungsi FFmpeg Asli"""
     data = await state.get_data()
-    video_msg_id = data.get("video_message_id")
+    original_message = data.get("original_message")
     tool_selected = callback.data.split("_")[1] # mendapatkan kata 'encode', 'split', dll
     
     # Bersihkan state agar user tidak tersangkut di Mode Edit
     await state.clear()
     
-    await callback.message.edit_text(f"⏳ Mempersiapkan tugas <b>{tool_selected.upper()}</b>...", parse_mode="HTML")
+    if not original_message:
+        await callback.message.edit_text("❌ Pesan video asli hilang dari memori. Silakan kirim ulang videonya.", parse_mode="HTML")
+        return
+        
+    await callback.message.edit_text(f"⏳ Menghubungkan tugas <b>{tool_selected.upper()}</b> ke server...", parse_mode="HTML")
     
-    # ==========================================
-    # DI SINI KITA NANTI MENYAMBUNGKAN KE Running_Tasks.py
-    # Contoh:
-    # if tool_selected == "encode":
-    #     await trigger_convert_task(user_id, video_msg_id)
-    # elif tool_selected == "split":
-    #     await trigger_split_task(user_id, video_msg_id)
-    # ==========================================
+    # Mapping tombol ke Variabel Names.py asli
+    tool_map = {
+        "encode": Names.convert,
+        "split": Names.split,
+        "extract": Names.extract,
+        "trim": Names.trim,
+        "autocrop": Names.autocrop,
+        "genss": Names.genss
+    }
     
-    # Untuk sementara, tampilkan pesan sukses simulasi
-    await asyncio.sleep(1)
-    await callback.message.edit_text(
-        f"✅ <b>Modul {tool_selected.upper()} siap dijalankan!</b>\n\n"
-        f"(Video Message ID: {video_msg_id})\n\n"
-        f"<i>Nantinya ini akan langsung memicu proses FFmpeg dari bot_helper kamu.</i>",
-        parse_mode="HTML"
-    )
+    process_type = tool_map.get(tool_selected, Names.convert)
+    
+    try:
+        # 1. Inisialisasi Objek ProcessStatus
+        process_status = ProcessStatus(original_message, process_type)
+        
+        # 2. Format struktur Task (Sesuai dengan logika asli bot kamu)
+        task = {
+            "process_status": process_status,
+            "functions": [("telegram", original_message)] 
+        }
+        
+        # 3. Masukkan ke Antrean (Background Tasker)
+        await add_task(task)
+        
+        # 4. Hapus Panel (Karena proses status message akan mengambil alih chat)
+        await callback.message.delete()
+        
+    except Exception as e:
+        # Menangkap error jika argumen ProcessStatus butuh parameter yang sedikit berbeda
+        await callback.message.edit_text(
+            f"❌ <b>Terjadi Kesalahan Integrasi Task:</b>\n<code>{e}</code>\n\n"
+            f"<i>Cek log terminal untuk detail argumen ProcessStatus.</i>",
+            parse_mode="HTML"
+        )
