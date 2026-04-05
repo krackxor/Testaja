@@ -497,6 +497,73 @@ async def cmd_dashboard(message: Message):
     )
 
 # ==========================================
+# 9. AUTO-DETECT MEDIA (APP MODE)
+# ==========================================
+@ui_router.message(F.video | F.document | F.audio | F.photo)
+async def auto_detect_media(message: Message):
+    """
+    Menangkap media yang dikirim pengguna saat sedang tidak menjalankan perintah apa pun.
+    Memunculkan menu aksi langsung ke file tersebut layaknya Aplikasi.
+    """
+    is_admin = check_is_admin(message.from_user.id)
+    
+    # Deteksi jenis file
+    mime = ""
+    if message.video: mime = "video"
+    elif message.audio: mime = "audio"
+    elif message.photo: mime = "photo"
+    elif message.document:
+        mime_type = str(message.document.mime_type).lower()
+        if mime_type.startswith("video/"): mime = "video"
+        elif mime_type.startswith("audio/"): mime = "audio"
+        elif mime_type.startswith("image/"): mime = "photo"
+        else: mime = "doc"
+
+    # 1. Jika dikirim VIDEO
+    if mime == "video":
+        kb = InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="🗜️ Compress", callback_data="cmd_compress"),
+             InlineKeyboardButton(text="🔄 Convert", callback_data="cmd_convert")],
+            [InlineKeyboardButton(text="🎞️ Trim", callback_data="cmd_trim"),
+             InlineKeyboardButton(text="©️ Watermark", callback_data="cmd_watermark")],
+            [InlineKeyboardButton(text="🎵 Extract Audio", callback_data="cmd_extract"),
+             InlineKeyboardButton(text="📸 Screenshot", callback_data="cmd_genss")],
+            [InlineKeyboardButton(text="➕ Add to Assets", callback_data="cmd_addgameplay"),
+             InlineKeyboardButton(text="❌ Abaikan", callback_data="action_cancel")]
+        ])
+        
+        # Hitung ukuran file (MB)
+        size_mb = 0
+        if message.video: size_mb = message.video.file_size / 1048576
+        elif message.document: size_mb = message.document.file_size / 1048576
+        
+        text = (
+            "<b>🎬 Video Terdeteksi!</b>\n"
+            f"<code>Ukuran: {round(size_mb, 2)} MB</code>\n\n"
+            "<i>Pilih aksi yang ingin dilakukan pada video ini 👇</i>\n\n"
+            "⚠️ <b>Tips:</b> Klik tombol di bawah. Saat bot meminta video, cukup <b>Balas (Reply)</b> pesan video Anda ini."
+        )
+        await message.reply(text, reply_markup=kb, parse_mode="HTML")
+
+    # 2. Jika dikirim AUDIO
+    elif mime == "audio":
+        kb = InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="🔊 Tambah ke SFX Assets", callback_data="cmd_addsfx")],
+            [InlineKeyboardButton(text="❌ Abaikan", callback_data="action_cancel")]
+        ])
+        await message.reply("<b>🎵 File Audio Terdeteksi!</b>\n\n<i>Pilih aksi di bawah:</i>", reply_markup=kb, parse_mode="HTML")
+        
+    # 3. Jika dikirim GAMBAR
+    elif mime == "photo":
+        kb = InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="©️ Set sbg Watermark", callback_data="cmd_savewatermark"),
+             InlineKeyboardButton(text="🖼️ Set sbg Thumbnail", callback_data="cmd_savethumb")],
+            [InlineKeyboardButton(text="❌ Abaikan", callback_data="action_cancel")]
+        ])
+        await message.reply("<b>🖼️ Gambar Terdeteksi!</b>\n\n<i>Jadikan gambar ini sebagai default?</i>", reply_markup=kb, parse_mode="HTML")
+
+
+# ==========================================
 # 8. EXPORT
 # ==========================================
 __all__ = ["ui_router"]
