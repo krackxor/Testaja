@@ -14,6 +14,8 @@
 ║  [IMPROVE]   Timeout Dinamis & Penambahan Fungsi Startup Cleanup     ║
 ║  [HOTFIX]    Convert kini mematuhi parameter spesifik setiap task.   ║
 ║  [HOTFIX]    Perbaikan error IndexError pada handle_extract()        ║
+║  [CRITICAL]  SABUK PENGAMAN (Try-Finally) Mencegah Bot Stuck/Macet   ║
+║              jika terjadi error tak terduga (seperti Timeout TG).    ║
 ╚══════════════════════════════════════════════════════════════════════╝
 """
 
@@ -468,7 +470,7 @@ async def handle_extract(process_status) -> bool:
 
 
 # ═══════════════════════════════════════════════════════════════════════
-#  MAIN TASK RUNNER
+#  MAIN TASK RUNNER (TERLINDUNGI DENGAN TRY-FINALLY)
 # ═══════════════════════════════════════════════════════════════════════
 
 async def start_task(task: dict) -> None:
@@ -477,219 +479,229 @@ async def start_task(task: dict) -> None:
     process_status.update_start_time(time())
     await append_running_process(process_status.process_id)
 
-    loop_range        = len(task["functions"])
     trash_objects     = []
-    process_completed = (loop_range == 0)
-    upload_needed     = True
 
-    # ── DOWNLOAD PHASE ────────────────────────────────────────────────
-    for i in range(loop_range):
-        dw_index = f"{i + 1}/{loop_range}"
-        func_info = task["functions"][i]
-        func_type = func_info[0]
+    try:
+        loop_range        = len(task["functions"])
+        process_completed = (loop_range == 0)
+        upload_needed     = True
 
-        if func_type == Names.aria:
-            func_call, func_args = func_info[1], func_info[2]
-            process_status.set_dw_index(dw_index)
-            download, aria2_status = await func_call(*func_args)
-            if not download:
-                await _safe_send(process_status, process_status.status_message)
-                break
-            trash_objects.append(aria2_status)
-            await process_status.update_status(aria2_status)
-            if aria2_status.process_status != 1:
-                await _safe_send(process_status, process_status.message)
-                break
-            process_status.move_dw_file(aria2_status.name())
-        else:
-            telegram_file_object = func_info[1]
-            try:
-                if not await Telegram.download_tg_file(process_status, telegram_file_object, dw_index):
+        # ── DOWNLOAD PHASE ────────────────────────────────────────────────
+        for i in range(loop_range):
+            dw_index = f"{i + 1}/{loop_range}"
+            func_info = task["functions"][i]
+            func_type = func_info[0]
+
+            if func_type == Names.aria:
+                func_call, func_args = func_info[1], func_info[2]
+                process_status.set_dw_index(dw_index)
+                download, aria2_status = await func_call(*func_args)
+                if not download:
+                    await _safe_send(process_status, process_status.status_message)
                     break
-            except Exception as e:
-                LOGGER.error(f"❌ Telegram download error: {e}", exc_info=True)
+                trash_objects.append(aria2_status)
+                await process_status.update_status(aria2_status)
+                if aria2_status.process_status != 1:
+                    await _safe_send(process_status, process_status.message)
+                    break
+                process_status.move_dw_file(aria2_status.name())
+            else:
+                telegram_file_object = func_info[1]
+                try:
+                    if not await Telegram.download_tg_file(process_status, telegram_file_object, dw_index):
+                        break
+                except Exception as e:
+                    LOGGER.error(f"❌ Telegram download error: {e}", exc_info=True)
+                    break
+
+            if not check_running_process(process_status.process_id):
                 break
+
+            if i == loop_range - 1:
+                process_completed = True
+                process_status.set_file_name_from_send_list()
 
         if not check_running_process(process_status.process_id):
-            break
+            return
 
-        if i == loop_range - 1:
-            process_completed = True
-            process_status.set_file_name_from_send_list()
+        if process_status.process_type == Names.pre_download:
+            LOGGER.info(f"Pre-download selesai untuk {process_status.process_id}")
+            async with working_task_lock:
+                if task in working_task:
+                    working_task.remove(task)
+            await remove_running_process(process_status.process_id)
+            return
 
-    if not check_running_process(process_status.process_id):
-        await clear_trash(task, trash_objects, multi_tasks)
-        await task_manager()
-        return
+        # ── PROCESS PHASE ─────────────────────────────────────────────────
+        if process_completed:
 
-    if process_status.process_type == Names.pre_download:
-        LOGGER.info(f"Pre-download selesai untuk {process_status.process_id}")
-        async with working_task_lock:
-            if task in working_task:
-                working_task.remove(task)
-        await remove_running_process(process_status.process_id)
-        await task_manager()
-        return
+            if process_status.process_type == Names.gensample:
+                await gen_sample_video(process_status, force_gen=True)
+                upload_needed     = False
+                process_completed = True
 
-    # ── PROCESS PHASE ─────────────────────────────────────────────────
-    if process_completed:
+            elif process_status.process_type == Names.genss:
+                await generate_ss(process_status, force_gen=True)
+                upload_needed     = False
+                process_completed = True
 
-        if process_status.process_type == Names.gensample:
-            await gen_sample_video(process_status, force_gen=True)
-            upload_needed     = False
-            process_completed = True
+            elif process_status.process_type == Names.autocrop:
+                process_completed = await handle_autocrop(process_status)
 
-        elif process_status.process_type == Names.genss:
-            await generate_ss(process_status, force_gen=True)
-            upload_needed     = False
-            process_completed = True
+            elif process_status.process_type == Names.extract:
+                process_completed = await handle_extract(process_status)
 
-        elif process_status.process_type == Names.autocrop:
-            process_completed = await handle_autocrop(process_status)
-
-        elif process_status.process_type == Names.extract:
-            process_completed = await handle_extract(process_status)
-
-        elif process_status.process_type in Names.FFMPEG_PROCESSES:
-            output_list = []
-            
-            # [HOTFIX] Override Convert_List agar menggunakan parameter task, bukan DB
-            if process_status.process_type == Names.convert:
-                if hasattr(process_status, "convert_list") and process_status.convert_list:
-                    convert_list = process_status.convert_list
-                else:
-                    convert_list = [720, 480]
-            else:
-                convert_list = [1]
-
-            for c, _ in enumerate(convert_list):
+            elif process_status.process_type in Names.FFMPEG_PROCESSES:
+                output_list = []
+                
+                # Override Convert_List agar menggunakan parameter task (Bukan Global)
                 if process_status.process_type == Names.convert:
-                    process_status.update_convert_quality(convert_list[c])
-                    process_status.update_convert_index(f"{c + 1}/{len(convert_list)}")
+                    if hasattr(process_status, "convert_list") and process_status.convert_list:
+                        convert_list = process_status.convert_list
+                    else:
+                        convert_list = [720, 480]
+                else:
+                    convert_list = [1]
 
-                command, log_file, input_file, output_file, file_duration = get_commands(process_status)
-                if not command:
-                    if output_file and exists(output_file):
-                        output_list.append(output_file)
-                    continue
+                for c, _ in enumerate(convert_list):
+                    if process_status.process_type == Names.convert:
+                        process_status.update_convert_quality(convert_list[c])
+                        process_status.update_convert_index(f"{c + 1}/{len(convert_list)}")
 
-                create_log_file(log_file)
-                ffmpeg_process = await create_subprocess_exec(
-                    *command, stdout=asyncioPIPE, stderr=asyncioPIPE
-                )
+                    command, log_file, input_file, output_file, file_duration = get_commands(process_status)
+                    if not command:
+                        if output_file and exists(output_file):
+                            output_list.append(output_file)
+                        continue
 
-                await _register_ffmpeg_pid(process_status.process_id, ffmpeg_process.pid)
-
-                ffmpeg_status = FfmpegStatus(
-                    ffmpeg_process, log_file, input_file, output_file, file_duration
-                )
-                create_task(ffmpeg_status.logger(
-                    process_status.process_id, process_status.dir, command
-                ))
-                trash_objects.append(ffmpeg_status)
-
-                try:
-                    timeout_limit = getattr(Config, 'FFMPEG_TIMEOUT', 7200)
-                    
-                    await asyncio.wait_for(
-                        asyncio.gather(
-                            process_status.update_status(ffmpeg_status),
-                            ffmpeg_process.wait()
-                        ),
-                        timeout=timeout_limit
+                    create_log_file(log_file)
+                    ffmpeg_process = await create_subprocess_exec(
+                        *command, stdout=asyncioPIPE, stderr=asyncioPIPE
                     )
 
-                    if ffmpeg_process.returncode == 0:
-                        output_list.append(output_file)
-                        process_completed = True
-                    else:
-                        log_path = f"{process_status.dir}/FFMPEG_LOG.txt"
-                        if exists(log_path):
-                            result        = await analyze_ffmpeg_error(log_path)
-                            error_reason  = result.get("diagnosis", "Unknown Error")
-                            suggestions   = result.get("solutions_text", "Tidak ada saran.")
+                    await _register_ffmpeg_pid(process_status.process_id, ffmpeg_process.pid)
 
-                            reply_text = (
-                                f"**Proses `{process_status.process_type}` gagal!**\n\n"
-                                f"**🔬 Diagnosis:**\n{error_reason}\n\n"
-                                f"**💡 Rekomendasi:**\n{suggestions}"
-                            )
-                            markup = InlineKeyboardMarkup(inline_keyboard=[
-                                [InlineKeyboardButton(text="🎬 Pengaturan Video", callback_data="video_settings"),
-                                 InlineKeyboardButton(text="🎧 Pengaturan Audio", callback_data="audio_settings")],
-                                [InlineKeyboardButton(text="🗒️ Kirim Log Lengkap", callback_data=f"send_log_{process_status.process_id}")],
-                            ])
-                            await _safe_send(process_status, reply_text, reply_markup=markup)
-                        else:
-                            await _safe_send(
-                                process_status,
-                                f"❌ Proses `{process_status.process_type}` gagal "
-                                f"(returncode: {ffmpeg_process.returncode})."
-                            )
+                    ffmpeg_status = FfmpegStatus(
+                        ffmpeg_process, log_file, input_file, output_file, file_duration
+                    )
+                    create_task(ffmpeg_status.logger(
+                        process_status.process_id, process_status.dir, command
+                    ))
+                    trash_objects.append(ffmpeg_status)
+
+                    try:
+                        timeout_limit = getattr(Config, 'FFMPEG_TIMEOUT', 7200)
                         
+                        await asyncio.wait_for(
+                            asyncio.gather(
+                                process_status.update_status(ffmpeg_status),
+                                ffmpeg_process.wait()
+                            ),
+                            timeout=timeout_limit
+                        )
+
+                        if ffmpeg_process.returncode == 0:
+                            output_list.append(output_file)
+                            process_completed = True
+                        else:
+                            log_path = f"{process_status.dir}/FFMPEG_LOG.txt"
+                            if exists(log_path):
+                                result        = await analyze_ffmpeg_error(log_path)
+                                error_reason  = result.get("diagnosis", "Unknown Error")
+                                suggestions   = result.get("solutions_text", "Tidak ada saran.")
+
+                                reply_text = (
+                                    f"**Proses `{process_status.process_type}` gagal!**\n\n"
+                                    f"**🔬 Diagnosis:**\n{error_reason}\n\n"
+                                    f"**💡 Rekomendasi:**\n{suggestions}"
+                                )
+                                markup = InlineKeyboardMarkup(inline_keyboard=[
+                                    [InlineKeyboardButton(text="🎬 Pengaturan Video", callback_data="video_settings"),
+                                     InlineKeyboardButton(text="🎧 Pengaturan Audio", callback_data="audio_settings")],
+                                    [InlineKeyboardButton(text="🗒️ Kirim Log Lengkap", callback_data=f"send_log_{process_status.process_id}")],
+                                ])
+                                await _safe_send(process_status, reply_text, reply_markup=markup)
+                            else:
+                                await _safe_send(
+                                    process_status,
+                                    f"❌ Proses `{process_status.process_type}` gagal "
+                                    f"(returncode: {ffmpeg_process.returncode})."
+                                )
+                            
+                            process_completed = False
+                            break
+
+                    except asyncio.TimeoutError:
+                        LOGGER.error(
+                            f"❌ FFmpeg PID {ffmpeg_process.pid} timeout (> {timeout_limit} detik), dihentikan paksa"
+                        )
+                        try:
+                            ffmpeg_process.kill()
+                        except ProcessLookupError:
+                            pass
+                        await _safe_send(
+                            process_status,
+                            "❌ Proses encoding terlalu lama dan dihentikan otomatis (Timeout Server)."
+                        )
                         process_completed = False
                         break
 
-                except asyncio.TimeoutError:
-                    LOGGER.error(
-                        f"❌ FFmpeg PID {ffmpeg_process.pid} timeout (> {timeout_limit} detik), dihentikan paksa"
-                    )
-                    try:
-                        ffmpeg_process.kill()
-                    except ProcessLookupError:
-                        pass
-                    await _safe_send(
-                        process_status,
-                        "❌ Proses encoding terlalu lama dan dihentikan otomatis (Timeout Server)."
-                    )
+                if process_completed:
+                    process_status.replace_send_list(output_list)
+
+            elif process_status.process_type in [Names.leech, Names.mirror]:
+                pass
+
+            elif process_status.process_type == Names.split:
+                process_status.update_process_message(
+                    f"✂️ Membagi video...\n{process_status.get_task_details()}"
+                )
+                split_dir   = f"{process_status.dir}/split/"
+                await make_direc(split_dir)
+                input_video = process_status.send_files[-1]
+                mode, value = process_status.split_mode, process_status.split_value
+
+                splitted_files = []
+                if mode == "duration":
+                    splitted_files = await split_by_duration(input_video, value, split_dir)
+                elif mode == "parts":
+                    splitted_files = await split_by_parts(input_video, value, split_dir)
+                elif mode == "size":
+                    splitted_files = await split_by_size(input_video, value, process_status.dir)
+
+                if splitted_files:
+                    process_status.replace_send_list(splitted_files)
+                else:
+                    await _safe_send(process_status, "❌ Gagal membagi video.")
                     process_completed = False
-                    break
 
-            if process_completed:
-                process_status.replace_send_list(output_list)
+        # ── UPLOAD PHASE ──────────────────────────────────────────────────
+        if process_completed:
+            is_final_step = not multi_tasks
+            user_data     = get_data().get(process_status.user_id, {})
 
-        elif process_status.process_type in [Names.leech, Names.mirror]:
+            if upload_needed and (user_data.get("upload_all", True) or is_final_step):
+                await upload_files(process_status)
+
+            if is_final_step and upload_needed:
+                if check_running_process(process_status.process_id):
+                    await gen_sample_video(process_status)
+                if check_running_process(process_status.process_id):
+                    await generate_ss(process_status)
+
+    except Exception as e:
+        LOGGER.error(f"❌ [CRITICAL] Unhandled Exception di start_task untuk {process_status.process_id}: {e}", exc_info=True)
+        try:
+            await _safe_send(process_status, f"❌ Terjadi kesalahan fatal pada sistem saat memproses tugas ini:\n`{e}`")
+        except:
             pass
 
-        elif process_status.process_type == Names.split:
-            process_status.update_process_message(
-                f"✂️ Membagi video...\n{process_status.get_task_details()}"
-            )
-            split_dir   = f"{process_status.dir}/split/"
-            await make_direc(split_dir)
-            input_video = process_status.send_files[-1]
-            mode, value = process_status.split_mode, process_status.split_value
-
-            splitted_files = []
-            if mode == "duration":
-                splitted_files = await split_by_duration(input_video, value, split_dir)
-            elif mode == "parts":
-                splitted_files = await split_by_parts(input_video, value, split_dir)
-            elif mode == "size":
-                splitted_files = await split_by_size(input_video, value, process_status.dir)
-
-            if splitted_files:
-                process_status.replace_send_list(splitted_files)
-            else:
-                await _safe_send(process_status, "❌ Gagal membagi video.")
-                process_completed = False
-
-    # ── UPLOAD PHASE ──────────────────────────────────────────────────
-    if process_completed:
-        is_final_step = not multi_tasks
-        user_data     = get_data().get(process_status.user_id, {})
-
-        if upload_needed and (user_data.get("upload_all", True) or is_final_step):
-            await upload_files(process_status)
-
-        if is_final_step and upload_needed:
-            if check_running_process(process_status.process_id):
-                await gen_sample_video(process_status)
-            if check_running_process(process_status.process_id):
-                await generate_ss(process_status)
-
-    await clear_trash(task, trash_objects, multi_tasks)
-    await task_manager()
+    finally:
+        # MASTER CLEANUP GUARANTEE
+        # Apapun yang terjadi (Sukses, Timeout, Crash, Batal), bagian ini PASTI dieksekusi.
+        LOGGER.info(f"🧹 Memulai master cleanup untuk task {process_status.process_id}")
+        await clear_trash(task, trash_objects, multi_tasks)
+        await task_manager()
 
 
 # ═══════════════════════════════════════════════════════════════════════
