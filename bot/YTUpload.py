@@ -1,7 +1,7 @@
 """
 ╔══════════════════════════════════════════════════════════════════════╗
 ║                    bot/YTUpload.py                                   ║
-║         YouTube Upload — Terintegrasi Penuh dengan Bot System        ║
+║        YouTube Upload — Terintegrasi Penuh dengan Bot System         ║
 ╠══════════════════════════════════════════════════════════════════════╣
 ║  CHANGELOG dari versi lama:                                          ║
 ║  [UX PREMIUM] Menerapkan Auto-Delete agar chat tetap bersih & rapi.  ║
@@ -12,6 +12,7 @@
 ║  [NEW] Hybrid Downloader (Pyrogram dengan Progress Bar -> Aiogram)   ║
 ║  [FIX] TelegramBadRequest untuk edit_text handling                   ║
 ║  [FIX] Menutup kebuntuan memori pada antrean asyncio tasks           ║
+║  [UPDATE] Konsistensi UI, Ikon, Timeout, dan Batal selaras 100%.     ║
 ╚══════════════════════════════════════════════════════════════════════╝
 """
 
@@ -389,7 +390,7 @@ async def _ytupload_worker(
             await original_message.answer(success_text, reply_markup=InlineKeyboardMarkup(inline_keyboard=buttons))
 
     except asyncio.CancelledError:
-        try: await status_msg.edit_text("🚫 **Upload YouTube Dibatalkan.**")
+        try: await status_msg.edit_text("❌ **Upload YouTube Dibatalkan.**")
         except Exception: pass
 
     except Exception as e:
@@ -598,7 +599,7 @@ async def yt_privacy_cb(call: CallbackQuery) -> None:
     if call.from_user.id != user_id:
         return await call.answer("❌ Menu ini bukan milik Anda!", show_alert=True)
     if user_id not in _yt_state:
-        return await call.answer("⚠️ Sesi berakhir. Silakan ulangi perintah /ytupload", show_alert=True)
+        return await call.answer("❌ Sesi berakhir. Silakan ulangi perintah /ytupload", show_alert=True)
 
     _yt_state[user_id]["privacy"] = privacy
     yt_title = _yt_state[user_id]["title"]
@@ -618,7 +619,7 @@ async def yt_go_cb(call: CallbackQuery) -> None:
     if not _is_vip(user_id):
         return await call.message.edit_text("❌ Akses VIP kamu sudah habis. Hubungi admin untuk perpanjang.")
     if user_id not in _yt_state:
-        return await call.message.edit_text("⚠️ Sesi berakhir.\n" + f"Silakan ulangi perintah `/ytupload{CMD_SUFFIX}`")
+        return await call.message.edit_text("❌ Sesi berakhir.\n" + f"Silakan ulangi perintah `/ytupload{CMD_SUFFIX}`")
 
     state      = _yt_state[user_id]
     reply_msg  = state["reply_msg"]
@@ -689,7 +690,7 @@ async def yt_go_cb(call: CallbackQuery) -> None:
 
 @router.callback_query(F.data.startswith("yt_cancel_"))
 async def yt_cancel_cb(call: CallbackQuery) -> None:
-    try: await call.answer("🚫 Mencoba membatalkan...", show_alert=False)
+    try: await call.answer("❌ Mencoba membatalkan...", show_alert=False)
     except: pass
     
     parts   = call.data.split("_")
@@ -702,7 +703,7 @@ async def yt_cancel_cb(call: CallbackQuery) -> None:
         process_id = parts[3]
         from bot_helper.Process.Running_Process import remove_running_process
         await remove_running_process(process_id)
-        try: await call.message.edit_text("🚫 **Proses upload dibatalkan oleh pengguna.**")
+        try: await call.message.edit_text("❌ **Proses upload dibatalkan oleh pengguna.**")
         except Exception: pass
     else:
         _yt_state.pop(user_id, None)
@@ -732,7 +733,7 @@ async def yt_status_cb(call: CallbackQuery) -> None:
                     pass
                 return
 
-    await call.answer("⚠️ Proses tidak ditemukan (mungkin sudah selesai atau dibatalkan)", show_alert=True)
+    await call.answer("❌ Proses tidak ditemukan (mungkin sudah selesai atau dibatalkan)", show_alert=True)
 
 
 # ═══════════════════════════════════════════════════════════════════════
@@ -762,7 +763,10 @@ async def yttoken_handler(message: Message) -> None:
         resp = await wait_for_message(message.chat.id, user_id, 120)
         await _clean_msgs(ask_msg, resp)
         
-        if not resp or "batal" in (resp.text or "").lower():
+        if not resp:
+            return await message.answer("❌ Waktu habis. Dibatalkan.", reply_markup=ReplyKeyboardRemove())
+            
+        if "batal" in (resp.text or "").lower():
             return await message.answer("❌ Dibatalkan.", reply_markup=ReplyKeyboardRemove())
             
         if not resp.document:
@@ -788,14 +792,3 @@ async def yttoken_handler(message: Message) -> None:
     except Exception as e:
         LOGGER.error(f"❌ Gagal memperbarui token.json: {e}", exc_info=True)
         await message.reply(f"❌ Gagal menyimpan file token:\n`{e}`")
-
-
-# ═══════════════════════════════════════════════════════════════════════
-#  NAMES EXTENSION — tambahkan ke Names.py
-# ═══════════════════════════════════════════════════════════════════════
-# Tambahkan baris berikut ke bot_helper/Others/Names.py:
-#
-#   ytupload = "YouTubeUpload"
-#   STATUS["YouTubeUpload"] = "⬆️ Mengunggah YouTube"
-#
-# ─────────────────────────────────────────────────────────────────────
