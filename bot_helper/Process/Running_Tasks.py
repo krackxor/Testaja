@@ -12,6 +12,8 @@
 ║  [FIX BUG]   FFmpeg sukses tidak lanjut upload (process_completed)   ║
 ║  [IMPROVE]   Mencegah Deadlock UI dengan asyncio.gather              ║
 ║  [IMPROVE]   Timeout Dinamis & Penambahan Fungsi Startup Cleanup     ║
+║  [HOTFIX]    Convert kini mematuhi parameter spesifik setiap task.   ║
+║  [HOTFIX]    Perbaikan error IndexError pada handle_extract()        ║
 ╚══════════════════════════════════════════════════════════════════════╝
 """
 
@@ -131,7 +133,7 @@ def get_user_id(process_id: str):
 
 
 # ═══════════════════════════════════════════════════════════════════════
-#  TRASH CLEANUP (MODIFIED FOR OPSI 3)
+#  TRASH CLEANUP
 # ═══════════════════════════════════════════════════════════════════════
 
 async def clear_trash(task: dict, trash_objects: list, multi_tasks: list) -> None:
@@ -140,7 +142,6 @@ async def clear_trash(task: dict, trash_objects: list, multi_tasks: list) -> Non
     ps = task["process_status"]
 
     # ── LOGIKA OPSI 3: UI CLEANUP ──
-    # Menghapus semua pesan loading/instruksi yang tersisa
     if hasattr(ps, "garbage_messages") and ps.garbage_messages:
         LOGGER.info(f"🧹 Membersihkan {len(ps.garbage_messages)} pesan sampah untuk {process_id}")
         for msg_id in ps.garbage_messages:
@@ -324,6 +325,10 @@ async def get_status_message(reply) -> str | bool:
 # ═══════════════════════════════════════════════════════════════════════
 
 async def handle_autocrop(process_status) -> bool:
+    if not process_status.send_files:
+        await _safe_send(process_status, "❌ Kesalahan: Tidak ada file media untuk diproses.")
+        return False
+    
     input_file = process_status.send_files[-1]
     process_status.update_process_message("✨ Mendeteksi bilah hitam...")
 
@@ -386,7 +391,12 @@ async def handle_autocrop(process_status) -> bool:
             pass
     return False
 
+
 async def handle_extract(process_status) -> bool:
+    if not process_status.send_files:
+        await _safe_send(process_status, "❌ Kesalahan: Media tidak dapat diunduh dari Telegram.")
+        return False
+        
     input_file = process_status.send_files[-1]
     output_dir = f"{process_status.dir}/extract/"
     await make_direc(output_dir)
@@ -542,12 +552,15 @@ async def start_task(task: dict) -> None:
 
         elif process_status.process_type in Names.FFMPEG_PROCESSES:
             output_list = []
-            user_data    = get_data().get(process_status.user_id, {})
-            convert_list = (
-                user_data.get("convert", {}).get("convert_list", [720, 480])
-                if process_status.process_type == Names.convert
-                else [1]
-            )
+            
+            # [HOTFIX] Override Convert_List agar menggunakan parameter task, bukan DB
+            if process_status.process_type == Names.convert:
+                if hasattr(process_status, "convert_list") and process_status.convert_list:
+                    convert_list = process_status.convert_list
+                else:
+                    convert_list = [720, 480]
+            else:
+                convert_list = [1]
 
             for c, _ in enumerate(convert_list):
                 if process_status.process_type == Names.convert:
