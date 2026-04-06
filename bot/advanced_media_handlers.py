@@ -17,11 +17,14 @@
 ║  [HOTFIX] Menghentikan penghapusan media user agar tidak gagal unduh.║
 ║  [HOTFIX] Memutus Settingan Global (Watermark) agar proses Murni &   ║
 ║           Jauh Lebih Cepat.                                          ║
+║  [HOTFIX] /extract & /mediainfo kini menampilkan Progress Bar Pyrogram║
+║  [HOTFIX] /extract kini menampilkan struktur Audio & Subtitle video. ║
 ╚══════════════════════════════════════════════════════════════════════╝
 """
 
 # ── Standard Library ──────────────────────────────────────────────────
 import asyncio
+import time
 from json import loads as json_loads
 from os.path import exists
 from shutil import rmtree
@@ -743,7 +746,30 @@ async def _extract_streams(message: Message):
         if not isinstance(link, str):
             target = link.video or link.document
             dest = f"{temp_ps.dir}/{target.file_name or 'video.mp4'}"
-            await Telegram.AIOGRAM_BOT.download(target, destination=dest)
+            
+            last_update = [0.0]
+            async def _progress(current: int, total: int):
+                now = time.time()
+                if now - last_update[0] >= 2.0 and total:
+                    last_update[0] = now
+                    pct = current / total
+                    bar = "█" * int(pct * 10) + "░" * (10 - int(pct * 10))
+                    try: await dling_msg.edit_text(f"🔽 **Mengunduh untuk dianalisis...**\n\n[{bar}] {pct*100:.1f}%\n📥 `{get_human_size(current)} / {get_human_size(total)}`")
+                    except Exception: pass
+
+            pyro_client = Telegram.PYROGRAM_CLIENT
+            downloaded = False
+            if pyro_client:
+                try:
+                    pyro_msg = await pyro_client.get_messages(link.chat.id, link.message_id)
+                    await pyro_client.download_media(message=pyro_msg, file_name=dest, progress=_progress)
+                    downloaded = True
+                except Exception as e:
+                    LOGGER.error(f"Pyrogram temp dl error: {e}")
+            
+            if not downloaded:
+                await Telegram.AIOGRAM_BOT.download(target, destination=dest)
+            
             temp_ps.append_dw_files(dest)
             return dest, temp_ps
 
@@ -755,6 +781,9 @@ async def _extract_streams(message: Message):
             if waited > 3600: break
             await asyncio.sleep(2)
             waited += 2
+            if waited % 4 == 0:
+                try: await dling_msg.edit_text(temp_ps.status_message or "🔽 Mengunduh berkas dengan Aria2...")
+                except: pass
         return (temp_ps.send_files[-1] if temp_ps.send_files else None), temp_ps
 
     input_file, temp_ps = await _download_temp()
@@ -764,7 +793,6 @@ async def _extract_streams(message: Message):
         try: await asyncio.to_thread(rmtree, temp_ps.dir, ignore_errors=True)
         except Exception: pass
         return
-    await _clean_msgs(dling_msg)
 
     try:
         proc = await create_subprocess_exec("ffprobe", "-v", "quiet", "-print_format", "json", "-show_streams", input_file, stdout=asyncioPIPE)
@@ -772,27 +800,49 @@ async def _extract_streams(message: Message):
         all_streams = json_loads(stdout.decode("utf-8", "replace")).get("streams", [])
     except Exception as e: return await safe_reply(message, f"❌ Gagal menganalisis video: `{e}`")
 
-    audio_subs = [s for s in all_streams if s.get("codec_type") == "audio"]
-    sub_subs   = [s for s in all_streams if s.get("codec_type") == "subtitle"]
+    txt = f"🎞️ **Info Stream `{fname}`**\n\n"
+    has_extractable = False
+    for s in all_streams:
+        ct = s.get("codec_type")
+        si = s.get("index")
+        codec = s.get("codec_name", "N/A").upper()
+        lang = s.get("tags", {}).get("language", "und").upper()
+        title = s.get("tags", {}).get("title", "")
+        
+        if ct == "video":
+            icon = "🎬 Video"
+            info = f"{s.get('width')}x{s.get('height')}"
+        elif ct == "audio":
+            icon = "🎧 Audio"
+            info = f"{lang}" + (f" - {title}" if title else "")
+            has_extractable = True
+        elif ct == "subtitle":
+            icon = "📖 Subtitle"
+            info = f"{lang}" + (f" - {title}" if title else "")
+            has_extractable = True
+        else:
+            continue
+            
+        txt += f"**{si}.** {icon} | `{codec}` | {info}\n"
 
-    if not audio_subs and not sub_subs: return await safe_reply(message, "❌ Tidak ada stream audio/subtitle.")
+    if not has_extractable:
+        return await dling_msg.edit_text("❌ Tidak ada stream audio atau subtitle yang dapat diekstrak.")
+        
+    await dling_msg.edit_text(txt)
 
-    selected = []
     try:
-        kb_ex = _make_reply_kb(["1", "2", "3", "1,2", "Kustom", "❌ Batal"], 3)
-        ask_ex = await message.reply("Pilih Index Stream yang ingin diekstrak:", reply_markup=kb_ex)
+        kb_ex = _make_reply_kb(["0", "1", "2", "1,2", "❌ Batal"], 3)
+        ask_ex = await message.reply("Ketik angka **Index Stream** yang ingin diekstrak (pisahkan dengan koma jika lebih dari satu, contoh: `1,2`):", reply_markup=kb_ex)
         resp = await wait_for_message(chat_id, user_id, 120)
         await _clean_msgs(ask_ex, resp)
         
         txt = (resp.text or "").strip()
         if "batal" in txt.lower(): return await message.answer("❌ Dibatalkan.", reply_markup=ReplyKeyboardRemove())
-        if "kustom" in txt.lower():
-            ask_cust = await message.reply("Ketik angka index stream (pisahkan dengan koma jika jamak):", reply_markup=ReplyKeyboardRemove())
-            cust_res = await wait_for_message(chat_id, user_id, 120)
-            await _clean_msgs(ask_cust, cust_res)
-            txt = cust_res.text
             
         selected = [int(i) for i in txt.split(",") if i.strip().isdigit()]
+        
+        if not selected:
+            return await message.answer("❌ Input tidak valid. Harus berupa angka indeks.", reply_markup=ReplyKeyboardRemove())
         
         kb_conf = _make_reply_kb(["✅ Ekstrak", "❌ Batal"], 2)
         idx_str = ", ".join(map(str, selected))
@@ -863,7 +913,30 @@ async def _media_info(message: Message):
         if not isinstance(link, str):
             target = link.video or link.document or link.audio
             dest = f"{temp_ps.dir}/{target.file_name or 'media.mp4'}"
-            await Telegram.AIOGRAM_BOT.download(target, destination=dest)
+            
+            last_update = [0.0]
+            async def _progress(current: int, total: int):
+                now = time.time()
+                if now - last_update[0] >= 2.0 and total:
+                    last_update[0] = now
+                    pct = current / total
+                    bar = "█" * int(pct * 10) + "░" * (10 - int(pct * 10))
+                    try: await dling_msg.edit_text(f"🔽 **Mengunduh untuk dianalisis...**\n\n[{bar}] {pct*100:.1f}%\n📥 `{get_human_size(current)} / {get_human_size(total)}`")
+                    except Exception: pass
+
+            pyro_client = Telegram.PYROGRAM_CLIENT
+            downloaded = False
+            if pyro_client:
+                try:
+                    pyro_msg = await pyro_client.get_messages(link.chat.id, link.message_id)
+                    await pyro_client.download_media(message=pyro_msg, file_name=dest, progress=_progress)
+                    downloaded = True
+                except Exception as e:
+                    LOGGER.error(f"Pyrogram temp dl error: {e}")
+            
+            if not downloaded:
+                await Telegram.AIOGRAM_BOT.download(target, destination=dest)
+            
             temp_ps.append_dw_files(dest)
             return dest, temp_ps.dir
 
@@ -875,6 +948,9 @@ async def _media_info(message: Message):
             if waited > 3600: break
             await asyncio.sleep(2)
             waited += 2
+            if waited % 4 == 0:
+                try: await dling_msg.edit_text(temp_ps.status_message or "🔽 Mengunduh berkas dengan Aria2...")
+                except: pass
         return (temp_ps.send_files[-1] if temp_ps.send_files else None), temp_ps.dir
 
     input_file, temp_dir = await _download_temp()
