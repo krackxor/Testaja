@@ -13,10 +13,11 @@
 ║  [UX PREMIUM] Menerapkan Reply Keyboard Singkat ("✅ Ya", "❌ Batal")║
 ║  [UX PREMIUM] Menerapkan Auto-Delete agar chat tetap bersih & rapi.  ║
 ║  [UX PREMIUM] Menerapkan Kotak Konfirmasi (Summary Box) pada fitur   ║
-║               krusial seperti /resetdb, /renew, dan /saveconfig.     ║
+║                krusial seperti /resetdb, /renew, dan /saveconfig.    ║
 ║  [FIX HIGH] Implementasi CMD_SUFFIX pada semua dekorator Command     ║
 ║  [FIX HIGH] Gunakan asyncio.to_thread pada subprocess srun (restart) ║
 ║  [FIX HIGH] Memperbaiki error parse_mode pada perintah /log          ║
+║  [UPDATE] Konsistensi UI, Ikon, Timeout, dan Batal selaras 100%.     ║
 ╚══════════════════════════════════════════════════════════════════════╝
 """
 
@@ -146,7 +147,7 @@ async def _speed_test(message: Message):
         else:
             await message.reply(result["text"])
     except Exception as e:
-        await reply.edit_text(f"❗ **Gagal menjalankan Speedtest.**\nError: `{e}`\n\n💡 Pastikan modul `speedtest-cli` sudah terinstal di server Anda.")
+        await reply.edit_text(f"❌ **Gagal menjalankan Speedtest.**\nError: `{e}`\n\n💡 Pastikan modul `speedtest-cli` sudah terinstal di server Anda.")
 
 
 @router.message(Command(f"restart{CMD_SUFFIX}"))
@@ -207,7 +208,7 @@ async def _logs(message: Message):
     log_file = "Logging.txt"
     if exists(log_file):
         try: await Telegram.AIOGRAM_BOT.send_document(chat_id, document=FSInputFile(log_file))
-        except Exception as e: await message.reply(str(e))
+        except Exception as e: await message.reply(f"❌ Error: {e}")
     else:
         await message.reply("❗ Berkas Log Tidak Ditemukan")
 
@@ -226,7 +227,10 @@ async def _changetasklimit(message: Message):
     resp = await wait_for_message(chat_id, user_id, 120)
     await _clean_msgs(ask_msg, resp)
     
-    if not resp or (resp.text or "").lower() == "batal":
+    if not resp:
+        return await message.answer("❌ Waktu habis. Dibatalkan.", reply_markup=ReplyKeyboardRemove())
+    
+    if "batal" in (resp.text or "").lower():
         return await message.answer("❌ Dibatalkan.", reply_markup=ReplyKeyboardRemove())
         
     if not (resp.text or "").isdigit():
@@ -306,7 +310,10 @@ async def _saverclone(message: Message):
     resp = await wait_for_message(chat_id, user_id, 120)
     await _clean_msgs(ask_msg, resp)
     
-    if not resp or (resp.text or "").lower() == "batal":
+    if not resp:
+        return await message.answer("❌ Waktu habis. Dibatalkan.", reply_markup=ReplyKeyboardRemove())
+        
+    if "batal" in (resp.text or "").lower():
         return await message.answer("❌ Dibatalkan.", reply_markup=ReplyKeyboardRemove())
 
     link = False
@@ -340,7 +347,7 @@ async def _savewatermark(message: Message):
     chat_id, user_id = message.chat.id, message.from_user.id
     if user_id not in get_data(): await new_user(user_id, SAVE_TO_DATABASE)
     ok = await ask_watermark(message, chat_id, user_id, "savewatermark", False)
-    await message.answer("✅ Watermark berhasil disimpan." if ok else "❗ Gagal Mendapatkan Watermark.", reply_markup=ReplyKeyboardRemove())
+    await message.answer("✅ Watermark berhasil disimpan." if ok else "❌ Gagal Mendapatkan Watermark.", reply_markup=ReplyKeyboardRemove())
 
 
 @router.message(Command(f"savethumb{CMD_SUFFIX}"))
@@ -349,7 +356,7 @@ async def _savethumb(message: Message):
     chat_id, user_id = message.chat.id, message.from_user.id
     if user_id not in get_data(): await new_user(user_id, SAVE_TO_DATABASE)
     ok = await ask_thumbnail_file(message, chat_id, user_id, "savethumb")
-    await message.answer("✅ Thumbnail berhasil disimpan." if ok else "❗ Gagal Mendapatkan Thumbnail.", reply_markup=ReplyKeyboardRemove())
+    await message.answer("✅ Thumbnail berhasil disimpan." if ok else "❌ Gagal Mendapatkan Thumbnail.", reply_markup=ReplyKeyboardRemove())
 
 
 # ═══════════════════════════════════════════════════════════════════════
@@ -410,10 +417,13 @@ async def _addsudo(message: Message):
         resp = await wait_for_message(chat_id, user_id, 120)
         await _clean_msgs(ask_msg, resp)
         
-        if not resp or (resp.text or "").lower() == "batal":
+        if not resp:
+            return await message.answer("❌ Waktu habis. Dibatalkan.", reply_markup=ReplyKeyboardRemove())
+        if "batal" in (resp.text or "").lower():
             return await message.answer("❌ Dibatalkan.", reply_markup=ReplyKeyboardRemove())
         if not (resp.text or "").isdigit():
             return await message.answer("❌ ID tidak valid. Dibatalkan.", reply_markup=ReplyKeyboardRemove())
+            
         sudo_id = int(resp.text)
             
     if sudo_id in sudo_users:
@@ -436,10 +446,13 @@ async def _delsudo(message: Message):
         resp = await wait_for_message(chat_id, user_id, 120)
         await _clean_msgs(ask_msg, resp)
         
-        if not resp or (resp.text or "").lower() == "batal":
+        if not resp:
+            return await message.answer("❌ Waktu habis. Dibatalkan.", reply_markup=ReplyKeyboardRemove())
+        if "batal" in (resp.text or "").lower():
             return await message.answer("❌ Dibatalkan.", reply_markup=ReplyKeyboardRemove())
         if not (resp.text or "").isdigit():
             return await message.answer("❌ ID tidak valid. Dibatalkan.", reply_markup=ReplyKeyboardRemove())
+            
         sudo_id = int(resp.text)
             
     if sudo_id not in sudo_users:
@@ -478,12 +491,15 @@ async def _resetdb(message: Message):
     resp = await wait_for_message(chat_id, user_id, 60)
     await _clean_msgs(conf_msg, resp)
     
-    if not resp or "batal" in (resp.text or "").lower():
+    if not resp:
+        return await message.answer("❌ Waktu habis. Dibatalkan.", reply_markup=ReplyKeyboardRemove())
+        
+    if "batal" in (resp.text or "").lower():
         return await message.answer("❌ Dibatalkan.", reply_markup=ReplyKeyboardRemove())
         
     if "ya" in (resp.text or "").lower():
         ok = await resetdatabase(SAVE_TO_DATABASE)
-        await message.answer(f"✔ Format Data {'Berhasil' if ok else 'Gagal Dijalankan'}", reply_markup=ReplyKeyboardRemove())
+        await message.answer(f"✅ Format Data {'Berhasil' if ok else 'Gagal Dijalankan'}", reply_markup=ReplyKeyboardRemove())
 
 
 @router.message(Command(f"renew{CMD_SUFFIX}"))
@@ -502,15 +518,18 @@ async def _renew(message: Message):
     resp = await wait_for_message(chat_id, user_id, 60)
     await _clean_msgs(conf_msg, resp)
     
-    if not resp or "batal" in (resp.text or "").lower():
+    if not resp:
+        return await message.answer("❌ Waktu habis. Dibatalkan.", reply_markup=ReplyKeyboardRemove())
+        
+    if "batal" in (resp.text or "").lower():
         return await message.answer("❌ Dibatalkan.", reply_markup=ReplyKeyboardRemove())
         
     if "ya" in (resp.text or "").lower():
         if exists(Config.DOWNLOAD_DIR):
             await delete_all(Config.DOWNLOAD_DIR)
-            await message.answer(f"✔ Seluruh Berkas Sementara pada folder {Config.DOWNLOAD_DIR} Berhasil Dihancurkan", reply_markup=ReplyKeyboardRemove())
+            await message.answer(f"✅ Seluruh Berkas Sementara pada folder {Config.DOWNLOAD_DIR} Berhasil Dihancurkan", reply_markup=ReplyKeyboardRemove())
         else:
-            await message.answer("Server Bersih: Tidak ada sampah berkas sementara.", reply_markup=ReplyKeyboardRemove())
+            await message.answer("✅ Server Bersih: Tidak ada sampah berkas sementara.", reply_markup=ReplyKeyboardRemove())
 
 
 @router.message(Command(f"settings{CMD_SUFFIX}"))
