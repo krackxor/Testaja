@@ -12,6 +12,7 @@
 ║  [FIX HIGH] Menambahkan import 'exists' yang hilang.                 ║
 ║  [FIX HIGH] Implementasi CMD_SUFFIX pada semua Command filter        ║
 ║  [NEW] Migrasi total ke Aiogram Router & Message objects             ║
+║  [UPDATE] Konsistensi UI, Ikon, Timeout, dan Batal selaras 100%.     ║
 ╚══════════════════════════════════════════════════════════════════════╝
 """
 
@@ -125,14 +126,17 @@ async def _verify_payment(message: Message):
     resp = await wait_for_message(chat_id, user_id, 120)
     await _clean_msgs(ask_msg, resp)
 
-    if not resp or "batal" in (resp.text or "").lower():
+    if not resp:
+        return await message.answer("❌ Waktu habis. Dibatalkan.", reply_markup=ReplyKeyboardRemove())
+        
+    if "batal" in (resp.text or "").lower():
         return await message.answer("❌ Dibatalkan.", reply_markup=ReplyKeyboardRemove())
 
     order_id = str(resp.text).strip()
     api_key  = Config.TRAKTEER_API_KEY
 
     if not api_key:
-        return await message.answer("❗ Fitur verifikasi belum dikonfigurasi oleh pemilik bot.", reply_markup=ReplyKeyboardRemove())
+        return await message.answer("❌ Fitur verifikasi belum dikonfigurasi oleh pemilik bot.", reply_markup=ReplyKeyboardRemove())
 
     all_data    = get_data()
     claimed_ids = all_data.get("claimed_order_ids", [])
@@ -283,7 +287,7 @@ async def _add_vip_manual(message: Message):
             if len(parts) > 2: duration_str = parts[2]
         else:
             await safe_reply(message,
-                "**Format:**\n"
+                "❌ **Format tidak valid:**\n"
                 f"`/add_vip{CMD_SUFFIX} [durasi]` (balas pesan) — contoh: `/add_vip{CMD_SUFFIX} 2m`\n"
                 f"`/add_vip{CMD_SUFFIX} <user_id> [durasi]` — contoh: `/add_vip{CMD_SUFFIX} 12345 1y`\n\n"
                 "Durasi: `30d`, `2m`, `1y`, atau angka hari"
@@ -327,11 +331,11 @@ async def _delete_vip_manual(message: Message):
         elif len(parts) > 1 and parts[1].isdigit():
             target_uid = int(parts[1])
         else:
-            return await safe_reply(message, f"❗ Format: `/delete_vip{CMD_SUFFIX} <user_id>` atau balas pesan.")
+            return await safe_reply(message, f"❌ Format: `/delete_vip{CMD_SUFFIX} <user_id>` atau balas pesan.")
 
         await ensure_user_data_structure(target_uid)
         if not get_data().get(target_uid, {}).get("premium_expiry_date"):
-            return await safe_reply(message, f"❗ User `{target_uid}` tidak memiliki VIP aktif.")
+            return await safe_reply(message, f"❌ User `{target_uid}` tidak memiliki VIP aktif.")
 
         await saveoptions(target_uid, "premium_expiry_date", None, SAVE_TO_DATABASE)
         await saveoptions(target_uid, "total_vip_duration",  0,    SAVE_TO_DATABASE)
