@@ -8,11 +8,12 @@
 ╠══════════════════════════════════════════════════════════════════════╣
 ║  CHANGELOG dari versi lama:                                          ║
 ║  [UX PREMIUM] Menambahkan Kotak Konfirmasi Detail di SEMUA perintah  ║
-║               agar pengguna tahu persis parameter apa yang diatur.   ║
+║                agar pengguna tahu persis parameter apa yang diatur.  ║
 ║  [UX PREMIUM] Menerapkan Auto-Delete agar chat tetap bersih & rapi.  ║
 ║  [UX PREMIUM] Menerapkan Reply Keyboard pendek yang konsisten.       ║
 ║  [FIX HIGH] Extract & Mediainfo Bypass (Instan Download native TG)   ║
 ║  [FIX HIGH] Implementasi CMD_SUFFIX pada semua Command filter        ║
+║  [UPDATE] Konsistensi Ikon, Teks Batal, dan Timeout selaras 100%.    ║
 ╚══════════════════════════════════════════════════════════════════════╝
 """
 
@@ -129,8 +130,8 @@ async def _trim_video(message: Message):
             await _clean_msgs(ask_msg, resp)
             if resp.video or resp.document: link = resp
             elif (resp.text or "").startswith("http"): link = resp.text
-            else: return await message.answer("❌ Input tidak valid. Dibatalkan.")
-        except asyncio.TimeoutError: return await safe_reply(message, "⏱ Waktu habis, proses dibatalkan.")
+            else: return await message.answer("❌ Input tidak valid. Dibatalkan.", reply_markup=ReplyKeyboardRemove())
+        except asyncio.TimeoutError: return await safe_reply(message, "❌ Waktu habis. Dibatalkan.")
 
     video_event_for_task = link
     fname = _get_fname(link, custom_file_name)
@@ -197,7 +198,7 @@ async def _trim_video(message: Message):
              
         await message.answer("✅ Mempersiapkan proses...", reply_markup=ReplyKeyboardRemove())
         
-    except asyncio.TimeoutError: return await message.answer("⏱ Waktu habis, proses dibatalkan.", reply_markup=ReplyKeyboardRemove())
+    except asyncio.TimeoutError: return await message.answer("❌ Waktu habis. Dibatalkan.", reply_markup=ReplyKeyboardRemove())
     except Exception as e:
         LOGGER.error(f"/trim conversation error: {e}", exc_info=True)
         return await message.answer(f"❌ Error: `{e}`", reply_markup=ReplyKeyboardRemove())
@@ -231,8 +232,8 @@ async def _split_video(message: Message):
             await _clean_msgs(ask_msg, resp)
             if resp.video or resp.document: link = resp
             elif (resp.text or "").startswith("http"): link = resp.text
-            else: return await message.answer("❌ Input tidak valid. Dibatalkan.")
-        except asyncio.TimeoutError: return await safe_reply(message, "⏱ Waktu habis.")
+            else: return await message.answer("❌ Input tidak valid. Dibatalkan.", reply_markup=ReplyKeyboardRemove())
+        except asyncio.TimeoutError: return await safe_reply(message, "❌ Waktu habis. Dibatalkan.")
 
     video_event_for_task = link
     fname = _get_fname(link, custom_file_name)
@@ -290,9 +291,9 @@ async def _split_video(message: Message):
         if "batal" in (press2.text or "").lower():
             return await message.answer("❌ Dibatalkan.", reply_markup=ReplyKeyboardRemove())
             
-        await message.answer("✅ Mempersiapkan pembagian...", reply_markup=ReplyKeyboardRemove())
+        await message.answer("✅ Mempersiapkan proses...", reply_markup=ReplyKeyboardRemove())
         
-    except asyncio.TimeoutError: return await message.answer("⏱ Waktu habis.", reply_markup=ReplyKeyboardRemove())
+    except asyncio.TimeoutError: return await message.answer("❌ Waktu habis. Dibatalkan.", reply_markup=ReplyKeyboardRemove())
     except Exception as e:
         LOGGER.error(f"/split error: {e}", exc_info=True)
         return await safe_reply(message, f"❌ Error: `{e}`")
@@ -326,8 +327,8 @@ async def _cut_video(message: Message):
             await _clean_msgs(ask_msg, resp)
             if resp.video or resp.document: link = resp
             elif (resp.text or "").startswith("http"): link = resp.text
-            else: return await message.answer("❌ Input tidak valid. Dibatalkan.")
-        except asyncio.TimeoutError: return await safe_reply(message, "⏱ Waktu habis.")
+            else: return await message.answer("❌ Input tidak valid. Dibatalkan.", reply_markup=ReplyKeyboardRemove())
+        except asyncio.TimeoutError: return await safe_reply(message, "❌ Waktu habis. Dibatalkan.")
 
     video_event_for_task = link
     fname = _get_fname(link, custom_file_name)
@@ -386,11 +387,11 @@ async def _cut_video(message: Message):
                 cut_ranges.append(parsed)
                 await menu_msg.edit_text(_menu_text())
             else:
-                err = await message.reply("⚠️ Format tidak valid. Coba lagi.")
+                err = await message.reply("❌ Format tidak valid. Coba lagi.")
                 await asyncio.sleep(2)
                 await _clean_msgs(err)
 
-    except asyncio.TimeoutError: return await message.answer("⏱ Waktu habis.", reply_markup=ReplyKeyboardRemove())
+    except asyncio.TimeoutError: return await message.answer("❌ Waktu habis. Dibatalkan.", reply_markup=ReplyKeyboardRemove())
     except Exception as e:
         LOGGER.error(f"/cut error: {e}", exc_info=True)
         return await safe_reply(message, f"❌ Error: `{e}`")
@@ -424,8 +425,8 @@ async def _rotate_video(message: Message):
             await _clean_msgs(ask_msg, resp)
             if resp.video or resp.document: link = resp
             elif (resp.text or "").startswith("http"): link = resp.text
-            else: return await message.answer("❌ Input tidak valid. Dibatalkan.")
-        except asyncio.TimeoutError: return await safe_reply(message, "⏱ Waktu habis.")
+            else: return await message.answer("❌ Input tidak valid. Dibatalkan.", reply_markup=ReplyKeyboardRemove())
+        except asyncio.TimeoutError: return await safe_reply(message, "❌ Waktu habis. Dibatalkan.")
 
     video_event_for_task = link
     fname = _get_fname(link, custom_file_name)
@@ -466,9 +467,9 @@ async def _rotate_video(message: Message):
         if "batal" in (press2.text or "").lower():
             return await message.answer("❌ Dibatalkan.", reply_markup=ReplyKeyboardRemove())
             
-        await message.answer(f"✅ Mempersiapkan rotasi...", reply_markup=ReplyKeyboardRemove())
+        await message.answer(f"✅ Mempersiapkan proses...", reply_markup=ReplyKeyboardRemove())
 
-    except asyncio.TimeoutError: return await message.answer("⏱ Waktu habis.", reply_markup=ReplyKeyboardRemove())
+    except asyncio.TimeoutError: return await message.answer("❌ Waktu habis. Dibatalkan.", reply_markup=ReplyKeyboardRemove())
     except Exception as e:
         LOGGER.error(f"/rotate error: {e}", exc_info=True)
         return await safe_reply(message, f"❌ Error: `{e}`")
@@ -502,8 +503,8 @@ async def _crop_video(message: Message):
             await _clean_msgs(ask_msg, resp)
             if resp.video or resp.document: link = resp
             elif (resp.text or "").startswith("http"): link = resp.text
-            else: return await message.answer("❌ Input tidak valid atau bukan video. Dibatalkan.")
-        except asyncio.TimeoutError: return await safe_reply(message, "⏱ Waktu habis.")
+            else: return await message.answer("❌ Input tidak valid. Dibatalkan.", reply_markup=ReplyKeyboardRemove())
+        except asyncio.TimeoutError: return await safe_reply(message, "❌ Waktu habis. Dibatalkan.")
 
     video_event_for_task = link
     fname = _get_fname(link, custom_file_name)
@@ -540,9 +541,9 @@ async def _crop_video(message: Message):
         if "batal" in (press2.text or "").lower():
             return await message.answer("❌ Dibatalkan.", reply_markup=ReplyKeyboardRemove())
             
-        await message.answer(f"✅ Mempersiapkan proses crop...", reply_markup=ReplyKeyboardRemove())
+        await message.answer(f"✅ Mempersiapkan proses...", reply_markup=ReplyKeyboardRemove())
         
-    except asyncio.TimeoutError: return await message.answer("⏱ Waktu habis.", reply_markup=ReplyKeyboardRemove())
+    except asyncio.TimeoutError: return await message.answer("❌ Waktu habis. Dibatalkan.", reply_markup=ReplyKeyboardRemove())
     except Exception as e:
         LOGGER.error(f"/crop error: {e}", exc_info=True)
         return await safe_reply(message, f"❌ Error: `{e}`")
@@ -576,8 +577,8 @@ async def _autocrop_video(message: Message):
             await _clean_msgs(ask_msg, resp)
             if resp.video or resp.document: link = resp
             elif (resp.text or "").startswith("http"): link = resp.text
-            else: return await message.answer("❌ Input tidak valid. Dibatalkan.")
-        except asyncio.TimeoutError: return await safe_reply(message, "⏱ Waktu habis.")
+            else: return await message.answer("❌ Input tidak valid. Dibatalkan.", reply_markup=ReplyKeyboardRemove())
+        except asyncio.TimeoutError: return await safe_reply(message, "❌ Waktu habis. Dibatalkan.")
 
     video_event_for_task = link
     fname = _get_fname(link, custom_file_name)
@@ -595,9 +596,9 @@ async def _autocrop_video(message: Message):
         await _clean_msgs(menu_msg, resp)
         
         if "batal" in (resp.text or "").lower(): return await message.answer("❌ Dibatalkan.", reply_markup=ReplyKeyboardRemove())
-        await message.answer("✅ Mempersiapkan autocrop...", reply_markup=ReplyKeyboardRemove())
+        await message.answer("✅ Mempersiapkan proses...", reply_markup=ReplyKeyboardRemove())
         
-    except asyncio.TimeoutError: return await message.answer("⏱ Waktu habis.", reply_markup=ReplyKeyboardRemove())
+    except asyncio.TimeoutError: return await message.answer("❌ Waktu habis. Dibatalkan.", reply_markup=ReplyKeyboardRemove())
     except Exception as e:
         LOGGER.error(f"/autocrop error: {e}", exc_info=True)
         return await safe_reply(message, f"❌ Error: `{e}`")
@@ -630,8 +631,8 @@ async def _extension_changer(message: Message):
             await _clean_msgs(ask_msg, resp)
             if resp.document or resp.video or resp.audio: link = resp
             elif (resp.text or "").startswith("http"): link = resp.text
-            else: return await message.answer("❌ Input tidak valid. Dibatalkan.")
-        except asyncio.TimeoutError: return await safe_reply(message, "⏱ Waktu habis.")
+            else: return await message.answer("❌ Input tidak valid. Dibatalkan.", reply_markup=ReplyKeyboardRemove())
+        except asyncio.TimeoutError: return await safe_reply(message, "❌ Waktu habis. Dibatalkan.")
 
     video_event_for_task = link
     fname = _get_fname(link, custom_file_name)
@@ -681,9 +682,9 @@ async def _extension_changer(message: Message):
         if "batal" in (press2.text or "").lower():
             return await message.answer("❌ Dibatalkan.", reply_markup=ReplyKeyboardRemove())
             
-        await message.answer(f"✅ Mempersiapkan konversi...", reply_markup=ReplyKeyboardRemove())
+        await message.answer(f"✅ Mempersiapkan proses...", reply_markup=ReplyKeyboardRemove())
         
-    except asyncio.TimeoutError: return await message.answer("⏱ Waktu habis.", reply_markup=ReplyKeyboardRemove())
+    except asyncio.TimeoutError: return await message.answer("❌ Waktu habis. Dibatalkan.", reply_markup=ReplyKeyboardRemove())
     except Exception as e:
         LOGGER.error(f"/extension error: {e}", exc_info=True)
         return await safe_reply(message, f"❌ Error: `{e}`")
@@ -717,8 +718,8 @@ async def _extract_streams(message: Message):
             await _clean_msgs(ask_msg, resp)
             if resp.video or resp.document: link = resp
             elif (resp.text or "").startswith("http"): link = resp.text
-            else: return await message.answer("❌ Input tidak valid. Dibatalkan.")
-        except asyncio.TimeoutError: return await safe_reply(message, "⏱ Waktu habis.")
+            else: return await message.answer("❌ Input tidak valid. Dibatalkan.", reply_markup=ReplyKeyboardRemove())
+        except asyncio.TimeoutError: return await safe_reply(message, "❌ Waktu habis. Dibatalkan.")
 
     video_event_for_task = link
     fname = _get_fname(link, custom_file_name)
@@ -798,9 +799,9 @@ async def _extract_streams(message: Message):
         if "batal" in (press2.text or "").lower():
             return await message.answer("❌ Dibatalkan.", reply_markup=ReplyKeyboardRemove())
             
-        await message.answer("✅ Mempersiapkan ekstraksi...", reply_markup=ReplyKeyboardRemove())
+        await message.answer("✅ Mempersiapkan proses...", reply_markup=ReplyKeyboardRemove())
         
-    except asyncio.TimeoutError: return await message.answer("⏱ Waktu habis.", reply_markup=ReplyKeyboardRemove())
+    except asyncio.TimeoutError: return await message.answer("❌ Waktu habis. Dibatalkan.", reply_markup=ReplyKeyboardRemove())
     except Exception as e:
         LOGGER.error(f"/extract error: {e}", exc_info=True)
         return await safe_reply(message, f"❌ Error: `{e}`")
@@ -837,8 +838,8 @@ async def _media_info(message: Message):
             await _clean_msgs(ask_msg, resp)
             if resp.video or resp.document or resp.audio: link = resp
             elif (resp.text or "").startswith("http"): link = resp.text
-            else: return await message.answer("❌ Input tidak valid. Dibatalkan.")
-        except asyncio.TimeoutError: return await safe_reply(message, "⏱ Waktu habis.")
+            else: return await message.answer("❌ Input tidak valid. Dibatalkan.", reply_markup=ReplyKeyboardRemove())
+        except asyncio.TimeoutError: return await safe_reply(message, "❌ Waktu habis. Dibatalkan.")
 
     video_event_for_task = link
     dling_msg = await message.reply("🔽 Mengunduh berkas...")
