@@ -6,19 +6,17 @@
 ║  Commands: /trim /split /cut /rotate /crop /autocrop                 ║
 ║            /extension /extract /mediainfo                            ║
 ╠══════════════════════════════════════════════════════════════════════╣
-║  CHANGELOG dari versi lama:                                          ║
-║  [UX PREMIUM] Menambahkan Kotak Konfirmasi Detail di SEMUA perintah  ║
-║                agar pengguna tahu persis parameter apa yang diatur.  ║
+║  CHANGELOG:                                                          ║
 ║  [UX PREMIUM] Menerapkan Auto-Delete agar chat tetap bersih & rapi.  ║
 ║  [UX PREMIUM] Menerapkan Reply Keyboard pendek yang konsisten.       ║
-║  [FIX HIGH] Extract & Mediainfo Bypass (Instan Download native TG)   ║
 ║  [FIX HIGH] Implementasi CMD_SUFFIX pada semua Command filter        ║
 ║  [UPDATE] Konsistensi Ikon, Teks Batal, dan Timeout selaras 100%.    ║
 ║  [HOTFIX] Menghentikan penghapusan media user agar tidak gagal unduh.║
 ║  [HOTFIX] Memutus Settingan Global (Watermark) agar proses Murni &   ║
 ║           Jauh Lebih Cepat.                                          ║
 ║  [HOTFIX] /extract & /mediainfo kini menampilkan Progress Bar Pyrogram║
-║  [HOTFIX] /extract kini menampilkan struktur Audio & Subtitle video. ║
+║  [HOTFIX] /extract menampilkan struktur Audio & Subtitle video       ║
+║           serta bisa Multi-Select dengan tombol super interaktif!    ║
 ╚══════════════════════════════════════════════════════════════════════╝
 """
 
@@ -761,6 +759,7 @@ async def _extract_streams(message: Message):
             downloaded = False
             if pyro_client:
                 try:
+                    # Mencari pesan yg benar dari chat id asli (link is Message object)
                     pyro_msg = await pyro_client.get_messages(link.chat.id, link.message_id)
                     await pyro_client.download_media(message=pyro_msg, file_name=dest, progress=_progress)
                     downloaded = True
@@ -800,8 +799,9 @@ async def _extract_streams(message: Message):
         all_streams = json_loads(stdout.decode("utf-8", "replace")).get("streams", [])
     except Exception as e: return await safe_reply(message, f"❌ Gagal menganalisis video: `{e}`")
 
+    # Menganalisa Stream Audio & Subtitle
     txt = f"🎞️ **Info Stream `{fname}`**\n\n"
-    has_extractable = False
+    extractable_streams = []
     for s in all_streams:
         ct = s.get("codec_type")
         si = s.get("index")
@@ -815,34 +815,93 @@ async def _extract_streams(message: Message):
         elif ct == "audio":
             icon = "🎧 Audio"
             info = f"{lang}" + (f" - {title}" if title else "")
-            has_extractable = True
+            extractable_streams.append(s)
         elif ct == "subtitle":
             icon = "📖 Subtitle"
             info = f"{lang}" + (f" - {title}" if title else "")
-            has_extractable = True
+            extractable_streams.append(s)
         else:
             continue
             
         txt += f"**{si}.** {icon} | `{codec}` | {info}\n"
 
-    if not has_extractable:
-        return await dling_msg.edit_text("❌ Tidak ada stream audio atau subtitle yang dapat diekstrak.")
+    if not extractable_streams:
+        return await dling_msg.edit_text("❌ Tidak ada stream audio atau subtitle yang dapat diekstrak pada video ini.")
+
+    await dling_msg.delete()
+
+    # Membuat Sistem Multi-Select Button
+    async def build_extract_kb(selected_indices):
+        opts_buttons = []
+        for s in extractable_streams:
+            si = s.get("index")
+            ct = s.get("codec_type")
+            icon = "🎧" if ct == "audio" else "📖"
+            btn_text = f"✅ {icon} Stream {si}" if si in selected_indices else f"{icon} Stream {si}"
+            opts_buttons.append(btn_text)
         
-    await dling_msg.edit_text(txt)
+        opts_buttons.append("✅ Selesai")
+        opts_buttons.append("❌ Batal")
+        return _make_reply_kb(opts_buttons, 2)
+
+    selected_indices = []
+    ask_ex = await message.reply(
+        f"{txt}\n\n"
+        "🗜️ **Pilih Stream untuk Diekstrak:**\n\n"
+        "Tekan tombol stream di bawah. Anda bisa memilih lebih dari satu.\n"
+        "Jika sudah selesai, tekan **✅ Selesai**.", 
+        reply_markup=await build_extract_kb(selected_indices)
+    )
 
     try:
-        kb_ex = _make_reply_kb(["0", "1", "2", "1,2", "❌ Batal"], 3)
-        ask_ex = await message.reply("Ketik angka **Index Stream** yang ingin diekstrak (pisahkan dengan koma jika lebih dari satu, contoh: `1,2`):", reply_markup=kb_ex)
-        resp = await wait_for_message(chat_id, user_id, 120)
-        await _clean_msgs(ask_ex, resp)
-        
-        txt = (resp.text or "").strip()
-        if "batal" in txt.lower(): return await message.answer("❌ Dibatalkan.", reply_markup=ReplyKeyboardRemove())
+        while True:
+            resp = await wait_for_message(chat_id, user_id, 120)
+            await _clean_msgs(resp)
             
-        selected = [int(i) for i in txt.split(",") if i.strip().isdigit()]
-        
-        if not selected:
-            return await message.answer("❌ Input tidak valid. Harus berupa angka indeks.", reply_markup=ReplyKeyboardRemove())
+            if not resp:
+                await _clean_msgs(ask_ex)
+                return await message.answer("❌ Waktu habis. Dibatalkan.", reply_markup=ReplyKeyboardRemove())
+                
+            msg_txt = (resp.text or "")
+            if "batal" in msg_txt.lower():
+                await _clean_msgs(ask_ex)
+                return await message.answer("❌ Dibatalkan.", reply_markup=ReplyKeyboardRemove())
+                
+            if "selesai" in msg_txt.lower():
+                await _clean_msgs(ask_ex)
+                break
+                
+            # Mencari angka "Stream X" dari tombol yang ditekan
+            match = _re.search(r'Stream (\d+)', msg_txt, _re.IGNORECASE)
+            if match:
+                idx = int(match.group(1))
+                if idx in selected_indices:
+                    selected_indices.remove(idx)
+                else:
+                    selected_indices.append(idx)
+                
+                sel_str = ", ".join(map(str, sorted(selected_indices))) if selected_indices else "(Belum ada)"
+                new_kb = await build_extract_kb(selected_indices)
+                try:
+                    await ask_ex.delete()
+                except:
+                    pass
+                ask_ex = await message.answer(
+                    f"{txt}\n\n"
+                    f"🗜️ **Pilih Stream untuk Diekstrak:**\n\n"
+                    f"✅ **Terpilih:** `Stream {sel_str}`\n\n"
+                    f"Tekan tombol stream lain untuk menambah/menghapus, atau **✅ Selesai** jika sudah.",
+                    reply_markup=new_kb
+                )
+            else:
+                err = await message.answer("❌ Input tidak valid.")
+                await asyncio.sleep(1.5)
+                await _clean_msgs(err)
+
+        if not selected_indices:
+            return await message.answer("❌ Anda tidak memilih stream apapun. Dibatalkan.", reply_markup=ReplyKeyboardRemove())
+
+        selected = sorted(selected_indices)
         
         kb_conf = _make_reply_kb(["✅ Ekstrak", "❌ Batal"], 2)
         idx_str = ", ".join(map(str, selected))
