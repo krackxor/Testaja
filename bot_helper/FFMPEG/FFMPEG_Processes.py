@@ -17,6 +17,7 @@
 ║  [FIX]       change_metadata retry logging                           ║
 ║  [IMPROVE]   select_audio indentasi & readability                    ║
 ║  [IMPROVE]   sleep(1) ss → sleep(0.3) dengan jitter                  ║
+║  [HOTFIX]    Perbaikan penamaan output split agar terbaca sistem     ║
 ╚══════════════════════════════════════════════════════════════════════╝
 """
 
@@ -161,6 +162,7 @@ async def split_by_duration(input_file: str, duration_per_part: float, output_di
     output_files = []
     semaphore    = asyncio.Semaphore(2)   # Max 2 FFmpeg bersamaan
 
+    file_name, extension = splitext(input_file.split("/")[-1])
     for i in range(total_parts):
         start_time = i * duration_per_part
 
@@ -169,7 +171,7 @@ async def split_by_duration(input_file: str, duration_per_part: float, output_di
         if remaining < 1.0:
             break
 
-        part_name = join(output_dir, f"part_{i + 1}.mp4")
+        part_name = join(output_dir, f"{file_name}_part{str(i + 1).zfill(3)}{extension}")
         output_files.append(part_name)
 
         command = [
@@ -232,8 +234,9 @@ async def split_by_size(input_file: str, size_per_part_mb: float, output_dir: st
         LOGGER.error("❌ split_by_size: gagal baca durasi video")
         return []
 
+    file_name, extension = splitext(input_file.split("/")[-1])
     while start_time < (total_duration - 1.0):
-        part_name = join(split_output_dir, f"part_{part_num}.mp4")
+        part_name = join(split_output_dir, f"{file_name}_part{str(part_num).zfill(3)}{extension}")
 
         command = [
             "ffmpeg", "-hide_banner",
