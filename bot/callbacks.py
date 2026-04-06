@@ -5,16 +5,17 @@
 ╠══════════════════════════════════════════════════════════════════════╣
 ║  FIXES dari versi lama:                                              ║
 ║  [UX PREMIUM] Menerapkan Auto-Delete pada seluruh input manual dari  ║
-║               menu Setting agar chat tidak dipenuhi pesan sampah.    ║
+║                menu Setting agar chat tidak dipenuhi pesan sampah.   ║
 ║  [UX PREMIUM] Menyelaraskan teks konfirmasi & menambahkan fitur batal║
-║               di dalam input manual.                                 ║
+║                di dalam input manual.                                ║
 ║  [FIX HIGH] Menyuntikkan call.answer() untuk memutus loading tombol  ║
-║             sehingga respons UI bot menjadi secepat kilat (Instan).  ║
+║              sehingga respons UI bot menjadi secepat kilat (Instan). ║
 ║  [FIX HIGH] Implementasi CMD_SUFFIX pada teks panduan restart.       ║
 ║  [NEW] Migrasi total dari Telethon CallbackQuery ke Aiogram          ║
 ║  [NEW] Menggunakan sistem wait_for_message dari shared.py            ║
 ║  [FIX] Menutup celah crash Markdown pada pesan respons.              ║
 ║  [FIX] Menyelesaikan error Pydantic ValidationError (Frozen Object)  ║
+║  [UPDATE] Konsistensi UI, Ikon, Timeout, dan Batal selaras 100%.     ║
 ╚══════════════════════════════════════════════════════════════════════╝
 """
 
@@ -145,24 +146,32 @@ def gen_keyboard(values_list, current_value, callvalue, items, hide):
 
 
 async def get_text_data(chat_id, user_id, call: CallbackQuery, timeout, message_text):
-    """Integrasi dengan sistem Inline Waiter dengan Auto-Delete bersih."""
+    """Integrasi dengan sistem Inline Waiter dengan Auto-Delete bersih dan anti Timeout Error."""
     ask_msg = await call.message.reply(f"📌 {message_text}\n\n_Ketik 'batal' untuk membatalkan. ({timeout} detik)_")
     try:
         resp = await wait_for_message(chat_id, user_id, timeout)
-        
-        # Clean up
         await _clean_msgs(ask_msg, resp)
         
-        if not resp or (resp.text or "").strip().lower() == "batal":
-            await call.answer("Aksi Dibatalkan", show_alert=True)
+        if not resp:
+            # Menggunakan temporary message agar Telegram tidak melempar Error 'Query is too old' pada call.answer()
+            temp = await call.message.answer("❌ Waktu habis. Dibatalkan.")
+            await asyncio.sleep(2)
+            await _clean_msgs(temp)
+            return False
+            
+        if (resp.text or "").strip().lower() == "batal":
+            temp = await call.message.answer("❌ Dibatalkan.")
+            await asyncio.sleep(2)
+            await _clean_msgs(temp)
             return False
             
         return resp
     except asyncio.TimeoutError:
         try:
-            await ask_msg.edit_text("🔃 Waktu Habis! Tugas Telah Dibatalkan.")
-            await asyncio.sleep(3)
+            temp = await call.message.answer("❌ Waktu habis. Dibatalkan.")
             await _clean_msgs(ask_msg)
+            await asyncio.sleep(2)
+            await _clean_msgs(temp)
         except Exception: pass
         return False
 
@@ -418,7 +427,7 @@ async def general_callback(call: CallbackQuery, txt: str, user_id: int, chat_id:
         val = _safe_eval_bool(new_pos)
         if val is not None:
             if not val and not (check_cfg and drive_name):
-                await call.answer("❗ Simpan Konfigurasi Rclone Terlebih Dahulu", show_alert=True)
+                await call.answer("❌ Simpan Konfigurasi Rclone Terlebih Dahulu", show_alert=True)
                 return
             await saveoptions(user_id, "upload_tg", val, SAVE_TO_DATABASE)
     elif txt.startswith("generaldrivename"): await saveoptions(user_id, "drive_name", new_pos, SAVE_TO_DATABASE)
@@ -426,7 +435,7 @@ async def general_callback(call: CallbackQuery, txt: str, user_id: int, chat_id:
         val = _safe_eval_bool(new_pos)
         if val is not None:
             if val and not (check_cfg and drive_name):
-                await call.answer("❗ Simpan Konfigurasi Rclone Terlebih Dahulu", show_alert=True)
+                await call.answer("❌ Simpan Konfigurasi Rclone Terlebih Dahulu", show_alert=True)
                 return
             await saveoptions(user_id, "auto_drive", val, SAVE_TO_DATABASE)
     elif txt.startswith("generalgenss"):
@@ -794,7 +803,7 @@ async def watermark_image_menu(call: CallbackQuery, txt: str, user_id: int, chat
             await call.message.answer_photo(FSInputFile(wm_path), caption="🖼 Watermark gambar Anda saat ini.")
             await call.message.answer("Aksi Selesai:", reply_markup=InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="Kembali Ke Menu Gambar", callback_data="watermark_image_menu")]]))
         else:
-            await call.answer("❗ Belum ada watermark gambar tersimpan.", show_alert=True)
+            await call.answer("❌ Belum ada watermark gambar tersimpan.", show_alert=True)
         return
 
     elif txt == "watermark_image_delete":
@@ -802,7 +811,7 @@ async def watermark_image_menu(call: CallbackQuery, txt: str, user_id: int, chat
             remove(wm_path)
             await call.answer("✅ Watermark berhasil dihapus.", show_alert=True)
         else:
-            await call.answer("❗ Tidak ada watermark untuk dihapus.", show_alert=True)
+            await call.answer("❌ Tidak ada watermark untuk dihapus.", show_alert=True)
 
     elif txt.startswith("watermark_image_duration_"):
         parts  = txt.split("_")
@@ -940,7 +949,7 @@ async def watermark_text_menu(call: CallbackQuery, txt: str, user_id: int, chat_
             for f in fonts: remove(f)
             await call.answer("✅ Font kustom dihapus. Menggunakan Default sistem.", show_alert=True)
         else:
-            await call.answer("❗ Anda sedang tidak menggunakan font kustom.", show_alert=True)
+            await call.answer("❌ Anda sedang tidak menggunakan font kustom.", show_alert=True)
 
     elif txt.startswith("watermark_text_duration_"):
         parts  = txt.split("_")
@@ -986,14 +995,14 @@ async def watermark_text_menu(call: CallbackQuery, txt: str, user_id: int, chat_
             try: await call.answer(f"✅ Warna Teks: {new_pos}")
             except: pass
 
-    setts     = get_data().get(user_id, {}).get("watermark", {})
-    ts        = setts.get("text", {})
-    dur       = ts.get("duration", {})
-    cur_pos   = ts.get("position", "bottom_right")
-    cur_size  = ts.get("font_size", "24")
-    cur_color = ts.get("font_color", "white")
-    v2i       = {v: k for k, v in ws_text_positions.items()}
-    cur_icon  = v2i.get(cur_pos, "↘️")
+    setts      = get_data().get(user_id, {}).get("watermark", {})
+    ts         = setts.get("text", {})
+    dur        = ts.get("duration", {})
+    cur_pos    = ts.get("position", "bottom_right")
+    cur_size   = ts.get("font_size", "24")
+    cur_color  = ts.get("font_color", "white")
+    v2i        = {v: k for k, v in ws_text_positions.items()}
+    cur_icon   = v2i.get(cur_pos, "↘️")
     
     clean_txt = str(ts.get('content','(Belum diisi)')).replace("`","").replace("*","")
     
@@ -1063,7 +1072,7 @@ async def callback(call: CallbackQuery):
             await call.message.edit_text(
                 msg,
                 reply_markup=InlineKeyboardMarkup(inline_keyboard=[
-                    [InlineKeyboardButton(text="👤 Profil",       callback_data="profile_main")],
+                    [InlineKeyboardButton(text="👤 Profil",        callback_data="profile_main")],
                     [InlineKeyboardButton(text="🎬 Pengolahan Media",        callback_data="settings_media")],
                     [InlineKeyboardButton(text="🤖 Umum & Tampilan", callback_data="settings_bot")],
                     [InlineKeyboardButton(text="⭕ Tutup Jendela",                  callback_data="close_settings")],
@@ -1223,15 +1232,15 @@ async def callback(call: CallbackQuery):
                     caption=f"📄 Berkas Log Kesalahan untuk proses `{process_id}`.")
                 await call.message.edit_text("✅ Berkas Log telah berhasil terkirim.", reply_markup=None)
             else:
-                await call.answer("❗ Sayang sekali, berkas Log tidak ditemukan.", show_alert=True)
+                await call.answer("❌ Sayang sekali, berkas Log tidak ditemukan.", show_alert=True)
 
         elif txt.startswith("resetdb"):
             val = _safe_eval_bool(txt.split("_", 1)[1])
             if val:
                 ok = await resetdatabase(SAVE_TO_DATABASE)
-                await call.answer(f"✔ Format Data {'Berhasil' if ok else 'Gagal Dijalankan'}", show_alert=True)
+                await call.answer(f"✅ Format Data {'Berhasil' if ok else 'Gagal Dijalankan'}", show_alert=True)
             else:
-                await call.answer("Perintah Formatting Dibatalkan.", show_alert=True)
+                await call.answer("❌ Dibatalkan.", show_alert=True)
 
         elif txt.startswith("env_"):
             key  = txt.split("_", 1)[1]
@@ -1249,11 +1258,11 @@ async def callback(call: CallbackQuery):
             if val:
                 if exists(Config.DOWNLOAD_DIR):
                     await delete_all(Config.DOWNLOAD_DIR)
-                    await call.answer(f"✔ Seluruh Berkas Sementara pada folder {Config.DOWNLOAD_DIR} Berhasil Dihancurkan", show_alert=True)
+                    await call.answer(f"✅ Seluruh Berkas Sementara pada folder {Config.DOWNLOAD_DIR} Berhasil Dihancurkan", show_alert=True)
                 else:
-                    await call.answer("Server Bersih: Tidak ada sampah berkas sementara.", show_alert=True)
+                    await call.answer("✅ Server Bersih: Tidak ada sampah berkas sementara.", show_alert=True)
             else:
-                await call.answer("Perintah Pembersihan Dibatalkan.", show_alert=True)
+                await call.answer("❌ Dibatalkan.", show_alert=True)
 
         # ── Settings Sub-Dispatchers ─────────────────────────────────
         elif txt.startswith("general"):    await general_callback(call, txt, user_id, chat_id)
