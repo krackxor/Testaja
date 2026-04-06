@@ -11,6 +11,9 @@
 ║  [NEW PREMIUM] /convert kini 100% FULL TOMBOL! Mendukung Multi-Select║
 ║                dengan tombol "✅ Selesai" tanpa perlu mengetik koma. ║
 ║  [UPDATE] Konsistensi tombol dan teks pembatalan di seluruh fitur.   ║
+║  [HOTFIX] /convert kini mematuhi input dan lepas dari Global Config. ║
+║  [HOTFIX] /watermark menggunakan 9 Ikon Sudut Arah lengkap.          ║
+║  [HOTFIX] Mencegah Auto-Delete pada media user agar proses berjalan. ║
 ╚══════════════════════════════════════════════════════════════════════╝
 """
 
@@ -85,7 +88,7 @@ def _sanitize_link_for_db(link):
 # ═══════════════════════════════════════════════════════════════════════
 
 async def hardmux_multi_task(multi_ps, message: Message, chat_id, user_id, process_command) -> bool:
-    new_msg = await ask_media_OR_url(message, chat_id, user_id, [process_command, "stop"], "Kirim Berkas Subtitle SRT", 120, False, True, allow_magnet=False, allow_url=False)
+    new_msg = await ask_media_OR_url(message, chat_id, user_id, [process_command, "stop"], "Kirim Berkas Subtitle SRT", 120, False, False, allow_magnet=False, allow_url=False)
     if not new_msg or new_msg in ["cancelled", "stopped", "batal"]: return False
     if not new_msg.document:
         await safe_reply(message, "❗ Hanya Berkas Dokumen Telegram yang Didukung")
@@ -137,7 +140,8 @@ async def _generic_video_handler(message: Message, process_name: str, cmd_name: 
     if link == "invalid": return await safe_reply(message, "❗ Tautan tidak valid")
         
     if not link:
-        ne = await ask_media_OR_url(message, chat_id, user_id, [f"/{cmd_name}{CMD_SUFFIX}", "stop"], "Kirim Video atau URL", 120, "video/", True)
+        # Parameter Auto-Delete di set ke False agar file tidak terhapus
+        ne = await ask_media_OR_url(message, chat_id, user_id, [f"/{cmd_name}{CMD_SUFFIX}", "stop"], "Kirim Video atau URL", 120, "video/", False)
         if ne and ne not in ["cancelled", "stopped"]: link = await get_url_from_message(ne)
         else: return
 
@@ -162,7 +166,7 @@ async def _encode_video(message: Message):
     if link == "invalid": return await safe_reply(message, "❗ Tautan tidak valid")
         
     if not link:
-        ne = await ask_media_OR_url(message, chat_id, user_id, [f"/encode{CMD_SUFFIX}", "stop"], "🎬 Kirim Video atau URL untuk di-Encode", 120, "video/", True)
+        ne = await ask_media_OR_url(message, chat_id, user_id, [f"/encode{CMD_SUFFIX}", "stop"], "🎬 Kirim Video atau URL untuk di-Encode", 120, "video/", False)
         if ne and ne not in ["cancelled", "stopped"]: link = await get_url_from_message(ne)
         else: return
 
@@ -251,7 +255,7 @@ async def _compress_video(message: Message):
     if link == "invalid": return await safe_reply(message, "❗ Tautan tidak valid")
         
     if not link:
-        ne = await ask_media_OR_url(message, chat_id, user_id, [f"/compress{CMD_SUFFIX}", "stop"], "🎬 Kirim Video atau URL untuk di-Compress", 120, "video/", True)
+        ne = await ask_media_OR_url(message, chat_id, user_id, [f"/compress{CMD_SUFFIX}", "stop"], "🎬 Kirim Video atau URL untuk di-Compress", 120, "video/", False)
         if ne and ne not in ["cancelled", "stopped"]: link = await get_url_from_message(ne)
         else: return
 
@@ -300,7 +304,7 @@ async def _convert_video(message: Message):
     if link == "invalid": return await safe_reply(message, "❗ Tautan tidak valid")
         
     if not link:
-        ne = await ask_media_OR_url(message, chat_id, user_id, [f"/convert{CMD_SUFFIX}", "stop"], "📺 Kirim Video atau URL untuk di-Convert", 120, "video/", True)
+        ne = await ask_media_OR_url(message, chat_id, user_id, [f"/convert{CMD_SUFFIX}", "stop"], "📺 Kirim Video atau URL untuk di-Convert", 120, "video/", False)
         if ne and ne not in ["cancelled", "stopped"]: link = await get_url_from_message(ne)
         else: return
 
@@ -309,13 +313,14 @@ async def _convert_video(message: Message):
 
     # 🚨 FITUR BARU: FULL TOMBOL LOOP MULTI-SELECT 🚨
     resolutions = []
-    opts_buttons = ["240", "360", "480", "720", "1080", "✅ Selesai", "❌ Batal"]
+    # Daftar Resolusi lengkap hingga 8K
+    opts_buttons = ["240", "360", "480", "540", "720", "1080", "1440", "2160", "2880", "3240", "4320", "✅ Selesai", "❌ Batal"]
     
     ask_res = await message.reply(
         "📺 **Pilih Resolusi Konversi**\n\n"
-        "Silakan tekan tombol angka di bawah. Anda bisa menekan beberapa tombol sekaligus.\n"
+        "Silakan tekan tombol angka di bawah (240 hingga 4320).\nAnda bisa menekan beberapa tombol sekaligus.\n"
         "Jika sudah selesai memilih, tekan tombol **✅ Selesai**.", 
-        reply_markup=_make_reply_kb(opts_buttons, 3)
+        reply_markup=_make_reply_kb(opts_buttons, 4)
     )
     
     # Loop tanya-jawab hingga pengguna menekan Selesai atau Batal
@@ -384,13 +389,17 @@ async def _convert_video(message: Message):
 
     # Membuat Tugas Berantai
     ps = ProcessStatus(user_id, chat_id, get_username(message), message.from_user.first_name, message, Names.convert, custom_file_name)
-    ps.convert_quality = sorted_res[0]
+    ps.convert_quality = str(sorted_res[0])
+    ps.convert_list = [sorted_res[0]] # Menimpa config global
+    ps.video_resolution = str(sorted_res[0])
 
     # Tambahkan resolusi selanjutnya sebagai Sub-Tasks (Tugas Turunan) agar diproses sekaligus
     if len(sorted_res) > 1:
         for res in sorted_res[1:]:
             mt_ps = ProcessStatus(user_id, chat_id, get_username(message), message.from_user.first_name, message, Names.convert, custom_file_name)
-            mt_ps.convert_quality = res
+            mt_ps.convert_quality = str(res)
+            mt_ps.convert_list = [res]
+            mt_ps.video_resolution = str(res)
             ps.append_multi_tasks(mt_ps)
 
     await get_thumbnail(ps, [f"/convert{CMD_SUFFIX}", "pass"], 120)
@@ -419,7 +428,7 @@ async def _add_watermark_interactive(message: Message):
     if link == "invalid": return await safe_reply(message, "❗ Tautan tidak valid")
         
     if not link:
-        ne = await ask_media_OR_url(message, chat_id, user_id, [f"/watermark{CMD_SUFFIX}", "stop"], "🛺 Kirim Video atau URL untuk diberi Watermark", 120, "video/", True)
+        ne = await ask_media_OR_url(message, chat_id, user_id, [f"/watermark{CMD_SUFFIX}", "stop"], "🛺 Kirim Video atau URL untuk diberi Watermark", 120, "video/", False)
         if ne and ne not in ["cancelled", "stopped"]: link = await get_url_from_message(ne)
         else: return
 
@@ -439,7 +448,7 @@ async def _add_watermark_interactive(message: Message):
     wm_info_str = ""
     
     if mode == "image":
-        img_msg = await ask_media_OR_url(message, chat_id, user_id, ["stop", "batal"], "🖼️ Kirim file Gambar (PNG/JPG) untuk Watermark.", 120, "photo/", True)
+        img_msg = await ask_media_OR_url(message, chat_id, user_id, ["stop", "batal"], "🖼️ Kirim file Gambar (PNG/JPG) untuk Watermark.", 120, "photo/", False)
         if not img_msg or img_msg in ["stopped", "cancelled", "batal"]: return await message.answer("❌ Dibatalkan.", reply_markup=ReplyKeyboardRemove())
         
         doc = img_msg.photo[-1] if img_msg.photo else img_msg.document
@@ -483,13 +492,17 @@ async def _add_watermark_interactive(message: Message):
         custom_wm["text"] = {"content": txt_msg.text, "font_path": font_path, "color": color, "size": 32}
         wm_info_str = f"Teks: '{txt_msg.text}' ({color})"
 
-    kb_pos = _make_reply_kb(["Kiri Atas", "Kanan Atas", "Tengah", "Kiri Bawah", "Kanan Bawah"], 2)
-    pos_msg = await message.reply("📍 Pilih Posisi Watermark:", reply_markup=kb_pos)
+    kb_pos = _make_reply_kb(["↖️", "⬆️", "↗️", "⬅️", "⏺️", "➡️", "↙️", "⬇️", "↘️"], 3)
+    pos_msg = await message.reply("📍 Pilih Posisi Watermark (Gunakan Tombol Ikon):", reply_markup=kb_pos)
     pos_resp = await wait_for_message(chat_id, user_id, 60)
     await _clean_msgs(pos_msg, pos_resp)
     
-    pos_map = {"kiri atas": "top_left", "kanan atas": "top_right", "tengah": "middle_center", "kiri bawah": "bottom_left", "kanan bawah": "bottom_right"}
-    pos = pos_map.get((pos_resp.text or "").strip().lower(), "bottom_right") if pos_resp else "bottom_right"
+    pos_map = {
+        "↖️": "top_left", "⬆️": "top_center", "↗️": "top_right",
+        "⬅️": "middle_left", "⏺️": "middle_center", "➡️": "middle_right",
+        "↙️": "bottom_left", "⬇️": "bottom_center", "↘️": "bottom_right"
+    }
+    pos = pos_map.get((pos_resp.text or "").strip(), "bottom_right") if pos_resp else "bottom_right"
     
     if mode == "image": custom_wm["image"]["position"] = pos
     else: custom_wm["text"]["position"] = pos
@@ -548,7 +561,7 @@ async def _merge_videos(message: Message):
         ne = await wait_for_message(chat_id, user_id, 120)
         await _clean_msgs(ask_msg)
         
-        txt = (ne.text or "").lower()
+        txt = (ne.text or "").lower() if ne.text else ""
         if "batal" in txt or txt == "/cancel":
             del ps
             return await message.answer("❌ Dibatalkan.", reply_markup=ReplyKeyboardRemove())
@@ -599,7 +612,7 @@ async def _subtitle_mux_handler(message: Message, process_name: str, cmd_name: s
     link, custom_file_name = await get_link(message)
     if link == "invalid": return await safe_reply(message, "❗ Tautan tidak valid")
     if not link:
-        ne = await ask_media_OR_url(message, chat_id, user_id, [f"/{cmd_name}{CMD_SUFFIX}", "stop"], "Kirim Video atau URL", 120, "video/", True)
+        ne = await ask_media_OR_url(message, chat_id, user_id, [f"/{cmd_name}{CMD_SUFFIX}", "stop"], "Kirim Video atau URL", 120, "video/", False)
         if ne and ne not in ["cancelled", "stopped"]: link = await get_url_from_message(ne)
         else: return
 
@@ -622,7 +635,7 @@ async def _subtitle_mux_handler(message: Message, process_name: str, cmd_name: s
         ne = await wait_for_message(chat_id, user_id, 120)
         await _clean_msgs(ask_msg)
         
-        txt = (ne.text or "").lower()
+        txt = (ne.text or "").lower() if ne.text else ""
         if "batal" in txt or txt == "/cancel":
             cancel = True
             break
@@ -737,7 +750,7 @@ async def _change_metadata(message: Message):
     link, custom_file_name = await get_link(message)
     if link == "invalid": return await safe_reply(message, "❗ Tautan tidak valid")
     if not link:
-        ne = await ask_media_OR_url(message, chat_id, user_id, [cmd, "stop"], "Kirim Video atau URL", 120, "video/", True)
+        ne = await ask_media_OR_url(message, chat_id, user_id, [cmd, "stop"], "Kirim Video atau URL", 120, "video/", False)
         if ne and ne not in ["cancelled", "stopped"]: link = await get_url_from_message(ne)
         else: return
 
@@ -795,7 +808,7 @@ async def _change_index(message: Message):
     link, custom_file_name = await get_link(message)
     if link == "invalid": return await safe_reply(message, "❗ Tautan tidak valid")
     if not link:
-        ne = await ask_media_OR_url(message, chat_id, user_id, [cmd, "stop"], "Kirim Video atau URL", 120, "video/", True)
+        ne = await ask_media_OR_url(message, chat_id, user_id, [cmd, "stop"], "Kirim Video atau URL", 120, "video/", False)
         if ne and ne not in ["cancelled", "stopped"]: link = await get_url_from_message(ne)
         else: return
 
@@ -853,7 +866,7 @@ async def _leech_mirror_handler(message: Message, process_name: str, cmd_name: s
     link, custom_file_name = await get_link(message)
     if link == "invalid": return await safe_reply(message, "❗ Tautan tidak valid")
     if not link:
-        ne = await ask_url(message, chat_id, user_id, [f"/{cmd_name}{CMD_SUFFIX}", "stop"], "Kirim Tautan", 120, True)
+        ne = await ask_url(message, chat_id, user_id, [f"/{cmd_name}{CMD_SUFFIX}", "stop"], "Kirim Tautan", 120, False)
         if ne and ne not in ["cancelled", "stopped"]: link = await get_url_from_message(ne)
         else: return
 
