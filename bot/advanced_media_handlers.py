@@ -14,6 +14,9 @@
 ║  [FIX HIGH] Extract & Mediainfo Bypass (Instan Download native TG)   ║
 ║  [FIX HIGH] Implementasi CMD_SUFFIX pada semua Command filter        ║
 ║  [UPDATE] Konsistensi Ikon, Teks Batal, dan Timeout selaras 100%.    ║
+║  [HOTFIX] Menghentikan penghapusan media user agar tidak gagal unduh.║
+║  [HOTFIX] Memutus Settingan Global (Watermark) agar proses Murni &   ║
+║           Jauh Lebih Cepat.                                          ║
 ╚══════════════════════════════════════════════════════════════════════╝
 """
 
@@ -127,7 +130,7 @@ async def _trim_video(message: Message):
         try:
             ask_msg = await message.reply("Kirim Video atau URL yang ingin di-trim.")
             resp = await wait_for_message(chat_id, user_id, 120)
-            await _clean_msgs(ask_msg, resp)
+            await _clean_msgs(ask_msg) # Cukup hapus pesan bot, biarkan media user tetap ada
             if resp.video or resp.document: link = resp
             elif (resp.text or "").startswith("http"): link = resp.text
             else: return await message.answer("❌ Input tidak valid. Dibatalkan.", reply_markup=ReplyKeyboardRemove())
@@ -205,6 +208,7 @@ async def _trim_video(message: Message):
 
     ps = ProcessStatus(user_id, chat_id, get_username(message), message.from_user.first_name, message, Names.trim, custom_file_name)
     ps.trim_start, ps.trim_end = start_time, end_time
+    ps.custom_watermark = {"enabled": False} # Bypass Setting Global
     await get_thumbnail(ps, [f"/trim{CMD_SUFFIX}", "pass"], 120)
     task = build_task(ps, video_event_for_task)
     await submit_task(task)
@@ -229,7 +233,7 @@ async def _split_video(message: Message):
         try:
             ask_msg = await message.reply("Kirim Video atau URL yang ingin dibagi (split).")
             resp = await wait_for_message(chat_id, user_id, 120)
-            await _clean_msgs(ask_msg, resp)
+            await _clean_msgs(ask_msg) # Cukup hapus pesan bot
             if resp.video or resp.document: link = resp
             elif (resp.text or "").startswith("http"): link = resp.text
             else: return await message.answer("❌ Input tidak valid. Dibatalkan.", reply_markup=ReplyKeyboardRemove())
@@ -300,6 +304,7 @@ async def _split_video(message: Message):
 
     ps = ProcessStatus(user_id, chat_id, get_username(message), message.from_user.first_name, message, Names.split, custom_file_name)
     ps.split_mode, ps.split_value = split_mode, split_value
+    ps.custom_watermark = {"enabled": False} # Bypass Setting Global
     await get_thumbnail(ps, [f"/split{CMD_SUFFIX}", "pass"], 120)
     task = build_task(ps, video_event_for_task)
     await submit_task(task)
@@ -324,7 +329,7 @@ async def _cut_video(message: Message):
         try:
             ask_msg = await message.reply("Kirim Video atau URL yang bagiannya ingin dibuang.")
             resp = await wait_for_message(chat_id, user_id, 120)
-            await _clean_msgs(ask_msg, resp)
+            await _clean_msgs(ask_msg) # Cukup hapus pesan bot
             if resp.video or resp.document: link = resp
             elif (resp.text or "").startswith("http"): link = resp.text
             else: return await message.answer("❌ Input tidak valid. Dibatalkan.", reply_markup=ReplyKeyboardRemove())
@@ -398,6 +403,7 @@ async def _cut_video(message: Message):
 
     ps = ProcessStatus(user_id, chat_id, get_username(message), message.from_user.first_name, message, Names.cut, custom_file_name)
     ps.cut_ranges = cut_ranges
+    ps.custom_watermark = {"enabled": False} # Bypass Setting Global
     await get_thumbnail(ps, [f"/cut{CMD_SUFFIX}", "pass"], 120)
     task = build_task(ps, video_event_for_task)
     await submit_task(task)
@@ -422,7 +428,7 @@ async def _rotate_video(message: Message):
         try:
             ask_msg = await message.reply("Kirim Video atau URL yang ingin diputar/dibalik.")
             resp = await wait_for_message(chat_id, user_id, 120)
-            await _clean_msgs(ask_msg, resp)
+            await _clean_msgs(ask_msg) # Cukup hapus pesan bot
             if resp.video or resp.document: link = resp
             elif (resp.text or "").startswith("http"): link = resp.text
             else: return await message.answer("❌ Input tidak valid. Dibatalkan.", reply_markup=ReplyKeyboardRemove())
@@ -476,6 +482,7 @@ async def _rotate_video(message: Message):
 
     ps = ProcessStatus(user_id, chat_id, get_username(message), message.from_user.first_name, message, Names.rotate, custom_file_name)
     ps.rotate_option = rotate_option
+    ps.custom_watermark = {"enabled": False} # Bypass Setting Global
     await get_thumbnail(ps, [f"/rotate{CMD_SUFFIX}", "pass"], 120)
     task = build_task(ps, video_event_for_task)
     await submit_task(task)
@@ -500,7 +507,7 @@ async def _crop_video(message: Message):
         try:
             ask_msg = await message.reply("Kirim Video atau URL yang ingin di-crop.")
             resp = await wait_for_message(chat_id, user_id, 120)
-            await _clean_msgs(ask_msg, resp)
+            await _clean_msgs(ask_msg) # Cukup hapus pesan bot
             if resp.video or resp.document: link = resp
             elif (resp.text or "").startswith("http"): link = resp.text
             else: return await message.answer("❌ Input tidak valid. Dibatalkan.", reply_markup=ReplyKeyboardRemove())
@@ -550,6 +557,7 @@ async def _crop_video(message: Message):
 
     ps = ProcessStatus(user_id, chat_id, get_username(message), message.from_user.first_name, message, Names.crop, custom_file_name)
     ps.crop_params = crop_params
+    ps.custom_watermark = {"enabled": False} # Bypass Setting Global
     await get_thumbnail(ps, [f"/crop{CMD_SUFFIX}", "pass"], 120)
     task = build_task(ps, video_event_for_task)
     await submit_task(task)
@@ -574,7 +582,7 @@ async def _autocrop_video(message: Message):
         try:
             ask_msg = await message.reply("Kirim Video atau URL untuk autocrop.")
             resp = await wait_for_message(chat_id, user_id, 120)
-            await _clean_msgs(ask_msg, resp)
+            await _clean_msgs(ask_msg) # Cukup hapus pesan bot
             if resp.video or resp.document: link = resp
             elif (resp.text or "").startswith("http"): link = resp.text
             else: return await message.answer("❌ Input tidak valid. Dibatalkan.", reply_markup=ReplyKeyboardRemove())
@@ -604,6 +612,7 @@ async def _autocrop_video(message: Message):
         return await safe_reply(message, f"❌ Error: `{e}`")
 
     ps = ProcessStatus(user_id, chat_id, get_username(message), message.from_user.first_name, message, Names.autocrop, custom_file_name)
+    ps.custom_watermark = {"enabled": False} # Bypass Setting Global
     await get_thumbnail(ps, [f"/autocrop{CMD_SUFFIX}", "pass"], 120)
     task = build_task(ps, video_event_for_task)
     await submit_task(task)
@@ -628,7 +637,7 @@ async def _extension_changer(message: Message):
         try:
             ask_msg = await message.reply("Kirim file (video/audio/subtitle) yang ekstensinya ingin diubah.")
             resp = await wait_for_message(chat_id, user_id, 120)
-            await _clean_msgs(ask_msg, resp)
+            await _clean_msgs(ask_msg) # Cukup hapus pesan bot
             if resp.document or resp.video or resp.audio: link = resp
             elif (resp.text or "").startswith("http"): link = resp.text
             else: return await message.answer("❌ Input tidak valid. Dibatalkan.", reply_markup=ReplyKeyboardRemove())
@@ -682,7 +691,7 @@ async def _extension_changer(message: Message):
         if "batal" in (press2.text or "").lower():
             return await message.answer("❌ Dibatalkan.", reply_markup=ReplyKeyboardRemove())
             
-        await message.answer(f"✅ Mempersiapkan proses...", reply_markup=ReplyKeyboardRemove())
+        await message.answer(f"✅ Mempersiapkan konversi...", reply_markup=ReplyKeyboardRemove())
         
     except asyncio.TimeoutError: return await message.answer("❌ Waktu habis. Dibatalkan.", reply_markup=ReplyKeyboardRemove())
     except Exception as e:
@@ -691,6 +700,7 @@ async def _extension_changer(message: Message):
 
     ps = ProcessStatus(user_id, chat_id, get_username(message), message.from_user.first_name, message, Names.extension, custom_file_name)
     ps.new_extension = new_extension
+    ps.custom_watermark = {"enabled": False} # Bypass Setting Global
     await get_thumbnail(ps, [f"/extension{CMD_SUFFIX}", "pass"], 120)
     task = build_task(ps, video_event_for_task)
     await submit_task(task)
@@ -715,7 +725,7 @@ async def _extract_streams(message: Message):
         try:
             ask_msg = await message.reply("Kirim Video atau URL yang stream-nya ingin diekstrak.")
             resp = await wait_for_message(chat_id, user_id, 120)
-            await _clean_msgs(ask_msg, resp)
+            await _clean_msgs(ask_msg) # Cukup hapus pesan bot
             if resp.video or resp.document: link = resp
             elif (resp.text or "").startswith("http"): link = resp.text
             else: return await message.answer("❌ Input tidak valid. Dibatalkan.", reply_markup=ReplyKeyboardRemove())
@@ -799,7 +809,7 @@ async def _extract_streams(message: Message):
         if "batal" in (press2.text or "").lower():
             return await message.answer("❌ Dibatalkan.", reply_markup=ReplyKeyboardRemove())
             
-        await message.answer("✅ Mempersiapkan proses...", reply_markup=ReplyKeyboardRemove())
+        await message.answer("✅ Mempersiapkan ekstraksi...", reply_markup=ReplyKeyboardRemove())
         
     except asyncio.TimeoutError: return await message.answer("❌ Waktu habis. Dibatalkan.", reply_markup=ReplyKeyboardRemove())
     except Exception as e:
@@ -808,6 +818,7 @@ async def _extract_streams(message: Message):
 
     ps = ProcessStatus(user_id, chat_id, get_username(message), message.from_user.first_name, message, Names.extract, custom_file_name)
     ps.extract_maps = [f"0:{s}" for s in selected]
+    ps.custom_watermark = {"enabled": False} # Bypass Setting Global
     ps.move_send_files(temp_ps.send_files)
     try: await asyncio.to_thread(rmtree, temp_ps.dir, ignore_errors=True)
     except Exception: pass
@@ -835,7 +846,7 @@ async def _media_info(message: Message):
         try:
             ask_msg = await message.reply("Kirim berkas media atau URL untuk analisis.")
             resp = await wait_for_message(chat_id, user_id, 120)
-            await _clean_msgs(ask_msg, resp)
+            await _clean_msgs(ask_msg) # Cukup hapus pesan bot
             if resp.video or resp.document or resp.audio: link = resp
             elif (resp.text or "").startswith("http"): link = resp.text
             else: return await message.answer("❌ Input tidak valid. Dibatalkan.", reply_markup=ReplyKeyboardRemove())
