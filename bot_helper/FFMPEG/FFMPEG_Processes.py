@@ -11,13 +11,13 @@
 ║  [FIX]       bare except → except (KeyError, TypeError)              ║
 ║  [FIX]       print() → LOGGER.debug/info/error                       ║
 ║  [FIX]       -vsync/-async deprecated → -fps_mode cfr                ║
-║  [FIX]       DocumentAttributeVideo width/height dari ffprobe        ║
 ║  [FIX]       gen_ss_list duplikat timestamp                          ║
 ║  [FIX]       amap_options audio index calculation                    ║
 ║  [FIX]       change_metadata retry logging                           ║
 ║  [IMPROVE]   select_audio indentasi & readability                    ║
-║  [IMPROVE]   sleep(1) ss → sleep(0.3) dengan jitter                  ║
 ║  [HOTFIX]    Perbaikan penamaan output split agar terbaca sistem     ║
+║  [HOTFIX]    MIGRASI KE AIOGRAM (Memperbaiki error Message.client    ║
+║              yang membuat bot stuck saat mengirim Screenshot/Sample) ║
 ╚══════════════════════════════════════════════════════════════════════╝
 """
 
@@ -31,9 +31,6 @@ from asyncio.subprocess import PIPE as asyncioPIPE
 from os import makedirs, remove
 from os.path import exists, getsize, isdir, join, splitext
 from time import time
-
-# ── Telethon ──────────────────────────────────────────────────────────
-from telethon.tl.types import DocumentAttributeVideo
 
 # ── Internal ──────────────────────────────────────────────────────────
 from bot_helper.Database.User_Data import get_data
@@ -68,8 +65,7 @@ def get_output_name(process_status) -> str:
 
 def _get_video_dimensions(file_path: str) -> tuple[int, int]:
     """
-    [FIX] Ambil width & height video via ffprobe.
-    Dipakai untuk DocumentAttributeVideo agar preview Telegram benar.
+    Ambil width & height video via ffprobe.
     """
     try:
         result = subprocess.run(
@@ -87,8 +83,7 @@ def _get_video_dimensions(file_path: str) -> tuple[int, int]:
 
 def _get_user_data(user_id) -> dict:
     """
-    [FIX] Cache-safe user data getter dengan fallback.
-    Semua fungsi pakai ini agar tidak ada KeyError.
+    Cache-safe user data getter dengan fallback.
     """
     return get_data().get(user_id, {})
 
@@ -100,11 +95,7 @@ def _get_user_data(user_id) -> dict:
 async def run_process_command(command: list) -> bool:
     """
     Jalankan FFmpeg command via asyncio subprocess.
-
-    [FIX] print(command) → LOGGER.debug()
-    [FIX] print(e) → LOGGER.error()
     """
-    # [FIX] Debug log — bukan print() ke stdout
     LOGGER.debug(f"FFmpeg command: {' '.join(str(c) for c in command)}")
     try:
         process = await create_subprocess_exec(
@@ -137,21 +128,13 @@ async def run_process_command(command: list) -> bool:
 # ═══════════════════════════════════════════════════════════════════════
 
 async def _run_split_part(command: list, semaphore: asyncio.Semaphore) -> bool:
-    """
-    [FIX] Wrapper untuk split dengan Semaphore agar tidak semua part paralel.
-    Max 2 FFmpeg proses bersamaan.
-    """
+    """Wrapper untuk split dengan Semaphore."""
     async with semaphore:
         return await run_process_command(command)
 
 
 async def split_by_duration(input_file: str, duration_per_part: float, output_dir: str) -> list:
-    """
-    Pisahkan video menjadi beberapa bagian dengan durasi tertentu.
-
-    [FIX HIGH] asyncio.gather paralel → Semaphore(2) batasi concurrency
-    [FIX]      Cek minimum duration untuk part terakhir
-    """
+    """Pisahkan video menjadi beberapa bagian dengan durasi tertentu."""
     total_duration = get_video_duration(input_file)
     if total_duration == 0 or duration_per_part <= 0:
         LOGGER.error("❌ split_by_duration: durasi video 0 atau duration_per_part invalid")
@@ -160,13 +143,12 @@ async def split_by_duration(input_file: str, duration_per_part: float, output_di
     total_parts  = math.ceil(total_duration / duration_per_part)
     tasks        = []
     output_files = []
-    semaphore    = asyncio.Semaphore(2)   # Max 2 FFmpeg bersamaan
+    semaphore    = asyncio.Semaphore(2)
 
     file_name, extension = splitext(input_file.split("/")[-1])
     for i in range(total_parts):
         start_time = i * duration_per_part
 
-        # [FIX] Cek sisa durasi — jangan buat part jika sisa < 1 detik
         remaining = total_duration - start_time
         if remaining < 1.0:
             break
@@ -186,7 +168,6 @@ async def split_by_duration(input_file: str, duration_per_part: float, output_di
 
     results = await asyncio.gather(*tasks)
 
-    # Filter hanya file yang berhasil dibuat dan tidak kosong
     valid_files = []
     for f, ok in zip(output_files, results):
         if ok and exists(f) and getsize(f) > 0:
@@ -202,11 +183,7 @@ async def split_by_duration(input_file: str, duration_per_part: float, output_di
 
 
 async def split_by_parts(input_file: str, total_parts: int, output_dir: str) -> list:
-    """
-    Pisahkan video menjadi N bagian sama besar.
-
-    [FIX HIGH] asyncio.gather → Semaphore(2)
-    """
+    """Pisahkan video menjadi N bagian sama besar."""
     total_duration = get_video_duration(input_file)
     if total_duration == 0 or total_parts <= 0:
         return []
@@ -216,14 +193,10 @@ async def split_by_parts(input_file: str, total_parts: int, output_dir: str) -> 
 
 
 async def split_by_size(input_file: str, size_per_part_mb: float, output_dir: str) -> list:
-    """
-    Pisahkan video berdasarkan ukuran file secara iteratif.
-    Pendekatan ini sudah sekuensial — tidak perlu Semaphore.
-    """
+    """Pisahkan video berdasarkan ukuran file secara iteratif."""
     split_output_dir   = join(output_dir, "split")
     create_direc(split_output_dir)
 
-    # 98% dari target — sisakan ruang untuk metadata
     target_size_bytes  = int(size_per_part_mb * 1024 * 1024 * 0.98)
     output_files       = []
     start_time         = 0.0
@@ -270,12 +243,7 @@ async def split_by_size(input_file: str, size_per_part_mb: float, output_dir: st
 
 
 async def split_video_file(file: str, split_size: int, dirpath: str, event) -> list:
-    """
-    Split video berdasarkan ukuran file (fallback legacy function).
-
-    [FIX HIGH] start_time += cut_duration (hapus -3 overlap yang sebabkan duplikat)
-    [FIX]      LOGGER.error() bukan print()
-    """
+    """Split video berdasarkan ukuran file (fallback legacy function)."""
     success    = []
     split_size = split_size - 50_000_000   # Buffer 50MB
 
@@ -322,8 +290,6 @@ async def split_video_file(file: str, split_size: int, dirpath: str, event) -> l
                 break
 
             success.append(out_path)
-            # [FIX HIGH] Hapus -3 overlap — menyebabkan konten duplikat antar part
-            # -fs sudah handle batas ukuran, tidak perlu overlap manual
             start_time += cut_duration
             i += 1
 
@@ -348,11 +314,7 @@ async def get_cut_duration(duration: float) -> list:
 
 
 async def gen_ss_list(duration: float, ss_no: int) -> list:
-    """
-    Generate daftar timestamp untuk screenshot.
-
-    [FIX] Duplikat timestamp — pakai set untuk cegah nilai sama.
-    """
+    """Generate daftar timestamp untuk screenshot."""
     if ss_no <= 0 or duration <= 0:
         return []
 
@@ -361,7 +323,6 @@ async def gen_ss_list(duration: float, ss_no: int) -> list:
     ss_list = []
     ss      = 5
 
-    # Tambahkan titik awal
     if ss < duration:
         ss_set.add(ss)
         ss_list.append(ss)
@@ -369,7 +330,6 @@ async def gen_ss_list(duration: float, ss_no: int) -> list:
     while len(ss_list) < ss_no:
         ss += value
         if ss >= duration:
-            # [FIX] Jangan tambahkan duplikat
             fallback = int(duration - 2)
             if fallback > 0 and fallback not in ss_set:
                 ss_set.add(fallback)
@@ -399,9 +359,7 @@ async def generate_screenshoot(ss_time: float, input_video: str, ss_name: str) -
 async def generate_ss(process_status, force_gen: bool = False) -> None:
     """
     Generate dan kirim screenshot ke Telegram.
-
-    [FIX HIGH] get_data()[user_id] → _get_user_data()
-    [FIX]      await sleep(1) → sleep(0.3)
+    [HOTFIX] Diperbarui untuk menggunakan Aiogram 3.x Message Objects.
     """
     user_data = _get_user_data(process_status.user_id)
 
@@ -422,6 +380,7 @@ async def generate_ss(process_status, force_gen: bool = False) -> None:
     )
 
     ss_list = await gen_ss_list(duration, ss_no)
+    from aiogram.types import FSInputFile
 
     for idx, ss_time in enumerate(ss_list, 1):
         ss_name = f"{process_status.dir}/screenshot_{int(time() * 1000)}.jpg"
@@ -433,12 +392,12 @@ async def generate_ss(process_status, force_gen: bool = False) -> None:
                 f"📷 Screenshot: {idx}/{len(ss_list)}"
             )
             try:
-                await process_status.event.client.send_file(
-                    process_status.chat_id,
-                    file=ss_name,
-                    allow_cache=False,
-                    reply_to=process_status.event.message,
+                # Menggunakan Aiogram bot send_photo alih-alih Telethon client
+                await process_status.event.bot.send_photo(
+                    chat_id=process_status.chat_id,
+                    photo=FSInputFile(ss_name),
                     caption=caption,
+                    reply_to_message_id=process_status.event.message_id
                 )
             except Exception as e:
                 LOGGER.warning(f"⚠️  Gagal kirim screenshot {idx}: {e}")
@@ -447,7 +406,6 @@ async def generate_ss(process_status, force_gen: bool = False) -> None:
                     remove(ss_name)
                 except Exception:
                     pass
-            # [FIX] sleep(1) → sleep(0.3) — tidak ada alasan teknis untuk 1 detik
             await sleep(0.3)
 
 
@@ -458,10 +416,7 @@ async def generate_ss(process_status, force_gen: bool = False) -> None:
 async def gen_sample_video(process_status, force_gen: bool = False) -> None:
     """
     Generate dan kirim sample video ke Telegram.
-
-    [FIX HIGH] get_data()[user_id] → _get_user_data()
-    [FIX]      -vsync 1 -async -1 → -fps_mode cfr (FFmpeg 5+/6+)
-    [FIX]      DocumentAttributeVideo width/height dari ffprobe
+    [HOTFIX] Diperbarui untuk menggunakan Aiogram 3.x Message Objects.
     """
     user_data = _get_user_data(process_status.user_id)
 
@@ -486,13 +441,12 @@ async def gen_sample_video(process_status, force_gen: bool = False) -> None:
     vstart_time, vend_time = await get_cut_duration(duration)
     vframes = "750" if duration < 180 else "1500"
 
-    # [FIX] Ganti -vsync 1 → -fps_mode cfr, hapus -async (deprecated FFmpeg 5+/6+)
     cmd_sample = [
         "ffmpeg", "-hide_banner",
         "-ss", f"{vstart_time}s",
         "-i", input_video,
         "-vframes", vframes,
-        "-fps_mode", "cfr",      # [FIX] ganti -vsync 1
+        "-fps_mode", "cfr",
         "-acodec", "copy",
         "-vcodec", "copy",
         "-y", sample_name,
@@ -501,22 +455,25 @@ async def gen_sample_video(process_status, force_gen: bool = False) -> None:
     sample_result = await run_process_command(cmd_sample)
 
     if sample_result and exists(sample_name) and getsize(sample_name) > 0:
-        # [FIX] Ambil width/height dari ffprobe — bukan hardcode 0,0
         sample_duration = get_video_duration(sample_name)
         width, height   = _get_video_dimensions(sample_name)
 
         thumb = "sthumb.jpg" if exists("sthumb.jpg") else None
+        from aiogram.types import FSInputFile
 
         try:
-            await process_status.event.client.send_file(
-                process_status.chat_id,
-                file=sample_name,
-                allow_cache=False,
-                reply_to=process_status.event.message,
+            # Menggunakan Aiogram bot send_video alih-alih Telethon client
+            thumb_kw = {"thumbnail": FSInputFile(thumb)} if thumb else {}
+            await process_status.event.bot.send_video(
+                chat_id=process_status.chat_id,
+                video=FSInputFile(sample_name),
                 caption="🎞 Sample Video",
-                thumb=thumb,
                 supports_streaming=True,
-                attributes=(DocumentAttributeVideo(sample_duration, width, height),),
+                duration=int(sample_duration),
+                width=width,
+                height=height,
+                reply_to_message_id=process_status.event.message_id,
+                **thumb_kw
             )
         except Exception as e:
             LOGGER.warning(f"⚠️  Gagal kirim sample video: {e}")
@@ -535,12 +492,7 @@ async def gen_sample_video(process_status, force_gen: bool = False) -> None:
 # ═══════════════════════════════════════════════════════════════════════
 
 async def change_metadata(process_status) -> None:
-    """
-    Ubah metadata video.
-
-    [FIX HIGH] get_data()[user_id] → _get_user_data()
-    [FIX]      Tambah LOGGER.warning() untuk setiap retry — tidak silent fail
-    """
+    """Ubah metadata video."""
     user_data = _get_user_data(process_status.user_id)
 
     if not user_data.get("custom_metadata"):
@@ -569,7 +521,7 @@ async def change_metadata(process_status) -> None:
     ]
     met_result = await run_process_command(cmd1)
 
-    # Strategy 2: Audio only (jika tidak ada subtitle stream)
+    # Strategy 2: Audio only
     if not met_result:
         LOGGER.warning("⚠️  Metadata strategy 1 gagal, coba audio-only")
         cmd2 = [
@@ -579,7 +531,7 @@ async def change_metadata(process_status) -> None:
         ]
         met_result = await run_process_command(cmd2)
 
-    # Strategy 3: Subtitle only (jika tidak ada audio stream)
+    # Strategy 3: Subtitle only
     if not met_result:
         LOGGER.warning("⚠️  Metadata strategy 2 gagal, coba subtitle-only")
         cmd3 = [
@@ -606,15 +558,7 @@ async def change_metadata(process_status) -> None:
 # ═══════════════════════════════════════════════════════════════════════
 
 async def select_audio(process_status) -> None:
-    """
-    Pilih audio stream berdasarkan bahasa.
-
-    [FIX HIGH] execute(shell_string) → subprocess list args (no injection)
-    [FIX HIGH] get_data()[user_id] → _get_user_data()
-    [FIX]      bare except → except (KeyError, TypeError)
-    [FIX]      amap_options: track audio_index terpisah dari stream index
-    [IMPROVE]  Indentasi 4 spaces, bukan 24+ spaces
-    """
+    """Pilih audio stream berdasarkan bahasa."""
     user_data = _get_user_data(process_status.user_id)
 
     if not user_data.get("select_stream"):
@@ -624,8 +568,6 @@ async def select_audio(process_status) -> None:
     input_file  = str(process_status.send_files[-1])
 
     try:
-        # [FIX HIGH] Ganti execute(f"...{file_path}...") dengan subprocess list
-        # Shell string dengan interpolasi path = command injection risk
         result = subprocess.run(
             [
                 "ffprobe", "-hide_banner",
@@ -647,14 +589,13 @@ async def select_audio(process_status) -> None:
         details     = json.loads(result.stdout)
         streams     = details.get("streams", [])
         stream_data = {}
-        audio_index = 0   # [FIX] Track audio index terpisah dari stream index ffprobe
+        audio_index = 0
 
         for stream in streams:
             stream_type     = stream.get("codec_type", "")
             codec_long_name = stream.get("codec_long_name", "unknown")
 
             if stream_type == "audio":
-                # [FIX] bare except → except (KeyError, TypeError)
                 try:
                     lang = stream["tags"]["language"]
                 except (KeyError, TypeError):
@@ -664,7 +605,7 @@ async def select_audio(process_status) -> None:
 
                 stream_data[sname] = {
                     "stream_index": stream.get("index"),
-                    "audio_index":  audio_index,    # [FIX] index dalam group audio (0:a:0, 0:a:1, ...)
+                    "audio_index":  audio_index,
                     "language":     str(lang).upper(),
                 }
                 audio_index += 1
@@ -677,7 +618,6 @@ async def select_audio(process_status) -> None:
             await process_status.event.reply("🔶 Hanya 1 audio ditemukan, skip seleksi audio.")
             return
 
-        # Cari audio yang cocok dengan bahasa yang diminta
         matched_key = None
         for key, info in stream_data.items():
             if info["language"] == language.upper():
@@ -686,7 +626,6 @@ async def select_audio(process_status) -> None:
 
         if matched_key:
             info = stream_data[matched_key]
-            # [FIX] Pakai audio_index (0-based dalam group audio), bukan stream_index - 1
             amap_options = f"0:a:{info['audio_index']}"
             process_status.set_amap_options(amap_options)
             await process_status.event.reply(
@@ -700,7 +639,6 @@ async def select_audio(process_status) -> None:
                 new_caption += process_status.caption
             process_status.set_caption(new_caption)
         else:
-            # Tampilkan audio yang tersedia
             available = "\n".join(f"`{k}`" for k in stream_data.keys())
             await process_status.event.reply(
                 f"❗ Bahasa `{language}` tidak ditemukan.\n\n"
