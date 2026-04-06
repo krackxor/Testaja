@@ -5,13 +5,14 @@
 ╠══════════════════════════════════════════════════════════════════════╣
 ║  CHANGELOG v4.5:                                                     ║
 ║  [UX PREMIUM] Migrasi Total Dashboard Inline menjadi Interactive     ║
-║               Wizard (Step-by-step) dengan Reply Keyboard Singkat!   ║
+║                Wizard (Step-by-step) dengan Reply Keyboard Singkat!  ║
 ║  [UX PREMIUM] Auto-Delete disematkan di semua langkah setup produksi ║
-║               agar obrolan tidak dipenuhi pesan sampah.              ║
+║                agar obrolan tidak dipenuhi pesan sampah.             ║
 ║  [UX PREMIUM] Kotak Konfirmasi (Summary Box) diseragamkan dengan     ║
-║               desain modul admin dan media_handlers.                 ║
+║                desain modul admin dan media_handlers.                ║
 ║  [FIX HIGH] Perbaikan logika _try_txt untuk cegah AttributeError.    ║
 ║  [FIX HIGH] Threading untuk operasi MoviePy & I/O                    ║
+║  [UPDATE] Konsistensi UI, Ikon, Timeout, dan Batal selaras 100%.     ║
 ╚══════════════════════════════════════════════════════════════════════╝
 """
 
@@ -279,7 +280,7 @@ async def _queue_and_run(process_status: ProcessStatus, worker_coro, status_msg:
         else:
             async with queued_task_lock:
                 if task_wrapper in queued_task: queued_task.remove(task_wrapper)
-            return await _safe_edit(status_msg, "❌ Timeout antrian.")
+            return await _safe_edit(status_msg, "❌ **Timeout antrian (1 jam).** Coba lagi.")
         if not check_running_process(process_status.process_id): return
     try: await worker_coro
     finally:
@@ -894,7 +895,7 @@ async def _worker_studio_production(process_status: ProcessStatus, message: Mess
                     yt_link = await upload_to_youtube(merged_path, st["title"] + (" #Shorts" if is_portrait else ""), st["description"], st["yt_privacy"], process_status, status_msg)
                     btn = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="📺 Buka YouTube", url=yt_link)]])
                     await message.answer(f"📺 **Berhasil Upload YouTube!** [{res_mode}]\n[Tonton Video ↗]({yt_link})", reply_markup=btn)
-                except Exception as e: await message.answer(f"⚠️ YouTube upload gagal [{res_mode}]: `{e}`")
+                except Exception as e: await message.answer(f"❌ YouTube upload gagal [{res_mode}]: `{e}`")
             
             cleanup_temp(part_files)
             cleanup_temp([merged_path])
@@ -957,7 +958,11 @@ async def master_studio_handler(message: Message) -> None:
     msg_res = await message.reply("📐 **Pilih Resolusi Video:**", reply_markup=kb_res)
     resp_res = await wait_for_message(chat_id, user_id, 60)
     await _clean_msgs(msg_res, resp_res)
-    if not resp_res or "batal" in (resp_res.text or "").lower():
+    
+    if not resp_res:
+        cleanup_temp([txt_path])
+        return await message.answer("❌ Waktu habis. Dibatalkan.", reply_markup=ReplyKeyboardRemove())
+    if "batal" in (resp_res.text or "").lower():
         cleanup_temp([txt_path])
         return await message.answer("❌ Dibatalkan.", reply_markup=ReplyKeyboardRemove())
     
@@ -969,7 +974,11 @@ async def master_studio_handler(message: Message) -> None:
     msg_sub = await message.reply("💬 **Gunakan Subtitle Bergerak?**", reply_markup=kb_sub)
     resp_sub = await wait_for_message(chat_id, user_id, 60)
     await _clean_msgs(msg_sub, resp_sub)
-    if not resp_sub or "batal" in (resp_sub.text or "").lower():
+    
+    if not resp_sub:
+        cleanup_temp([txt_path])
+        return await message.answer("❌ Waktu habis. Dibatalkan.", reply_markup=ReplyKeyboardRemove())
+    if "batal" in (resp_sub.text or "").lower():
         cleanup_temp([txt_path])
         return await message.answer("❌ Dibatalkan.", reply_markup=ReplyKeyboardRemove())
         
@@ -982,7 +991,11 @@ async def master_studio_handler(message: Message) -> None:
         msg_yt = await message.reply("📺 **Upload ke YouTube Otomatis?**", reply_markup=kb_yt)
         resp_yt = await wait_for_message(chat_id, user_id, 60)
         await _clean_msgs(msg_yt, resp_yt)
-        if not resp_yt or "batal" in (resp_yt.text or "").lower():
+        
+        if not resp_yt:
+            cleanup_temp([txt_path])
+            return await message.answer("❌ Waktu habis. Dibatalkan.", reply_markup=ReplyKeyboardRemove())
+        if "batal" in (resp_yt.text or "").lower():
             cleanup_temp([txt_path])
             return await message.answer("❌ Dibatalkan.", reply_markup=ReplyKeyboardRemove())
             
@@ -1016,7 +1029,10 @@ async def master_studio_handler(message: Message) -> None:
     resp_conf = await wait_for_message(chat_id, user_id, 60)
     await _clean_msgs(msg_conf, resp_conf)
     
-    if not resp_conf or "batal" in (resp_conf.text or "").lower():
+    if not resp_conf:
+        cleanup_temp([txt_path])
+        return await message.answer("❌ Waktu habis. Dibatalkan.", reply_markup=ReplyKeyboardRemove())
+    if "batal" in (resp_conf.text or "").lower():
         cleanup_temp([txt_path])
         return await message.answer("❌ Dibatalkan.", reply_markup=ReplyKeyboardRemove())
         
@@ -1047,7 +1063,7 @@ async def master_studio_handler(message: Message) -> None:
 
 @router.callback_query(F.data.startswith("prod_cancel_"))
 async def cb_prod_cancel(call: CallbackQuery):
-    await call.answer("🚫 Membatalkan...", show_alert=False)
+    await call.answer("❌ Membatalkan...", show_alert=False)
     parts = call.data.split("_")
     user_id = int(parts[2])
     if call.from_user.id != user_id: return await call.answer("❌ Ini bukan milikmu!", show_alert=True)
@@ -1055,7 +1071,7 @@ async def cb_prod_cancel(call: CallbackQuery):
     if len(parts) >= 4:
         process_id = parts[3]
         await remove_running_process(process_id)
-        await _safe_edit(call.message, "🚫 **Proses Produksi Dibatalkan.**")
+        await _safe_edit(call.message, "❌ **Proses Produksi Dibatalkan.**")
 
 
 # ═══════════════════════════════════════════════════════════════════════
@@ -1125,7 +1141,7 @@ def _get_gameplay_list_text(videos):
             c.close()
             tot += d
         except:
-            lines.append((f"{i}. {v}", "⚠️ error"))
+            lines.append((f"{i}. {v}", "❌ error"))
     return lines, tot
 
 @router.message(Command(f"listgameplay{CMD_SUFFIX}"))
