@@ -539,9 +539,9 @@ async def _settings(message: Message):
     if user_id not in get_data(): await new_user(user_id, SAVE_TO_DATABASE)
         
     kb = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="👤 Profil Pengaturan", callback_data="profile_main")],
-        [InlineKeyboardButton(text="🎬 Pengaturan Media",   callback_data="settings_media")],
-        [InlineKeyboardButton(text="🤖 Pengaturan Umum & Tampilan", callback_data="settings_bot")],
-        [InlineKeyboardButton(text="⭕ Tutup Pengaturan", callback_data="close_settings")],
+        [InlineKeyboardButton(text="👤 Profil", callback_data="profile_main")],
+        [InlineKeyboardButton(text="🎬 Encode",   callback_data="settings_media")],
+        [InlineKeyboardButton(text="🤖 Umum & Tampilan", callback_data="settings_bot")],
+        [InlineKeyboardButton(text="⭕ Tutup", callback_data="close_settings")],
     ])
     await message.reply(f"⚙️ Hai {get_mention(message)} — Pilih Pengaturan Anda", reply_markup=kb)
