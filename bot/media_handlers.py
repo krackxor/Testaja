@@ -10,10 +10,8 @@
 ║  [NEW] /softmux & /softremux kini mendukung penambahan file Audio!   ║
 ║  [NEW PREMIUM] /convert kini 100% FULL TOMBOL! Mendukung Multi-Select║
 ║                dengan tombol "✅ Selesai" tanpa perlu mengetik koma. ║
-║  [UPDATE] Konsistensi tombol dan teks pembatalan di seluruh fitur.   ║
-║  [HOTFIX] /convert kini mematuhi input dan lepas dari Global Config. ║
+║  [HOTFIX] /convert kini tidak lagi mengirimkan file ganda/duplikat.  ║
 ║  [HOTFIX] /watermark menggunakan 9 Ikon Sudut Arah lengkap.          ║
-║  [HOTFIX] Mencegah Auto-Delete pada media user agar proses berjalan. ║
 ╚══════════════════════════════════════════════════════════════════════╝
 """
 
@@ -30,7 +28,7 @@ from aiogram.types import (
 from aiogram.filters import Command
 
 # ── Internal ──────────────────────────────────────────────────────────
-from bot_helper.Database.User_Data import get_data, new_user, saveoptions
+from bot_helper.Database.User_Data import get_data, new_user, saveoptions, saveconfig
 from bot_helper.Others.Names import Names
 from bot_helper.Process.Process_Status import ProcessStatus
 from bot_helper.Telegram.Telegram_Client import Telegram
@@ -225,7 +223,6 @@ async def _encode_video(message: Message):
          
     await message.answer("✅ Mempersiapkan proses encode...", reply_markup=ReplyKeyboardRemove())
 
-    # Namanya diganti jadi "encode" agar Backend tahu file ini harus membaca settingan Global
     ps = ProcessStatus(user_id, chat_id, get_username(message), message.from_user.first_name, message, "encode", custom_file_name)
     if sub_path: ps.append_subtitles(sub_path)
     if aud_path: ps.custom_dub_audio = aud_path 
@@ -323,12 +320,12 @@ async def _convert_video(message: Message):
         reply_markup=_make_reply_kb(opts_buttons, 4)
     )
     
-    # Loop tanya-jawab hingga pengguna menekan Selesai atau Batal
     while True:
         res_msg = await wait_for_message(chat_id, user_id, 120)
-        await _clean_msgs(res_msg) # Bersihkan chat user yang mencet tombol agar rapi
+        await _clean_msgs(res_msg) 
         
         if res_msg is None: 
+            await _clean_msgs(ask_res)
             return await message.answer("❌ Waktu habis. Dibatalkan.", reply_markup=ReplyKeyboardRemove())
             
         txt = (res_msg.text or "").lower()
@@ -340,31 +337,30 @@ async def _convert_video(message: Message):
             await _clean_msgs(ask_res)
             break
             
-        # Ekstrak angka resolusi dari tombol yang ditekan
         nums = re.findall(r'\d+', txt)
         if nums:
             for n in nums:
                 res = int(n)
-                if res not in resolutions:
+                if res in resolutions:
+                    resolutions.remove(res)
+                else:
                     resolutions.append(res)
             
-            # Tampilkan resolusi yang sudah terpilih ke pengguna secara LIVE
             sorted_res = sorted(resolutions, reverse=True)
-            res_str = ", ".join([f"{r}p" for r in sorted_res])
+            res_str = ", ".join([f"{r}p" for r in sorted_res]) if sorted_res else "(Belum ada)"
             try:
                 await ask_res.edit_text(
                     f"📺 **Pilih Resolusi Konversi**\n\n"
-                    f"✅ **Telah Memilih:** `{res_str}`\n\n"
-                    f"Tekan tombol angka lain untuk menambah, atau tekan **✅ Selesai** jika sudah cukup."
+                    f"✅ **Terpilih:** `{res_str}`\n\n"
+                    f"Tekan tombol angka lain untuk menambah/menghapus, atau tekan **✅ Selesai** jika sudah."
                 )
             except Exception:
-                pass # Abaikan error jika isi pesan sama (Telegram tidak mengizinkan edit pesan dengan isi yang 100% sama)
+                pass
         else:
             err = await message.answer("❌ Input tidak valid.")
             await asyncio.sleep(1.5)
             await _clean_msgs(err)
 
-    # Validasi Akhir
     if not resolutions:
         return await message.answer("❌ Anda tidak memilih resolusi apapun. Dibatalkan.", reply_markup=ReplyKeyboardRemove())
 
@@ -384,28 +380,22 @@ async def _convert_video(message: Message):
     
     if not press or "batal" in (press.text or "").lower():
          return await message.answer("❌ Dibatalkan.", reply_markup=ReplyKeyboardRemove())
-         
-    await message.answer(f"✅ Mengantrekan {len(sorted_res)} proses konversi secara berurutan...", reply_markup=ReplyKeyboardRemove())
 
-    # Membuat Tugas Berantai
+    # [HOTFIX] Menyimpan ke Database agar Global FFMPEG_Processes membacanya
+    await saveconfig(user_id, "convert", "convert_list", sorted_res, SAVE_TO_DATABASE)
+         
+    await message.answer(f"✅ Mengantrekan proses konversi massa ({res_str})...", reply_markup=ReplyKeyboardRemove())
+
+    # Hanya buat SATU tugas convert karena FFMPEG_Processes akan melooping `convert_list` dengan sendirinya
     ps = ProcessStatus(user_id, chat_id, get_username(message), message.from_user.first_name, message, Names.convert, custom_file_name)
     ps.convert_quality = str(sorted_res[0])
-    ps.convert_list = [sorted_res[0]] # Menimpa config global
+    ps.convert_list = sorted_res 
     ps.video_resolution = str(sorted_res[0])
-
-    # Tambahkan resolusi selanjutnya sebagai Sub-Tasks (Tugas Turunan) agar diproses sekaligus
-    if len(sorted_res) > 1:
-        for res in sorted_res[1:]:
-            mt_ps = ProcessStatus(user_id, chat_id, get_username(message), message.from_user.first_name, message, Names.convert, custom_file_name)
-            mt_ps.convert_quality = str(res)
-            mt_ps.convert_list = [res]
-            mt_ps.video_resolution = str(res)
-            ps.append_multi_tasks(mt_ps)
+    ps.custom_watermark = {"enabled": False} # Bypass Setting Global
 
     await get_thumbnail(ps, [f"/convert{CMD_SUFFIX}", "pass"], 120)
     task = build_task(ps, link)
 
-    # Cek opsi multi-task interaktif tambahan (opsional)
     if get_data().get(user_id, {}).get("multi_tasks"):
         if not await multi_tasks(ps, f"/convert{CMD_SUFFIX}"): del ps; return
         finalize_multi_tasks(ps)
@@ -589,6 +579,7 @@ async def _merge_videos(message: Message):
     await message.answer("✅ Mempersiapkan proses penggabungan...", reply_markup=ReplyKeyboardRemove())
 
     await get_thumbnail(ps, [f"/merge{CMD_SUFFIX}", "pass"], 120)
+    ps.custom_watermark = {"enabled": False} # Bypass Setting Global
 
     if get_data().get(user_id, {}).get("multi_tasks"):
         ok = await multi_tasks(ps, f"/merge{CMD_SUFFIX}")
@@ -706,6 +697,7 @@ async def _subtitle_mux_handler(message: Message, process_name: str, cmd_name: s
     await message.answer("✅ Mempersiapkan proses...", reply_markup=ReplyKeyboardRemove())
 
     await get_thumbnail(ps, [f"/{cmd_name}{CMD_SUFFIX}", "pass"], 120)
+    ps.custom_watermark = {"enabled": False} # Bypass Setting Global
     task = build_task(ps, link)
 
     if get_data().get(user_id, {}).get("multi_tasks"):
@@ -788,6 +780,7 @@ async def _change_metadata(message: Message):
     await message.answer("✅ Mempersiapkan proses...", reply_markup=ReplyKeyboardRemove())
 
     ps = ProcessStatus(user_id, chat_id, get_username(message), message.from_user.first_name, message, Names.changeMetadata, custom_file_name, custom_metadata=custom_metadata)
+    ps.custom_watermark = {"enabled": False} # Bypass Setting Global
     await get_thumbnail(ps, [cmd, "pass"], 120)
     task = build_task(ps, link)
     await submit_task(task)
@@ -848,6 +841,7 @@ async def _change_index(message: Message):
     await message.answer("✅ Mempersiapkan proses...", reply_markup=ReplyKeyboardRemove())
 
     ps = ProcessStatus(user_id, chat_id, get_username(message), message.from_user.first_name, message, Names.changeindex, custom_file_name, custom_index=custom_index)
+    ps.custom_watermark = {"enabled": False} # Bypass Setting Global
     await get_thumbnail(ps, [cmd, "pass"], 120)
     task = build_task(ps, link)
     await submit_task(task)
