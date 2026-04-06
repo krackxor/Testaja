@@ -10,6 +10,7 @@
 ║  [NEW] /softmux & /softremux kini mendukung penambahan file Audio!   ║
 ║  [NEW PREMIUM] /convert kini 100% FULL TOMBOL! Mendukung Multi-Select║
 ║                dengan tombol "✅ Selesai" tanpa perlu mengetik koma. ║
+║  [UPDATE] Konsistensi tombol dan teks pembatalan di seluruh fitur.   ║
 ╚══════════════════════════════════════════════════════════════════════╝
 """
 
@@ -85,7 +86,7 @@ def _sanitize_link_for_db(link):
 
 async def hardmux_multi_task(multi_ps, message: Message, chat_id, user_id, process_command) -> bool:
     new_msg = await ask_media_OR_url(message, chat_id, user_id, [process_command, "stop"], "Kirim Berkas Subtitle SRT", 120, False, True, allow_magnet=False, allow_url=False)
-    if not new_msg or new_msg in ["cancelled", "stopped"]: return False
+    if not new_msg or new_msg in ["cancelled", "stopped", "batal"]: return False
     if not new_msg.document:
         await safe_reply(message, "❗ Hanya Berkas Dokumen Telegram yang Didukung")
         return False
@@ -114,15 +115,15 @@ async def append_multi_task(process_status, process_name, cmd, message: Message)
 async def multi_tasks(process_status, cmd) -> bool:
     ffmpeg_funcs = [Names.compress, Names.watermark, Names.convert, Names.hardmux]
     p_text = "\n".join(f"`{p}`" for p in ffmpeg_funcs)
-    q = 1; p_cmd = cmd; valid_list = ffmpeg_funcs + ["stop", "cancel"]; m_result = True; chat_message = process_status.event
+    q = 1; p_cmd = cmd; valid_list = ffmpeg_funcs + ["stop", "cancel", "batal"]; m_result = True; chat_message = process_status.event
     while True:
-        text = f"Apa yang Harus Dilakukan dengan Hasil **{p_cmd.replace('/', '').upper()}**\n🔶 Tugas Multi Ke-{q}\n\n{p_text}\n\n🔷 Kirim `stop` untuk Proses | `cancel` untuk Batalkan"
+        text = f"Apa yang Harus Dilakukan dengan Hasil **{p_cmd.replace('/', '').upper()}**\n🔶 Tugas Multi Ke-{q}\n\n{p_text}\n\n🔷 Kirim `stop` untuk Proses | `batal` untuk Batalkan"
         from .shared import ask_text_list
         result = await ask_text_list(process_status.chat_id, process_status.user_id, chat_message, 120, text, valid_list)
         if not result: m_result = False; break
         msg_text = result.text.lower()
         if msg_text == "stop": break
-        if msg_text == "cancel": await safe_reply(result, "✅ Tugas Dibatalkan"); m_result = False; break
+        if msg_text in ["cancel", "batal"]: await safe_reply(result, "❌ Dibatalkan."); m_result = False; break
         if await append_multi_task(process_status, msg_text, cmd, result):
             p_cmd = msg_text; chat_message = result; q += 1
     return m_result
@@ -451,17 +452,33 @@ async def _add_watermark_interactive(message: Message):
         txt_msg = await ask_text_event(chat_id, user_id, message, 60, "✍️ Kirim teks untuk Watermark:", message_hint=None)
         if not txt_msg: return await message.answer("❌ Dibatalkan.", reply_markup=ReplyKeyboardRemove())
         
-        font_msg = await ask_media_OR_url(message, chat_id, user_id, ["skip", "batal"], "🔤 Kirim file Font (.ttf/.otf)\n\nATAU ketik `skip` untuk memakai font standar.", 60, False, True)
-        if font_msg in ["stopped", "cancelled", "batal"]: return await message.answer("❌ Dibatalkan.", reply_markup=ReplyKeyboardRemove())
+        kb_skip = _make_reply_kb(["⏭ Skip", "❌ Batal"], 2)
+        
+        ask_font = await message.reply("🔤 Kirim file Font (.ttf/.otf)\n\nAtau tekan tombol `⏭ Skip` untuk memakai font standar.", reply_markup=kb_skip)
+        font_msg = await wait_for_message(chat_id, user_id, 60)
+        await _clean_msgs(ask_font)
+        
+        txt_fmsg = (font_msg.text or "").lower() if font_msg else ""
+        if not font_msg or "batal" in txt_fmsg: 
+            return await message.answer("❌ Dibatalkan.", reply_markup=ReplyKeyboardRemove())
         
         font_path = None
-        if font_msg not in ["skip", "pass"] and getattr(font_msg, "document", None):
+        if "skip" not in txt_fmsg and hasattr(font_msg, "document") and font_msg.document:
             create_direc(f"./temp/wm_{user_id}")
             font_path = f"./temp/wm_{user_id}/custom_font.ttf"
             await Telegram.AIOGRAM_BOT.download(font_msg.document, destination=font_path)
             
-        color_msg = await ask_text_event(chat_id, user_id, message, 60, "🎨 Kirim warna teks (contoh: `white`, `red`, `yellow`, `#FF0000`)\n\nATAU ketik `skip` untuk warna default:", message_hint=None)
-        color = "white" if not color_msg or color_msg.text.lower() == "skip" else color_msg.text.strip()
+        ask_color = await message.reply("🎨 Kirim warna teks (contoh: `white`, `red`, `yellow`, `#FF0000`)\n\nAtau tekan tombol `⏭ Skip` untuk warna default:", reply_markup=kb_skip)
+        color_msg = await wait_for_message(chat_id, user_id, 60)
+        await _clean_msgs(ask_color)
+        
+        txt_cmsg = (color_msg.text or "").lower() if color_msg else ""
+        if not color_msg or "batal" in txt_cmsg: 
+            return await message.answer("❌ Dibatalkan.", reply_markup=ReplyKeyboardRemove())
+        
+        color = "white"
+        if "skip" not in txt_cmsg:
+            color = color_msg.text.strip()
         
         custom_wm["text"] = {"content": txt_msg.text, "font_path": font_path, "color": color, "size": 32}
         wm_info_str = f"Teks: '{txt_msg.text}' ({color})"
@@ -524,7 +541,7 @@ async def _merge_videos(message: Message):
     task = {"process_status": ps, "functions": []}
     idx  = 1
 
-    kb_action = _make_reply_kb(["🛑 Selesai (Proses)", "❌ Batal"], 2)
+    kb_action = _make_reply_kb(["✅ Selesai", "❌ Batal"], 2)
 
     while True:
         ask_msg = await message.reply(f"🎬 Kirim Video/URL No {idx}\n\nTekan tombol jika sudah selesai:", reply_markup=kb_action)
@@ -593,7 +610,7 @@ async def _subtitle_mux_handler(message: Message, process_name: str, cmd_name: s
     cancel = False
 
     is_hardmux = (process_name == Names.hardmux)
-    kb_action = _make_reply_kb(["❌ Batal"], 2) if is_hardmux else _make_reply_kb(["🛑 Selesai (Proses)", "❌ Batal"], 2)
+    kb_action = _make_reply_kb(["❌ Batal"], 2) if is_hardmux else _make_reply_kb(["✅ Selesai", "❌ Batal"], 2)
 
     while True:
         if is_hardmux:
