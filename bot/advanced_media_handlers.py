@@ -3,20 +3,21 @@
 ║    bot/advanced_media_handlers.py                                    ║
 ║    Advanced Media Handlers (Aiogram 3.x / Inline Waiter)             ║
 ╠══════════════════════════════════════════════════════════════════════╣
-║  Commands: /trim /split /cut /rotate /crop /autocrop                 ║
-║            /extension /extract /mediainfo                            ║
-╠══════════════════════════════════════════════════════════════════════╣
-║  CHANGELOG:                                                          ║
+║  CHANGELOG dari versi lama:                                          ║
+║  [UX PREMIUM] Menambahkan Kotak Konfirmasi Detail di SEMUA perintah  ║
+║                agar pengguna tahu persis parameter apa yang diatur.  ║
 ║  [UX PREMIUM] Menerapkan Auto-Delete agar chat tetap bersih & rapi.  ║
 ║  [UX PREMIUM] Menerapkan Reply Keyboard pendek yang konsisten.       ║
+║  [FIX HIGH] Extract & Mediainfo Bypass (Instan Download native TG)   ║
 ║  [FIX HIGH] Implementasi CMD_SUFFIX pada semua Command filter        ║
 ║  [UPDATE] Konsistensi Ikon, Teks Batal, dan Timeout selaras 100%.    ║
 ║  [HOTFIX] Menghentikan penghapusan media user agar tidak gagal unduh.║
 ║  [HOTFIX] Memutus Settingan Global (Watermark) agar proses Murni &   ║
 ║           Jauh Lebih Cepat.                                          ║
 ║  [HOTFIX] /extract & /mediainfo kini menampilkan Progress Bar Pyrogram║
-║  [HOTFIX] /extract menampilkan struktur Audio & Subtitle video       ║
+║  [HOTFIX] /extract kini menampilkan struktur Audio & Subtitle video  ║
 ║           serta bisa Multi-Select dengan tombol super interaktif!    ║
+║  [HOTFIX] Menyelesaikan error TypeError pada Custom Metadata         ║
 ╚══════════════════════════════════════════════════════════════════════╝
 """
 
@@ -759,7 +760,7 @@ async def _extract_streams(message: Message):
             downloaded = False
             if pyro_client:
                 try:
-                    # Mencari pesan yg benar dari chat id asli (link is Message object)
+                    # Mencari pesan yg benar dari chat id asli
                     pyro_msg = await pyro_client.get_messages(link.chat.id, link.message_id)
                     await pyro_client.download_media(message=pyro_msg, file_name=dest, progress=_progress)
                     downloaded = True
@@ -836,6 +837,7 @@ async def _extract_streams(message: Message):
         for s in extractable_streams:
             si = s.get("index")
             ct = s.get("codec_type")
+            lang = s.get("tags", {}).get("language", "und").upper()
             icon = "🎧" if ct == "audio" else "📖"
             btn_text = f"✅ {icon} Stream {si}" if si in selected_indices else f"{icon} Stream {si}"
             opts_buttons.append(btn_text)
@@ -871,7 +873,7 @@ async def _extract_streams(message: Message):
                 await _clean_msgs(ask_ex)
                 break
                 
-            # Mencari angka "Stream X" dari tombol yang ditekan
+            # Mencari angka "Stream X"
             match = _re.search(r'Stream (\d+)', msg_txt, _re.IGNORECASE)
             if match:
                 idx = int(match.group(1))
@@ -881,18 +883,15 @@ async def _extract_streams(message: Message):
                     selected_indices.append(idx)
                 
                 sel_str = ", ".join(map(str, sorted(selected_indices))) if selected_indices else "(Belum ada)"
-                new_kb = await build_extract_kb(selected_indices)
                 try:
-                    await ask_ex.delete()
-                except:
+                    await ask_ex.edit_text(
+                        f"{txt}\n\n"
+                        f"🗜️ **Pilih Stream untuk Diekstrak:**\n\n"
+                        f"✅ **Terpilih:** `Stream {sel_str}`\n\n"
+                        f"Tekan tombol stream lain untuk menambah/menghapus, atau **✅ Selesai** jika sudah."
+                    )
+                except Exception:
                     pass
-                ask_ex = await message.answer(
-                    f"{txt}\n\n"
-                    f"🗜️ **Pilih Stream untuk Diekstrak:**\n\n"
-                    f"✅ **Terpilih:** `Stream {sel_str}`\n\n"
-                    f"Tekan tombol stream lain untuk menambah/menghapus, atau **✅ Selesai** jika sudah.",
-                    reply_markup=new_kb
-                )
             else:
                 err = await message.answer("❌ Input tidak valid.")
                 await asyncio.sleep(1.5)
