@@ -9,13 +9,14 @@
 ║  [FIX HIGH]  analyze_ffmpeg_error tuple → dict (Step 8 API)          ║
 ║  [FIX HIGH]  refresh_tasks return di dalam while → logic benar       ║
 ║  [NEW]       Opsi 3: UI Cleanup (Hapus pesan instruksi otomatis)     ║
-║  [FIX BUG]   FFmpeg sukses tidak lanjut upload (process_completed)   ║
-║  [IMPROVE]   Mencegah Deadlock UI dengan asyncio.gather              ║
 ║  [IMPROVE]   Timeout Dinamis & Penambahan Fungsi Startup Cleanup     ║
-║  [HOTFIX]    Convert kini mematuhi parameter spesifik setiap task.   ║
 ║  [HOTFIX]    Perbaikan error IndexError pada handle_extract()        ║
-║  [CRITICAL]  SABUK PENGAMAN (Try-Finally) Mencegah Bot Stuck/Macet   ║
-║              jika terjadi error tak terduga (seperti Timeout TG).    ║
+║  [CRITICAL]  Memindahkan blok eksekusi SPLIT agar tidak bertabrakan  ║
+║              dengan FFMPEG_PROCESSES (%03d.mp4 fix)                  ║
+║  [CRITICAL]  Menggunakan asyncio.create_task() pada Status Checker   ║
+║              agar bot TIDAK LAGI STUCK saat inisialisasi.            ║
+║  [CRITICAL]  Menyematkan asyncio.wait_for pada Download/Upload agar  ║
+║              koneksi Pyrogram yang mati bisa dihentikan otomatis.    ║
 ╚══════════════════════════════════════════════════════════════════════╝
 """
 
@@ -203,10 +204,17 @@ async def upload_files(process_status) -> None:
         if exists(r_config) and drive_name and verify_rclone_account(r_config, drive_name):
             drive_upload = True
 
-    if not drive_upload:
-        await Telegram.upload_videos(process_status)
-    else:
-        await upload_drive(process_status)
+    try:
+        # Memberikan batas waktu 4 jam maksimal agar tidak tersangkut koneksi Telegram
+        if not drive_upload:
+            await asyncio.wait_for(Telegram.upload_videos(process_status), timeout=14400)
+        else:
+            await asyncio.wait_for(upload_drive(process_status), timeout=14400)
+    except asyncio.TimeoutError:
+        LOGGER.error("❌ Upload timed out!")
+        await _safe_send(process_status, "❌ Gagal mengunggah file karena koneksi timeout (lebih dari 4 jam).")
+    except Exception as e:
+        LOGGER.error(f"❌ Upload error: {e}", exc_info=True)
 
 
 # ═══════════════════════════════════════════════════════════════════════
@@ -232,7 +240,7 @@ async def process_status_checker() -> None:
                 ps = task["process_status"]
                 if time() - ps.ping > 600:
                     LOGGER.warning(f"⚠️  Task {ps.process_type} tidak respond 10 menit — dihapus")
-                    await _safe_send(ps, "❗ Task ini dihapus karena tidak ada respons selama 10 menit.")
+                    await _safe_send(ps, "❗ Task ini dihapus karena tidak ada respons koneksi selama 10 menit.")
                     await clear_trash(task, False, [])
                     await task_manager()
 
@@ -259,7 +267,9 @@ async def add_task(task: dict) -> None:
             async with queued_task_lock:
                 queued_task.append(task)
                 LOGGER.info(f"⏳ Task ditambahkan ke queue (posisi: {len(queued_task)})")
-    await process_status_checker()
+    
+    # [CRITICAL FIX] Menggunakan create_task agar bot tidak stuck/blocking saat menambah antrean
+    create_task(process_status_checker())
 
 async def task_manager() -> None:
     async with working_task_lock:
@@ -508,8 +518,17 @@ async def start_task(task: dict) -> None:
             else:
                 telegram_file_object = func_info[1]
                 try:
-                    if not await Telegram.download_tg_file(process_status, telegram_file_object, dw_index):
+                    # [CRITICAL FIX] Memberikan pelindung timeout 4 jam pada koneksi Telegram agar tidak stuck
+                    success = await asyncio.wait_for(
+                        Telegram.download_tg_file(process_status, telegram_file_object, dw_index),
+                        timeout=14400 
+                    )
+                    if not success:
                         break
+                except asyncio.TimeoutError:
+                    LOGGER.error("❌ Telegram download timed out!")
+                    await _safe_send(process_status, "❌ Download dari Telegram gagal karena timeout koneksi server.")
+                    break
                 except Exception as e:
                     LOGGER.error(f"❌ Telegram download error: {e}", exc_info=True)
                     break
@@ -551,10 +570,33 @@ async def start_task(task: dict) -> None:
             elif process_status.process_type == Names.extract:
                 process_completed = await handle_extract(process_status)
 
+            # [CRITICAL FIX] Memisahkan SPLIT sebelum FFMPEG Umum agar terhindar dari file "%03d" yang error
+            elif process_status.process_type == Names.split:
+                process_status.update_process_message(
+                    f"✂️ Membagi video...\n{process_status.get_task_details()}"
+                )
+                split_dir   = f"{process_status.dir}/split/"
+                await make_direc(split_dir)
+                input_video = process_status.send_files[-1]
+                mode, value = process_status.split_mode, process_status.split_value
+
+                splitted_files = []
+                if mode == "duration":
+                    splitted_files = await split_by_duration(input_video, value, split_dir)
+                elif mode == "parts":
+                    splitted_files = await split_by_parts(input_video, value, split_dir)
+                elif mode == "size":
+                    splitted_files = await split_by_size(input_video, value, process_status.dir)
+
+                if splitted_files:
+                    process_status.replace_send_list(splitted_files)
+                else:
+                    await _safe_send(process_status, "❌ Gagal membagi video.")
+                    process_completed = False
+
             elif process_status.process_type in Names.FFMPEG_PROCESSES:
                 output_list = []
                 
-                # Override Convert_List agar menggunakan parameter task (Bukan Global)
                 if process_status.process_type == Names.convert:
                     if hasattr(process_status, "convert_list") and process_status.convert_list:
                         convert_list = process_status.convert_list
@@ -652,29 +694,6 @@ async def start_task(task: dict) -> None:
             elif process_status.process_type in [Names.leech, Names.mirror]:
                 pass
 
-            elif process_status.process_type == Names.split:
-                process_status.update_process_message(
-                    f"✂️ Membagi video...\n{process_status.get_task_details()}"
-                )
-                split_dir   = f"{process_status.dir}/split/"
-                await make_direc(split_dir)
-                input_video = process_status.send_files[-1]
-                mode, value = process_status.split_mode, process_status.split_value
-
-                splitted_files = []
-                if mode == "duration":
-                    splitted_files = await split_by_duration(input_video, value, split_dir)
-                elif mode == "parts":
-                    splitted_files = await split_by_parts(input_video, value, split_dir)
-                elif mode == "size":
-                    splitted_files = await split_by_size(input_video, value, process_status.dir)
-
-                if splitted_files:
-                    process_status.replace_send_list(splitted_files)
-                else:
-                    await _safe_send(process_status, "❌ Gagal membagi video.")
-                    process_completed = False
-
         # ── UPLOAD PHASE ──────────────────────────────────────────────────
         if process_completed:
             is_final_step = not multi_tasks
@@ -698,7 +717,7 @@ async def start_task(task: dict) -> None:
 
     finally:
         # MASTER CLEANUP GUARANTEE
-        # Apapun yang terjadi (Sukses, Timeout, Crash, Batal), bagian ini PASTI dieksekusi.
+        # Apapun yang terjadi (Sukses, Timeout, Crash, Batal), bagian ini PASTI dieksekusi membebaskan antrean.
         LOGGER.info(f"🧹 Memulai master cleanup untuk task {process_status.process_id}")
         await clear_trash(task, trash_objects, multi_tasks)
         await task_manager()
