@@ -16,6 +16,8 @@
 ║  [FIX] Menutup celah crash Markdown pada pesan respons.              ║
 ║  [FIX] Menyelesaikan error Pydantic ValidationError (Frozen Object)  ║
 ║  [UPDATE] Konsistensi UI, Ikon, Timeout, dan Batal selaras 100%.     ║
+║  [HOTFIX] Menghapus settingan Jumlah Screenshot dari Global Settings ║
+║           agar tidak bentrok dengan Interactive Builder /genss.      ║
 ╚══════════════════════════════════════════════════════════════════════╝
 """
 
@@ -153,7 +155,6 @@ async def get_text_data(chat_id, user_id, call: CallbackQuery, timeout, message_
         await _clean_msgs(ask_msg, resp)
         
         if not resp:
-            # Menggunakan temporary message agar Telegram tidak melempar Error 'Query is too old' pada call.answer()
             temp = await call.message.answer("❌ Waktu habis. Dibatalkan.")
             await asyncio.sleep(2)
             await _clean_msgs(temp)
@@ -183,7 +184,7 @@ def get_current_settings_copy(user_id: int) -> dict:
         "select_stream","stream","split_video","split","upload_tg",
         "custom_thumbnail","detailed_messages","show_stats","update_time",
         "ffmpeg_size","ffmpeg_ptime","auto_drive","show_time","gen_ss",
-        "ss_no","gen_sample","multi_tasks","upload_all",
+        "gen_sample","multi_tasks","upload_all",
     ]
     return {k: copy.deepcopy(user_data[k]) for k in keys if k in user_data}
 
@@ -441,9 +442,6 @@ async def general_callback(call: CallbackQuery, txt: str, user_id: int, chat_id:
     elif txt.startswith("generalgenss"):
         val = _safe_eval_bool(new_pos)
         if val is not None: await saveoptions(user_id, "gen_ss", val, SAVE_TO_DATABASE)
-    elif txt.startswith("generalssno"):
-        try: await saveoptions(user_id, "ss_no", int(new_pos), SAVE_TO_DATABASE)
-        except ValueError: pass
     elif txt.startswith("generalgensample"):
         val = _safe_eval_bool(new_pos)
         if val is not None: await saveoptions(user_id, "gen_sample", val, SAVE_TO_DATABASE)
@@ -470,7 +468,6 @@ async def general_callback(call: CallbackQuery, txt: str, user_id: int, chat_id:
     _row("🧵 Unggah ke Telegram",  "upload_tg",      True,  bool_list, 2)
     _row("🕹 Auto Drive",   "auto_drive",     False, bool_list, 2)
     _row("📷 Screenshot",     "gen_ss",         True,  bool_list, 2)
-    _row("🎶 Jumlah Screenshot",   "ss_no",          5,     [3,5,7,10], 4)
     _row("🎞 Video Sampel",   "gen_sample",     True,  bool_list, 2)
     _row("🛰 Multi-Tugas","multi_tasks",    True,  bool_list, 2)
     _row("⏹ Unggah Setiap File",  "upload_all",     False, bool_list, 2)
