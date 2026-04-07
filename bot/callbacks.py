@@ -16,8 +16,8 @@
 ║  [FIX] Menutup celah crash Markdown pada pesan respons.              ║
 ║  [FIX] Menyelesaikan error Pydantic ValidationError (Frozen Object)  ║
 ║  [UPDATE] Konsistensi UI, Ikon, Timeout, dan Batal selaras 100%.     ║
-║  [HOTFIX] Menghapus settingan Jumlah Screenshot dari Global Settings ║
-║           agar tidak bentrok dengan Interactive Builder /genss.      ║
+║  [HOTFIX] Menambahkan Tombol Pengaturan Personal (Watermark, Thumb,  ║
+║           & Config Rclone) serta Tombol Navigasi ke Menu Utama.      ║
 ╚══════════════════════════════════════════════════════════════════════╝
 """
 
@@ -439,12 +439,6 @@ async def general_callback(call: CallbackQuery, txt: str, user_id: int, chat_id:
                 await call.answer("❌ Simpan Konfigurasi Rclone Terlebih Dahulu", show_alert=True)
                 return
             await saveoptions(user_id, "auto_drive", val, SAVE_TO_DATABASE)
-    elif txt.startswith("generalgenss"):
-        val = _safe_eval_bool(new_pos)
-        if val is not None: await saveoptions(user_id, "gen_ss", val, SAVE_TO_DATABASE)
-    elif txt.startswith("generalgensample"):
-        val = _safe_eval_bool(new_pos)
-        if val is not None: await saveoptions(user_id, "gen_sample", val, SAVE_TO_DATABASE)
     elif txt.startswith("generaluploadall"):
         val = _safe_eval_bool(new_pos)
         if val is not None: await saveoptions(user_id, "upload_all", val, SAVE_TO_DATABASE)
@@ -467,8 +461,6 @@ async def general_callback(call: CallbackQuery, txt: str, user_id: int, chat_id:
     _row("🖼 Thumbnail",   "custom_thumbnail", True, bool_list, 2)
     _row("🧵 Unggah ke Telegram",  "upload_tg",      True,  bool_list, 2)
     _row("🕹 Auto Drive",   "auto_drive",     False, bool_list, 2)
-    _row("📷 Screenshot",     "gen_ss",         True,  bool_list, 2)
-    _row("🎞 Video Sampel",   "gen_sample",     True,  bool_list, 2)
     _row("🛰 Multi-Tugas","multi_tasks",    True,  bool_list, 2)
     _row("⏹ Unggah Setiap File",  "upload_all",     False, bool_list, 2)
 
@@ -1056,7 +1048,7 @@ async def callback(call: CallbackQuery):
 
     # [UX PATCH] Putus animasi "Loading" di tombol secara instan untuk menu navigasi
     nav_commands = {"settings", "settings_media", "settings_bot", "close_settings", "profile_main", "profile_manage", "profile_quick"}
-    if txt in nav_commands or txt.endswith("_settings"):
+    if txt in nav_commands or txt.endswith("_settings") or txt.endswith("_info"):
         try: await call.answer()
         except: pass
 
@@ -1069,10 +1061,14 @@ async def callback(call: CallbackQuery):
             await call.message.edit_text(
                 msg,
                 reply_markup=InlineKeyboardMarkup(inline_keyboard=[
-                    [InlineKeyboardButton(text="👤 Profil",        callback_data="profile_main")],
-                    [InlineKeyboardButton(text="🎬 Pengolahan Media",        callback_data="settings_media")],
-                    [InlineKeyboardButton(text="🤖 Umum & Tampilan", callback_data="settings_bot")],
-                    [InlineKeyboardButton(text="⭕ Tutup Jendela",                  callback_data="close_settings")],
+                    [InlineKeyboardButton(text="👤 Profil", callback_data="profile_main"),
+                     InlineKeyboardButton(text="💾 Save Rclone Config", callback_data="cmd_saveconfig")],
+                    [InlineKeyboardButton(text="©️ Set Watermark Default", callback_data="cmd_savewatermark"),
+                     InlineKeyboardButton(text="🖼️ Set Thumb Default", callback_data="cmd_savethumb")],
+                    [InlineKeyboardButton(text="🎬 Pengolahan Media", callback_data="settings_media"),
+                     InlineKeyboardButton(text="🤖 Umum & Tampilan", callback_data="settings_bot")],
+                    [InlineKeyboardButton(text="↩️ Kembali ke Menu Utama", callback_data="menu_main")],
+                    [InlineKeyboardButton(text="⭕ Tutup Jendela", callback_data="close_settings")],
                 ])
             )
 
