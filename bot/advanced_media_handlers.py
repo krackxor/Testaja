@@ -17,7 +17,8 @@
 ║  [HOTFIX] /extract & /mediainfo kini menampilkan Progress Bar Pyrogram║
 ║  [HOTFIX] /extract kini menampilkan struktur Audio & Subtitle video  ║
 ║           serta bisa Multi-Select dengan tombol super interaktif!    ║
-║  [HOTFIX] Menyelesaikan error TypeError pada Custom Metadata         ║
+║  [HOTFIX] /changemetadata FULL TOMBOL! (Title, Author, Year, Comment)║
+║           Menyelesaikan isu TypeError karena format input yang salah.║
 ╚══════════════════════════════════════════════════════════════════════╝
 """
 
@@ -1098,3 +1099,227 @@ async def _media_info(message: Message):
                 await asyncio.to_thread(rmtree, temp_dir, ignore_errors=True)
             except Exception:
                 pass
+
+
+# ═══════════════════════════════════════════════════════════════════════
+#  CHANGE METADATA
+# ═══════════════════════════════════════════════════════════════════════
+
+@router.message(Command(f"changemetadata{CMD_SUFFIX}"))
+async def _change_metadata(message: Message):
+    if not await vip_check(message): return
+    user_id, chat_id = message.from_user.id, message.chat.id
+    cmd     = f"/changemetadata{CMD_SUFFIX}"
+    if user_id not in get_data(): await new_user(user_id, SAVE_TO_DATABASE)
+
+    link, custom_file_name = await get_link(message)
+    if link == "invalid": return await safe_reply(message, "❗ Tautan tidak valid")
+    if not link:
+        ne = await ask_media_OR_url(message, chat_id, user_id, [cmd, "stop"], "Kirim Video atau URL", 120, "video/", False)
+        if ne and ne not in ["cancelled", "stopped"]: link = await get_url_from_message(ne)
+        else: return
+
+    link = _sanitize_link_for_db(link)
+    fname = _get_fname(link, custom_file_name)
+
+    # FITUR BARU: FULL TOMBOL METADATA (List of Strings - TYPE SAFE)
+    meta_data = {"title": "", "author": "", "year": "", "comment": "", "encoder": ""}
+    opts_buttons = ["✏️ Title", "👤 Author", "📅 Year", "💬 Comment", "🛠 Encoder", "✅ Selesai", "❌ Batal"]
+    
+    kb = _make_reply_kb(opts_buttons, 3)
+    menu_msg = await message.reply("Memuat menu...", reply_markup=kb)
+
+    while True:
+        text_menu = (
+            f"**🏷️ MENU UBAH METADATA**\n\n"
+            f"🎬 File: `{fname}`\n\n"
+            f"**Metadata Saat Ini:**\n"
+            f"✏️ **Title:** `{meta_data['title'] or '(Kosong)'}`\n"
+            f"👤 **Author:** `{meta_data['author'] or '(Kosong)'}`\n"
+            f"📅 **Year:** `{meta_data['year'] or '(Kosong)'}`\n"
+            f"💬 **Comment:** `{meta_data['comment'] or '(Kosong)'}`\n"
+            f"🛠 **Encoder:** `{meta_data['encoder'] or '(Kosong)'}`\n\n"
+            f"Pilih tombol di bawah untuk mengisi/mengubah nilai, lalu tekan **✅ Selesai** jika sudah."
+        )
+        
+        try:
+            await menu_msg.edit_text(text_menu)
+        except Exception:
+            pass # Abaikan jika pesan tidak berubah
+
+        resp = await wait_for_message(chat_id, user_id, 120)
+        await _clean_msgs(resp)
+
+        if not resp:
+            await _clean_msgs(menu_msg)
+            return await message.answer("❌ Waktu habis. Dibatalkan.", reply_markup=ReplyKeyboardRemove())
+            
+        txt = (resp.text or "").strip().lower()
+        
+        if "batal" in txt:
+            await _clean_msgs(menu_msg)
+            return await message.answer("❌ Dibatalkan.", reply_markup=ReplyKeyboardRemove())
+            
+        if "selesai" in txt:
+            await _clean_msgs(menu_msg)
+            break
+            
+        field = None
+        if "title" in txt: field = "title"
+        elif "author" in txt: field = "author"
+        elif "year" in txt: field = "year"
+        elif "comment" in txt: field = "comment"
+        elif "encoder" in txt or "encode" in txt: field = "encoder"
+        
+        if field:
+            ask_val = await message.answer(f"Ketik teks baru untuk **{field.capitalize()}**:\n_(Ketik 'hapus' untuk mengosongkan)_", reply_markup=ReplyKeyboardRemove())
+            val_resp = await wait_for_message(chat_id, user_id, 120)
+            await _clean_msgs(ask_val, val_resp)
+            
+            if val_resp and val_resp.text:
+                if val_resp.text.lower() == "hapus":
+                    meta_data[field] = ""
+                else:
+                    meta_data[field] = val_resp.text
+            
+            # Render ulang menu keyboard
+            await _clean_msgs(menu_msg)
+            menu_msg = await message.answer(text_menu, reply_markup=kb)
+        else:
+            err = await message.answer("❌ Input tidak valid.")
+            await asyncio.sleep(1.5)
+            await _clean_msgs(err)
+
+    # [CRITICAL FIX] Menggunakan List of Strings Lurus agar tidak terjadi TypeError
+    custom_metadata = []
+    for key, val in meta_data.items():
+        if val:
+            custom_metadata.extend(["-metadata", f"{key}={val}"])
+
+    if not custom_metadata:
+        return await message.answer("❌ Tidak ada metadata yang ditambahkan. Dibatalkan.", reply_markup=ReplyKeyboardRemove())
+
+    kb_conf = _make_reply_kb(["✅ Ubah Metadata", "❌ Batal"], 2)
+    conf_txt = (
+        f"**🏷️ KONFIRMASI UBAH METADATA**\n\n"
+        f"🎬 File: `{fname}`\n"
+        f"⚙️ Target: `{len(custom_metadata) // 2} Atribut`\n\n"
+        "Lanjutkan?"
+    )
+    conf_msg = await message.reply(conf_txt, reply_markup=kb_conf)
+    press2 = await wait_for_message(chat_id, user_id, 120)
+    await _clean_msgs(conf_msg, press2)
+    
+    if not press2 or "batal" in (press2.text or "").lower():
+        return await message.answer("❌ Dibatalkan.", reply_markup=ReplyKeyboardRemove())
+        
+    await message.answer("✅ Mempersiapkan proses...", reply_markup=ReplyKeyboardRemove())
+
+    ps = ProcessStatus(user_id, chat_id, get_username(message), message.from_user.first_name, message, Names.changeMetadata, custom_file_name, custom_metadata=custom_metadata)
+    ps.custom_watermark = {"enabled": False} # Bypass Setting Global
+    await get_thumbnail(ps, [cmd, "pass"], 120)
+    task = build_task(ps, link)
+    await submit_task(task)
+    await update_status_message(message)
+
+
+# ═══════════════════════════════════════════════════════════════════════
+#  CHANGE INDEX
+# ═══════════════════════════════════════════════════════════════════════
+
+@router.message(Command(f"changeindex{CMD_SUFFIX}"))
+async def _change_index(message: Message):
+    if not await vip_check(message): return
+    user_id = message.from_user.id
+    chat_id = message.chat.id
+    cmd     = f"/changeindex{CMD_SUFFIX}"
+    if user_id not in get_data(): await new_user(user_id, SAVE_TO_DATABASE)
+
+    link, custom_file_name = await get_link(message)
+    if link == "invalid": return await safe_reply(message, "❗ Tautan tidak valid")
+    if not link:
+        ne = await ask_media_OR_url(message, chat_id, user_id, [cmd, "stop"], "Kirim Video atau URL", 120, "video/", False)
+        if ne and ne not in ["cancelled", "stopped"]: link = await get_url_from_message(ne)
+        else: return
+
+    link = _sanitize_link_for_db(link)
+    fname = _get_fname(link, custom_file_name)
+
+    ie = await ask_text_event(chat_id, user_id, message, 120, "Kirim Indeks", message_hint=("`a` Audio | `s` Subtitle\nFormat: `a-3-1-2` (urutan 3,1,2)\nContoh: `s-2-1`"))
+    if not ie: return
+
+    custom_index = []
+    for m in str(ie.text).split("\n"):
+        mdata = str(m).strip().split("-")
+        try:
+            stream = str(mdata[0]).strip().lower()
+            mdata.pop(0)
+            for s in mdata:
+                si = int(s.strip()) - 1
+                custom_index += ["-map", f"0:{stream}:{si}"]
+            custom_index += [f"-disposition:{stream}:0", "default"]
+        except (ValueError, IndexError, Exception) as e:
+            return await safe_reply(ie, f"❗ Indeks Tidak Valid: `{e}`")
+
+    kb_conf = _make_reply_kb(["✅ Ubah Index", "❌ Batal"], 2)
+    conf_txt = (
+        f"**🔄 KONFIRMASI UBAH INDEX**\n\n"
+        f"🎬 File: `{fname}`\n"
+        f"🔢 Susunan Index: `{ie.text}`\n\n"
+        "Lanjutkan?"
+    )
+    conf_msg = await message.reply(conf_txt, reply_markup=kb_conf)
+    press2 = await wait_for_message(chat_id, user_id, 120)
+    await _clean_msgs(ie, conf_msg, press2)
+    
+    if not press2 or "batal" in (press2.text or "").lower():
+        return await message.answer("❌ Dibatalkan.", reply_markup=ReplyKeyboardRemove())
+        
+    await message.answer("✅ Mempersiapkan proses...", reply_markup=ReplyKeyboardRemove())
+
+    ps = ProcessStatus(user_id, chat_id, get_username(message), message.from_user.first_name, message, Names.changeindex, custom_file_name, custom_index=custom_index)
+    ps.custom_watermark = {"enabled": False} # Bypass Setting Global
+    await get_thumbnail(ps, [cmd, "pass"], 120)
+    task = build_task(ps, link)
+    await submit_task(task)
+    await update_status_message(message)
+
+# ═══════════════════════════════════════════════════════════════════════
+#  LEECH / MIRROR
+# ═══════════════════════════════════════════════════════════════════════
+
+async def _leech_mirror_handler(message: Message, process_name: str, cmd_name: str):
+    if not await vip_check(message): return
+    user_id = message.from_user.id
+    chat_id = message.chat.id
+    if user_id not in get_data(): await new_user(user_id, SAVE_TO_DATABASE)
+
+    link, custom_file_name = await get_link(message)
+    if link == "invalid": return await safe_reply(message, "❗ Tautan tidak valid")
+    if not link:
+        ne = await ask_url(message, chat_id, user_id, [f"/{cmd_name}{CMD_SUFFIX}", "stop"], "Kirim Tautan", 120, False)
+        if ne and ne not in ["cancelled", "stopped"]: link = await get_url_from_message(ne)
+        else: return
+
+    ps = ProcessStatus(user_id, chat_id, get_username(message), message.from_user.first_name, message, process_name, custom_file_name)
+    await get_thumbnail(ps, [f"/{cmd_name}{CMD_SUFFIX}", "pass"], 120)
+    task = build_task(ps, link)
+    await submit_task(task)
+    await update_status_message(message)
+
+@router.message(Command(f"leech{CMD_SUFFIX}"))
+async def _leech_file(message: Message): await _leech_mirror_handler(message, Names.leech, "leech")
+
+@router.message(Command(f"mirror{CMD_SUFFIX}"))
+async def _mirror_file(message: Message): await _leech_mirror_handler(message, Names.mirror, "mirror")
+
+# ═══════════════════════════════════════════════════════════════════════
+#  STATUS
+# ═══════════════════════════════════════════════════════════════════════
+
+@router.message(Command(f"status{CMD_SUFFIX}"))
+async def _status(message: Message):
+    if not await user_auth_checker(message): return
+    user_id = message.from_user.id
+    if user_id not in get_data(): await new_user(user_id, SAVE_TO_DATABASE)
+    await update_status_message(message)
