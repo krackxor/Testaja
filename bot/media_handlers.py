@@ -10,14 +10,23 @@
 ║  [NEW] /softmux & /softremux kini mendukung penambahan file Audio!   ║
 ║  [NEW PREMIUM] /convert kini 100% FULL TOMBOL! Mendukung Multi-Select║
 ║                dengan tombol "✅ Selesai" tanpa perlu mengetik koma. ║
-║  [HOTFIX] /convert kini tidak lagi mengirimkan file ganda/duplikat.  ║
+║  [UPDATE] Konsistensi tombol dan teks pembatalan di seluruh fitur.   ║
+║  [HOTFIX] /convert kini mematuhi input dan lepas dari Global Config. ║
 ║  [HOTFIX] /watermark menggunakan 9 Ikon Sudut Arah lengkap.          ║
+║  [HOTFIX] Mencegah Auto-Delete pada media user agar proses berjalan. ║
+║  [HOTFIX] /changeindex menggunakan FULL TOMBOL (Interactive Builder) ║
+║           Bisa menyusun ulang & hapus track tanpa mengetik indeks!   ║
 ╚══════════════════════════════════════════════════════════════════════╝
 """
 
 # ── Standard Library ──────────────────────────────────────────────────
 import asyncio
 import re
+import os
+import shutil
+from json import loads as json_loads
+from asyncio import create_subprocess_exec
+from asyncio.subprocess import PIPE as asyncioPIPE
 from os.path import exists
 
 # ── Aiogram ───────────────────────────────────────────────────────────
@@ -29,6 +38,7 @@ from aiogram.filters import Command
 
 # ── Internal ──────────────────────────────────────────────────────────
 from bot_helper.Database.User_Data import get_data, new_user, saveoptions, saveconfig
+from bot_helper.Others.Helper_Functions import get_human_size
 from bot_helper.Others.Names import Names
 from bot_helper.Process.Process_Status import ProcessStatus
 from bot_helper.Telegram.Telegram_Client import Telegram
@@ -308,9 +318,7 @@ async def _convert_video(message: Message):
     link = _sanitize_link_for_db(link)
     fname = _get_fname(link, custom_file_name)
 
-    # 🚨 FITUR BARU: FULL TOMBOL LOOP MULTI-SELECT 🚨
     resolutions = []
-    # Daftar Resolusi lengkap hingga 8K
     opts_buttons = ["240", "360", "480", "540", "720", "1080", "1440", "2160", "2880", "3240", "4320", "✅ Selesai", "❌ Batal"]
     
     ask_res = await message.reply(
@@ -355,7 +363,7 @@ async def _convert_video(message: Message):
                     f"Tekan tombol angka lain untuk menambah/menghapus, atau tekan **✅ Selesai** jika sudah."
                 )
             except Exception:
-                pass
+                pass 
         else:
             err = await message.answer("❌ Input tidak valid.")
             await asyncio.sleep(1.5)
@@ -381,17 +389,15 @@ async def _convert_video(message: Message):
     if not press or "batal" in (press.text or "").lower():
          return await message.answer("❌ Dibatalkan.", reply_markup=ReplyKeyboardRemove())
 
-    # [HOTFIX] Menyimpan ke Database agar Global FFMPEG_Processes membacanya
     await saveconfig(user_id, "convert", "convert_list", sorted_res, SAVE_TO_DATABASE)
          
     await message.answer(f"✅ Mengantrekan proses konversi massa ({res_str})...", reply_markup=ReplyKeyboardRemove())
 
-    # Hanya buat SATU tugas convert karena FFMPEG_Processes akan melooping `convert_list` dengan sendirinya
     ps = ProcessStatus(user_id, chat_id, get_username(message), message.from_user.first_name, message, Names.convert, custom_file_name)
     ps.convert_quality = str(sorted_res[0])
     ps.convert_list = sorted_res 
     ps.video_resolution = str(sorted_res[0])
-    ps.custom_watermark = {"enabled": False} # Bypass Setting Global
+    ps.custom_watermark = {"enabled": False} 
 
     await get_thumbnail(ps, [f"/convert{CMD_SUFFIX}", "pass"], 120)
     task = build_task(ps, link)
@@ -579,7 +585,7 @@ async def _merge_videos(message: Message):
     await message.answer("✅ Mempersiapkan proses penggabungan...", reply_markup=ReplyKeyboardRemove())
 
     await get_thumbnail(ps, [f"/merge{CMD_SUFFIX}", "pass"], 120)
-    ps.custom_watermark = {"enabled": False} # Bypass Setting Global
+    ps.custom_watermark = {"enabled": False}
 
     if get_data().get(user_id, {}).get("multi_tasks"):
         ok = await multi_tasks(ps, f"/merge{CMD_SUFFIX}")
@@ -697,7 +703,7 @@ async def _subtitle_mux_handler(message: Message, process_name: str, cmd_name: s
     await message.answer("✅ Mempersiapkan proses...", reply_markup=ReplyKeyboardRemove())
 
     await get_thumbnail(ps, [f"/{cmd_name}{CMD_SUFFIX}", "pass"], 120)
-    ps.custom_watermark = {"enabled": False} # Bypass Setting Global
+    ps.custom_watermark = {"enabled": False} 
     task = build_task(ps, link)
 
     if get_data().get(user_id, {}).get("multi_tasks"):
@@ -717,6 +723,7 @@ async def _softremux(message: Message): await _subtitle_mux_handler(message, Nam
 @router.message(Command(f"hardmux{CMD_SUFFIX}"))
 async def _hardmux(message: Message): await _subtitle_mux_handler(message, Names.hardmux, "hardmux")
 
+
 # ═══════════════════════════════════════════════════════════════════════
 #  GENSAMPLE / GENSS
 # ═══════════════════════════════════════════════════════════════════════
@@ -727,6 +734,7 @@ async def _gen_video_sample(message: Message): await _generic_video_handler(mess
 @router.message(Command(f"genss{CMD_SUFFIX}"))
 async def _gen_screenshots(message: Message): await _generic_video_handler(message, Names.genss, "genss")
 
+
 # ═══════════════════════════════════════════════════════════════════════
 #  CHANGE METADATA
 # ═══════════════════════════════════════════════════════════════════════
@@ -734,8 +742,7 @@ async def _gen_screenshots(message: Message): await _generic_video_handler(messa
 @router.message(Command(f"changemetadata{CMD_SUFFIX}"))
 async def _change_metadata(message: Message):
     if not await vip_check(message): return
-    user_id = message.from_user.id
-    chat_id = message.chat.id
+    user_id, chat_id = message.from_user.id, message.chat.id
     cmd     = f"/changemetadata{CMD_SUFFIX}"
     if user_id not in get_data(): await new_user(user_id, SAVE_TO_DATABASE)
 
@@ -749,30 +756,91 @@ async def _change_metadata(message: Message):
     link = _sanitize_link_for_db(link)
     fname = _get_fname(link, custom_file_name)
 
-    me = await ask_text_event(chat_id, user_id, message, 120, "Kirim MetaData", message_hint=("Format:\n`a:0-BahasaAudio-JudulAudio`\n`s:0-BahasaSub-JudulSub`\n\nContoh: `a:1-eng-EncoderBot`"))
-    if not me: return
+    # FITUR BARU: FULL TOMBOL METADATA (List of Strings - TYPE SAFE)
+    meta_data = {"title": "", "author": "", "year": "", "comment": "", "encoder": ""}
+    opts_buttons = ["✏️ Title", "👤 Author", "📅 Year", "💬 Comment", "🛠 Encoder", "✅ Selesai", "❌ Batal"]
+    
+    kb = _make_reply_kb(opts_buttons, 3)
+    menu_msg = await message.reply("Memuat menu...", reply_markup=kb)
+
+    while True:
+        text_menu = (
+            f"**🏷️ MENU UBAH METADATA**\n\n"
+            f"🎬 File: `{fname}`\n\n"
+            f"**Metadata Saat Ini:**\n"
+            f"✏️ **Title:** `{meta_data['title'] or '(Kosong)'}`\n"
+            f"👤 **Author:** `{meta_data['author'] or '(Kosong)'}`\n"
+            f"📅 **Year:** `{meta_data['year'] or '(Kosong)'}`\n"
+            f"💬 **Comment:** `{meta_data['comment'] or '(Kosong)'}`\n"
+            f"🛠 **Encoder:** `{meta_data['encoder'] or '(Kosong)'}`\n\n"
+            f"Pilih tombol di bawah untuk mengisi/mengubah nilai, lalu tekan **✅ Selesai** jika sudah."
+        )
+        
+        try:
+            await menu_msg.edit_text(text_menu)
+        except Exception:
+            pass 
+
+        resp = await wait_for_message(chat_id, user_id, 120)
+        await _clean_msgs(resp)
+
+        if not resp:
+            await _clean_msgs(menu_msg)
+            return await message.answer("❌ Waktu habis. Dibatalkan.", reply_markup=ReplyKeyboardRemove())
+            
+        txt = (resp.text or "").strip().lower()
+        
+        if "batal" in txt:
+            await _clean_msgs(menu_msg)
+            return await message.answer("❌ Dibatalkan.", reply_markup=ReplyKeyboardRemove())
+            
+        if "selesai" in txt:
+            await _clean_msgs(menu_msg)
+            break
+            
+        field = None
+        if "title" in txt: field = "title"
+        elif "author" in txt: field = "author"
+        elif "year" in txt: field = "year"
+        elif "comment" in txt: field = "comment"
+        elif "encoder" in txt or "encode" in txt: field = "encoder"
+        
+        if field:
+            ask_val = await message.answer(f"Ketik teks baru untuk **{field.capitalize()}**:\n_(Ketik 'hapus' untuk mengosongkan)_", reply_markup=ReplyKeyboardRemove())
+            val_resp = await wait_for_message(chat_id, user_id, 120)
+            await _clean_msgs(ask_val, val_resp)
+            
+            if val_resp and val_resp.text:
+                if val_resp.text.lower() == "hapus":
+                    meta_data[field] = ""
+                else:
+                    meta_data[field] = val_resp.text
+            
+            await _clean_msgs(menu_msg)
+            menu_msg = await message.answer(text_menu, reply_markup=kb)
+        else:
+            err = await message.answer("❌ Input tidak valid.")
+            await asyncio.sleep(1.5)
+            await _clean_msgs(err)
 
     custom_metadata = []
-    for m in str(me.text).split("\n"):
-        mdata = str(m).strip().split("-")
-        try:
-            sindex = str(mdata[0]).strip().lower()
-            mlang  = str(mdata[1]).lower()
-            mtitle = str(mdata[2])
-            custom_metadata.append([f"-metadata:s:{sindex}", f"language={mlang}", f"-metadata:s:{sindex}", f"title={mtitle}"])
-        except (IndexError, Exception) as e:
-            return await safe_reply(me, f"❗ Metadata Tidak Valid: `{e}`")
+    for key, val in meta_data.items():
+        if val:
+            custom_metadata.extend(["-metadata", f"{key}={val}"])
+
+    if not custom_metadata:
+        return await message.answer("❌ Tidak ada metadata yang ditambahkan. Dibatalkan.", reply_markup=ReplyKeyboardRemove())
 
     kb_conf = _make_reply_kb(["✅ Ubah Metadata", "❌ Batal"], 2)
     conf_txt = (
         f"**🏷️ KONFIRMASI UBAH METADATA**\n\n"
         f"🎬 File: `{fname}`\n"
-        f"⚙️ Target Index: `{len(custom_metadata) // 4} Stream`\n\n"
+        f"⚙️ Target: `{len(custom_metadata) // 2} Atribut`\n\n"
         "Lanjutkan?"
     )
     conf_msg = await message.reply(conf_txt, reply_markup=kb_conf)
     press2 = await wait_for_message(chat_id, user_id, 120)
-    await _clean_msgs(me, conf_msg, press2)
+    await _clean_msgs(conf_msg, press2)
     
     if not press2 or "batal" in (press2.text or "").lower():
         return await message.answer("❌ Dibatalkan.", reply_markup=ReplyKeyboardRemove())
@@ -780,21 +848,21 @@ async def _change_metadata(message: Message):
     await message.answer("✅ Mempersiapkan proses...", reply_markup=ReplyKeyboardRemove())
 
     ps = ProcessStatus(user_id, chat_id, get_username(message), message.from_user.first_name, message, Names.changeMetadata, custom_file_name, custom_metadata=custom_metadata)
-    ps.custom_watermark = {"enabled": False} # Bypass Setting Global
+    ps.custom_watermark = {"enabled": False} 
     await get_thumbnail(ps, [cmd, "pass"], 120)
     task = build_task(ps, link)
     await submit_task(task)
     await update_status_message(message)
 
+
 # ═══════════════════════════════════════════════════════════════════════
-#  CHANGE INDEX
+#  CHANGE INDEX (INTERACTIVE BUILDER)
 # ═══════════════════════════════════════════════════════════════════════
 
 @router.message(Command(f"changeindex{CMD_SUFFIX}"))
 async def _change_index(message: Message):
     if not await vip_check(message): return
-    user_id = message.from_user.id
-    chat_id = message.chat.id
+    user_id, chat_id = message.from_user.id, message.chat.id
     cmd     = f"/changeindex{CMD_SUFFIX}"
     if user_id not in get_data(): await new_user(user_id, SAVE_TO_DATABASE)
 
@@ -808,32 +876,203 @@ async def _change_index(message: Message):
     link = _sanitize_link_for_db(link)
     fname = _get_fname(link, custom_file_name)
 
-    ie = await ask_text_event(chat_id, user_id, message, 120, "Kirim Indeks", message_hint=("`a` Audio | `s` Subtitle\nFormat: `a-3-1-2` (urutan 3,1,2)\nContoh: `s-2-1`"))
-    if not ie: return
+    dling_msg = await message.reply("🔽 Mengunduh berkas untuk dianalisis...")
 
-    custom_index = []
-    for m in str(ie.text).split("\n"):
-        mdata = str(m).strip().split("-")
+    async def _download_temp():
+        from bot_helper.Others.Names import Names as N_
+        import time
+        temp_ps = ProcessStatus(user_id, chat_id, get_username(message), message.from_user.first_name, message, N_.pre_download)
+        
+        if not isinstance(link, str):
+            target = link.video or link.document or link.audio
+            dest = f"{temp_ps.dir}/{target.file_name or 'video.mp4'}"
+            
+            last_update = [0.0]
+            async def _progress(current: int, total: int):
+                now = time.time()
+                if now - last_update[0] >= 2.0 and total:
+                    last_update[0] = now
+                    pct = current / total
+                    bar = "█" * int(pct * 10) + "░" * (10 - int(pct * 10))
+                    try: await dling_msg.edit_text(f"🔽 **Mengunduh untuk dianalisis...**\n\n[{bar}] {pct*100:.1f}%\n📥 `{get_human_size(current)} / {get_human_size(total)}`")
+                    except Exception: pass
+
+            pyro_client = Telegram.PYROGRAM_CLIENT
+            downloaded = False
+            if pyro_client:
+                try:
+                    pyro_msg = await pyro_client.get_messages(link.chat.id, link.message_id)
+                    await pyro_client.download_media(message=pyro_msg, file_name=dest, progress=_progress)
+                    downloaded = True
+                except Exception as e:
+                    LOGGER.error(f"Pyrogram temp dl error: {e}")
+            
+            if not downloaded:
+                await Telegram.AIOGRAM_BOT.download(target, destination=dest)
+            
+            temp_ps.append_dw_files(dest)
+            return dest, temp_ps
+
+        from bot_helper.Process.Running_Tasks import working_task, queued_task, add_task
+        from bot_helper.Aria2.Aria2_Engine import Aria2
+        funcs = [["Aria", Aria2.add_aria2c_download, [link, temp_ps, False, False, False, False]]]
+        await add_task({"process_status": temp_ps, "functions": funcs})
+        
+        waited = 0
+        while any(t["process_status"].process_id == temp_ps.process_id for t in working_task + list(queued_task)):
+            if waited > 3600: break
+            await asyncio.sleep(2)
+            waited += 2
+            if waited % 4 == 0:
+                try: await dling_msg.edit_text(temp_ps.status_message or "🔽 Mengunduh berkas dengan Aria2...")
+                except: pass
+        return (temp_ps.send_files[-1] if temp_ps.send_files else None), temp_ps
+
+    input_file, temp_ps = await _download_temp()
+
+    if not input_file or not exists(input_file):
+        await dling_msg.edit_text("❌ Gagal mengunduh berkas.")
+        try: await asyncio.to_thread(shutil.rmtree, temp_ps.dir, ignore_errors=True)
+        except Exception: pass
+        return
+
+    try:
+        from asyncio import create_subprocess_exec
+        from asyncio.subprocess import PIPE as asyncioPIPE
+        from json import loads as json_loads
+        proc = await create_subprocess_exec("ffprobe", "-v", "quiet", "-print_format", "json", "-show_streams", input_file, stdout=asyncioPIPE)
+        stdout, _ = await proc.communicate()
+        all_streams = json_loads(stdout.decode("utf-8", "replace")).get("streams", [])
+    except Exception as e: return await safe_reply(message, f"❌ Gagal menganalisis video: `{e}`")
+
+    audio_streams = []
+    sub_streams = []
+    a_idx = 0
+    s_idx = 0
+
+    for s in all_streams:
+        ct = s.get("codec_type")
+        lang = s.get("tags", {}).get("language", "und").upper()
+        codec = s.get("codec_name", "").upper()
+        if ct == "audio":
+            audio_streams.append({"id": a_idx, "abs_idx": s.get("index"), "lang": lang, "codec": codec})
+            a_idx += 1
+        elif ct == "subtitle":
+            sub_streams.append({"id": s_idx, "abs_idx": s.get("index"), "lang": lang, "codec": codec})
+            s_idx += 1
+
+    if not audio_streams and not sub_streams:
+        return await dling_msg.edit_text("❌ Tidak ada stream audio atau subtitle untuk diubah/dihapus pada video ini.")
+
+    await dling_msg.delete()
+
+    audio_sel = []
+    sub_sel = []
+
+    ask_msg = await message.reply("🔄 Memuat menu interaktif...")
+
+    while True:
+        txt = f"**🔄 SUSUN ULANG & HAPUS TRACK**\n\n🎬 File: `{fname}`\n\n**Daftar Track Asli:**\n"
+        if not audio_streams and not sub_streams:
+            txt += "-(Kosong)-\n"
+            
+        for a in audio_streams:
+            txt += f"🔊 A{a['id']} - {a['lang']} ({a['codec']})\n"
+        for s in sub_streams:
+            txt += f"💬 S{s['id']} - {s['lang']} ({s['codec']})\n"
+
+        txt += "\n**Susunan Baru Anda (Urutan):**\n"
+        txt += "🎬 Video: `Otomatis Dipertahankan`\n"
+        
+        if audio_sel:
+            a_str = " ➔ ".join([f"A{x}" for x in audio_sel])
+            txt += f"🔊 Audio: `{a_str}`\n"
+        else:
+            txt += f"🔊 Audio: `(Kosong / Dihapus)`\n"
+
+        if sub_sel:
+            s_str = " ➔ ".join([f"S{x}" for x in sub_sel])
+            txt += f"💬 Subtitle: `{s_str}`\n"
+        else:
+            txt += f"💬 Subtitle: `(Kosong / Dihapus)`\n"
+
+        txt += "\n_Pilih track di bawah untuk menambahkannya ke video. Track yang tidak dipilih akan dihapus!_"
+
+        opts = []
+        for a in audio_streams:
+            if a['id'] not in audio_sel:
+                opts.append(f"+ A{a['id']}")
+        for s in sub_streams:
+            if s['id'] not in sub_sel:
+                opts.append(f"+ S{s['id']}")
+        
+        kb = _make_reply_kb(opts, 3)
+        kb.keyboard.append([KeyboardButton(text="🔄 Reset Susunan")])
+        kb.keyboard.append([KeyboardButton(text="✅ Selesai & Eksekusi"), KeyboardButton(text="❌ Batal")])
+
         try:
-            stream = str(mdata[0]).strip().lower()
-            mdata.pop(0)
-            for s in mdata:
-                si = int(s.strip()) - 1
-                custom_index += ["-map", f"0:{stream}:{si}"]
-            custom_index += [f"-disposition:{stream}:0", "default"]
-        except (ValueError, IndexError, Exception) as e:
-            return await safe_reply(ie, f"❗ Indeks Tidak Valid: `{e}`")
+            await _clean_msgs(ask_msg)
+            ask_msg = await message.answer(txt, reply_markup=kb)
+        except Exception: pass
+
+        resp = await wait_for_message(chat_id, user_id, 120)
+        await _clean_msgs(resp)
+
+        if not resp:
+            await _clean_msgs(ask_msg)
+            return await message.answer("❌ Waktu habis. Dibatalkan.", reply_markup=ReplyKeyboardRemove())
+        
+        msg_txt = (resp.text or "").strip()
+        
+        if "batal" in msg_txt.lower():
+            await _clean_msgs(ask_msg)
+            return await message.answer("❌ Dibatalkan.", reply_markup=ReplyKeyboardRemove())
+        
+        if "selesai" in msg_txt.lower():
+            await _clean_msgs(ask_msg)
+            break
+
+        if "reset" in msg_txt.lower():
+            audio_sel.clear()
+            sub_sel.clear()
+            continue
+        
+        import re as _re
+        m_a = _re.match(r'\+\s*A(\d+)', msg_txt, _re.IGNORECASE)
+        if m_a:
+            idx = int(m_a.group(1))
+            if idx not in audio_sel and any(a['id'] == idx for a in audio_streams):
+                audio_sel.append(idx)
+        
+        m_s = _re.match(r'\+\s*S(\d+)', msg_txt, _re.IGNORECASE)
+        if m_s:
+            idx = int(m_s.group(1))
+            if idx not in sub_sel and any(s['id'] == idx for s in sub_streams):
+                sub_sel.append(idx)
+
+    custom_index = ["-map", "0:v:0?"]
+    
+    for i, a_id in enumerate(audio_sel):
+        custom_index.extend(["-map", f"0:a:{a_id}"])
+        if i == 0:
+            custom_index.extend([f"-disposition:a:0", "default"])
+    
+    for i, s_id in enumerate(sub_sel):
+        custom_index.extend(["-map", f"0:s:{s_id}"])
+        if i == 0:
+            custom_index.extend([f"-disposition:s:0", "default"])
 
     kb_conf = _make_reply_kb(["✅ Ubah Index", "❌ Batal"], 2)
     conf_txt = (
         f"**🔄 KONFIRMASI UBAH INDEX**\n\n"
         f"🎬 File: `{fname}`\n"
-        f"🔢 Susunan Index: `{ie.text}`\n\n"
-        "Lanjutkan?"
+        f"🔊 Audio Track: `{len(audio_sel)}`\n"
+        f"💬 Subtitle Track: `{len(sub_sel)}`\n\n"
+        "Lanjutkan eksekusi?"
     )
     conf_msg = await message.reply(conf_txt, reply_markup=kb_conf)
     press2 = await wait_for_message(chat_id, user_id, 120)
-    await _clean_msgs(ie, conf_msg, press2)
+    await _clean_msgs(conf_msg, press2)
     
     if not press2 or "batal" in (press2.text or "").lower():
         return await message.answer("❌ Dibatalkan.", reply_markup=ReplyKeyboardRemove())
@@ -841,11 +1080,25 @@ async def _change_index(message: Message):
     await message.answer("✅ Mempersiapkan proses...", reply_markup=ReplyKeyboardRemove())
 
     ps = ProcessStatus(user_id, chat_id, get_username(message), message.from_user.first_name, message, Names.changeindex, custom_file_name, custom_index=custom_index)
-    ps.custom_watermark = {"enabled": False} # Bypass Setting Global
-    await get_thumbnail(ps, [cmd, "pass"], 120)
-    task = build_task(ps, link)
-    await submit_task(task)
+    ps.custom_watermark = {"enabled": False}
+    
+    # Recycle the already downloaded file!
+    if hasattr(temp_ps, 'dir') and os.path.exists(temp_ps.dir):
+        for f in temp_ps.send_files:
+            if os.path.exists(f):
+                import shutil, os
+                new_f = f"{ps.dir}/{os.path.basename(f)}"
+                shutil.move(f, new_f)
+                ps.send_files = [new_f]
+
+    try: await asyncio.to_thread(shutil.rmtree, temp_ps.dir, ignore_errors=True)
+    except Exception: pass
+
+    final_task = {"process_status": ps, "functions": []}
+    from bot_helper.Process.Running_Tasks import submit_task
+    await submit_task(final_task)
     await update_status_message(message)
+
 
 # ═══════════════════════════════════════════════════════════════════════
 #  LEECH / MIRROR
