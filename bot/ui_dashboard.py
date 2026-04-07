@@ -1,6 +1,6 @@
 """
 UI Dashboard Template for STUDIO KHOIRUL (Aiogram 3.x)
-Versi: PREMIUM AESTHETIC v3.2 (Super Bridge)
+Versi: PREMIUM AESTHETIC v3.3 (Super Bridge & Categories)
 Fix: Seamless Backend Integration, No ImportError Crashes.
 """
 
@@ -163,8 +163,9 @@ def get_editor_kb() -> InlineKeyboardMarkup:
          InlineKeyboardButton(text="♻️ Remux", callback_data="cmd_softremux")],
          
         # 🎛️ MANIPULASI TRACK & DATA (Sistem Dalam)
-        [InlineKeyboardButton(text="🎵 Extract Audio", callback_data="cmd_extract"), 
-         InlineKeyboardButton(text="🔀 Change Index", callback_data="cmd_changeindex"),
+        [InlineKeyboardButton(text="📁 Extension", callback_data="cmd_extension"),
+         InlineKeyboardButton(text="🎵 Extract Audio", callback_data="cmd_extract")],
+        [InlineKeyboardButton(text="🔀 Change Index", callback_data="cmd_changeindex"),
          InlineKeyboardButton(text="🏷️ Metadata", callback_data="cmd_changemetadata")],
          
         # 📸 ASET & PREVIEW VISUAL (Tambahan)
@@ -200,13 +201,33 @@ def get_vip_kb() -> InlineKeyboardMarkup:
 
 def get_admin_kb() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="📊 Status Tasks", callback_data="cmd_status"), InlineKeyboardButton(text="🚀 Speedtest", callback_data="cmd_speedtest")],
-        [InlineKeyboardButton(text="⏱️ Uptime", callback_data="cmd_time"), InlineKeyboardButton(text="📈 Server Stats", callback_data="cmd_stats")],
-        [InlineKeyboardButton(text="📜 View Logs", callback_data="cmd_log"), InlineKeyboardButton(text="📁 Download Logs", callback_data="cmd_logs")],
-        [InlineKeyboardButton(text="🧹 Clean Server", callback_data="cmd_renew"), InlineKeyboardButton(text="💥 Reset Database", callback_data="cmd_resetdb")],
-        [InlineKeyboardButton(text="👮 Check Sudoers", callback_data="cmd_checksudo"), InlineKeyboardButton(text="🔄 Restart Bot", callback_data="cmd_restart")],
-        [InlineKeyboardButton(text="©️ Set Watermark Default", callback_data="cmd_savewatermark"), InlineKeyboardButton(text="🖼️ Set Thumb Default", callback_data="cmd_savethumb")],
-        [InlineKeyboardButton(text="↩️ Back to Menu", callback_data="menu_main")]
+        # 🖥️ SERVER & SYSTEM
+        [InlineKeyboardButton(text="📊 Status Tasks", callback_data="cmd_status"), 
+         InlineKeyboardButton(text="🚀 Speedtest", callback_data="cmd_speedtest")],
+        [InlineKeyboardButton(text="⏱️ Uptime", callback_data="cmd_time"), 
+         InlineKeyboardButton(text="📈 Server Stats", callback_data="cmd_stats")],
+        [InlineKeyboardButton(text="📜 View Logs", callback_data="cmd_log"), 
+         InlineKeyboardButton(text="📁 Download Logs", callback_data="cmd_logs")],
+        
+        # 🛠️ DATABASE & CONFIG
+        [InlineKeyboardButton(text="🧹 Clean Server", callback_data="cmd_renew"), 
+         InlineKeyboardButton(text="💥 Reset DB", callback_data="cmd_resetdb")],
+        [InlineKeyboardButton(text="🔄 Change Config", callback_data="cmd_changeconfig"),
+         InlineKeyboardButton(text="🗑️ Clear Configs", callback_data="cmd_clearconfigs")],
+         
+        # 👮 SUDO MANAGEMENT
+        [InlineKeyboardButton(text="👮 Check Sudoers", callback_data="cmd_checksudo")],
+        [InlineKeyboardButton(text="➕ Add Sudo", callback_data="cmd_addsudo"),
+         InlineKeyboardButton(text="➖ Del Sudo", callback_data="cmd_delsudo")],
+         
+        # 👑 VIP MANAGEMENT
+        [InlineKeyboardButton(text="👑 View VIP List", callback_data="cmd_view_vip")],
+        [InlineKeyboardButton(text="➕ Add VIP", callback_data="cmd_add_vip"),
+         InlineKeyboardButton(text="➖ Delete VIP", callback_data="cmd_delete_vip")],
+
+        # 🛑 SYSTEM CONTROL
+        [InlineKeyboardButton(text="🔄 Restart Bot", callback_data="cmd_restart")],
+        [InlineKeyboardButton(text="↩️ Kembali ke Menu", callback_data="menu_main")]
     ])
 
 # ==========================================
@@ -260,8 +281,12 @@ async def catch_all_commands(callback: CallbackQuery):
     command_name = callback.data.split("_", 1)[1]
     user_id = callback.from_user.id
     
-    # Proteksi Akses Admin
-    admin_cmds = ["speedtest", "restart", "renew", "log", "logs", "resetdb", "checksudo", "time", "stats", "savewatermark", "savethumb"]
+    # Proteksi Akses Admin (Fitur Personal tidak masuk sini)
+    admin_cmds = [
+        "speedtest", "restart", "renew", "log", "logs", "resetdb", 
+        "checksudo", "time", "stats", "add_vip", "delete_vip", 
+        "view_vip", "addsudo", "delsudo", "changeconfig", "clearconfigs"
+    ]
     if command_name in admin_cmds and not check_is_admin(user_id):
         return await callback.answer("⛔ Admin command only!", show_alert=True)
             
@@ -288,7 +313,10 @@ async def catch_all_commands(callback: CallbackQuery):
             "renew": getattr(adm, "_renew", None), "log": getattr(adm, "_log", None),
             "logs": getattr(adm, "_logs", None), "checksudo": getattr(adm, "_checksudo", None),
             "resetdb": getattr(adm, "_resetdb", None), "savewatermark": getattr(adm, "_savewatermark", None),
-            "savethumb": getattr(adm, "_savethumb", None),
+            "savethumb": getattr(adm, "_savethumb", None), "saveconfig": getattr(adm, "_saverclone", None),
+            
+            "addsudo": getattr(adm, "_addsudo", None), "delsudo": getattr(adm, "_delsudo", None),
+            "changeconfig": getattr(adm, "_changeconfig", None), "clearconfigs": getattr(adm, "_clearconfig", None),
             
             "compress": getattr(med, "_compress_video", None), "convert": getattr(med, "_convert_video", None),
             "watermark": getattr(med, "_add_watermark_interactive", None), "merge": getattr(med, "_merge_videos", None),
@@ -303,13 +331,16 @@ async def catch_all_commands(callback: CallbackQuery):
             "cut": getattr(adv, "_cut_video", None), "rotate": getattr(adv, "_rotate_video", None),
             "crop": getattr(adv, "_crop_video", None), "autocrop": getattr(adv, "_autocrop_video", None),
             "extract": getattr(adv, "_extract_streams", None),
+            "extension": getattr(med, "_extension_changer", None) or getattr(adv, "_extension_changer", None),
             
             "changemetadata": getattr(med, "_change_metadata", None) or getattr(adv, "_change_metadata", None),
             "mediainfo": getattr(med, "_media_info", None) or getattr(adv, "_media_info", None),
             "genss": getattr(adv, "_gen_screenshots", None) or getattr(med, "_gen_screenshots", None),
             "gensample": getattr(adv, "_gen_video_sample", None) or getattr(med, "_gen_video_sample", None),
             
-            "verify": getattr(vip, "_verify_payment", None), "myvip": getattr(vip, "_my_vip_status", None)
+            "verify": getattr(vip, "_verify_payment", None), "myvip": getattr(vip, "_my_vip_status", None),
+            "add_vip": getattr(vip, "_add_vip_manual", None), "delete_vip": getattr(vip, "_delete_vip_manual", None),
+            "view_vip": getattr(vip, "_view_vip_list", None)
         }
         
         target_handler = handlers.get(command_name)
@@ -331,6 +362,13 @@ async def catch_all_commands(callback: CallbackQuery):
         "listgameplay": "📋 <i>Mengarahkan...</i>\nJika gagal, ketik <code>/listgameplay</code> di obrolan.",
         "recap": "🎬 Ketik perintah <code>/recap</code> untuk memulai Film Recap otomatis.",
         "clip": "🎥 Ketik perintah <code>/clip</code> untuk memulai Auto Clip otomatis.",
+        "add_vip": "👑 Ketik ID User yang ingin dijadikan VIP, atau balas pesannya.\nContoh: <code>/add_vip 123456789 30d</code>",
+        "delete_vip": "👑 Ketik ID User yang ingin dicabut VIP-nya.\nContoh: <code>/delete_vip 123456789</code>",
+        "addsudo": "👮 Ketik ID User yang ingin dijadikan Admin/Sudo.\nContoh: <code>/addsudo 123456789</code>",
+        "delsudo": "👮 Ketik ID User yang ingin dihapus dari Admin/Sudo.\nContoh: <code>/delsudo 123456789</code>",
+        "saveconfig": "💾 Kirimkan file <b>rclone.conf</b> Anda ke sini.",
+        "savewatermark": "©️ Kirimkan gambar untuk dijadikan <b>Watermark Default</b>.",
+        "savethumb": "🖼️ Kirimkan gambar untuk dijadikan <b>Thumbnail Default</b>.",
     }
     
     instruction_msg = custom_instructions.get(
