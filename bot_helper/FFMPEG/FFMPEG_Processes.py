@@ -18,6 +18,7 @@
 ║  [HOTFIX]    Perbaikan penamaan output split agar terbaca sistem     ║
 ║  [HOTFIX]    MIGRASI KE AIOGRAM (Memperbaiki error Message.client    ║
 ║              yang membuat bot stuck saat mengirim Screenshot/Sample) ║
+║  [HOTFIX]    /genss & /gensample kini lepas dari pengaturan Global!  ║
 ╚══════════════════════════════════════════════════════════════════════╝
 """
 
@@ -304,12 +305,12 @@ async def split_video_file(file: str, split_size: int, dirpath: str, event) -> l
 #  SCREENSHOT
 # ═══════════════════════════════════════════════════════════════════════
 
-async def get_cut_duration(duration: float) -> list:
-    """Hitung range untuk sample video."""
-    if duration < 60:
-        return [1, duration - 2]
-    vmid = round(duration / 2) - 2
-    vend = min(vmid + 60, duration - 2)
+async def get_cut_duration(duration: float, sample_dur: int = 60) -> list:
+    """Hitung range untuk sample video agar bisa dipotong bebas sesuai durasi."""
+    if duration < sample_dur:
+        return [1, max(1, duration - 2)]
+    vmid = round(duration / 2) - (sample_dur // 2)
+    vend = min(vmid + sample_dur, duration - 2)
     return [vmid, vend]
 
 
@@ -359,14 +360,18 @@ async def generate_screenshoot(ss_time: float, input_video: str, ss_name: str) -
 async def generate_ss(process_status, force_gen: bool = False) -> None:
     """
     Generate dan kirim screenshot ke Telegram.
-    [HOTFIX] Diperbarui untuk menggunakan Aiogram 3.x Message Objects.
     """
     user_data = _get_user_data(process_status.user_id)
 
     if not user_data.get("gen_ss") and not force_gen:
         return
 
-    ss_no      = 9 if force_gen else int(user_data.get("ss_no", 4))
+    # Menggunakan jumlah SS khusus dari interactive builder jika tersedia
+    if hasattr(process_status, "custom_ss_no") and process_status.custom_ss_no:
+        ss_no = process_status.custom_ss_no
+    else:
+        ss_no = int(user_data.get("ss_no", 5))
+        
     file_name  = get_output_name(process_status)
     input_video = str(process_status.send_files[-1])
     duration   = get_video_duration(input_video)
@@ -392,7 +397,6 @@ async def generate_ss(process_status, force_gen: bool = False) -> None:
                 f"📷 Screenshot: {idx}/{len(ss_list)}"
             )
             try:
-                # Menggunakan Aiogram bot send_photo alih-alih Telethon client
                 await process_status.event.bot.send_photo(
                     chat_id=process_status.chat_id,
                     photo=FSInputFile(ss_name),
@@ -416,7 +420,6 @@ async def generate_ss(process_status, force_gen: bool = False) -> None:
 async def gen_sample_video(process_status, force_gen: bool = False) -> None:
     """
     Generate dan kirim sample video ke Telegram.
-    [HOTFIX] Diperbarui untuk menggunakan Aiogram 3.x Message Objects.
     """
     user_data = _get_user_data(process_status.user_id)
 
@@ -425,10 +428,13 @@ async def gen_sample_video(process_status, force_gen: bool = False) -> None:
 
     input_video = str(process_status.send_files[-1])
     duration    = get_video_duration(input_video)
+    
+    # Menggunakan durasi khusus dari interactive builder jika tersedia, default 60
+    sample_dur = getattr(process_status, "custom_sample_duration", 60)
 
-    if duration <= 60:
+    if duration <= sample_dur and not force_gen:
         if force_gen:
-            await process_status.event.reply("❌ Durasi video harus lebih dari 60 detik untuk generate sample.")
+            await process_status.event.reply(f"❌ Durasi video terlalu pendek untuk dibuat sampel {sample_dur} detik.")
         return
 
     file_name   = get_output_name(process_status)
@@ -438,14 +444,13 @@ async def gen_sample_video(process_status, force_gen: bool = False) -> None:
         f"🎞 Generating Sample Video\n`{file_name}`\n{process_status.get_task_details()}"
     )
 
-    vstart_time, vend_time = await get_cut_duration(duration)
-    vframes = "750" if duration < 180 else "1500"
+    vstart_time, vend_time = await get_cut_duration(duration, sample_dur)
 
     cmd_sample = [
         "ffmpeg", "-hide_banner",
         "-ss", f"{vstart_time}s",
         "-i", input_video,
-        "-vframes", vframes,
+        "-t", str(sample_dur), # Jauh lebih presisi dibanding -vframes
         "-fps_mode", "cfr",
         "-acodec", "copy",
         "-vcodec", "copy",
@@ -462,12 +467,11 @@ async def gen_sample_video(process_status, force_gen: bool = False) -> None:
         from aiogram.types import FSInputFile
 
         try:
-            # Menggunakan Aiogram bot send_video alih-alih Telethon client
             thumb_kw = {"thumbnail": FSInputFile(thumb)} if thumb else {}
             await process_status.event.bot.send_video(
                 chat_id=process_status.chat_id,
                 video=FSInputFile(sample_name),
-                caption="🎞 Sample Video",
+                caption=f"🎞 Sample Video ({sample_dur} Detik)",
                 supports_streaming=True,
                 duration=int(sample_duration),
                 width=width,
