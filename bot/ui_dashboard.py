@@ -1,7 +1,7 @@
 """
 UI Dashboard Template for STUDIO KHOIRUL (Aiogram 3.x)
-Versi: PREMIUM AESTHETIC v3.2 (Super Bridge & Smart Auto-Detect)
-Fix: Seamless Backend Integration, No ImportError Crashes, Auto-Detect Bypass.
+Versi: PREMIUM AESTHETIC v3.2 (Super Bridge)
+Fix: Seamless Backend Integration, No ImportError Crashes.
 """
 
 import asyncio
@@ -139,13 +139,42 @@ def get_studio_kb() -> InlineKeyboardMarkup:
 
 def get_editor_kb() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="🗜️ Compress", callback_data="cmd_compress"), InlineKeyboardButton(text="🔄 Convert", callback_data="cmd_convert"), InlineKeyboardButton(text="🔗 Merge", callback_data="cmd_merge")],
-        [InlineKeyboardButton(text="🎞️ Trim", callback_data="cmd_trim"), InlineKeyboardButton(text="✂️ Split", callback_data="cmd_split"), InlineKeyboardButton(text="🔪 Cut", callback_data="cmd_cut")],
-        [InlineKeyboardButton(text="📐 Crop", callback_data="cmd_crop"), InlineKeyboardButton(text="🎬 Autocrop", callback_data="cmd_autocrop"), InlineKeyboardButton(text="🔃 Rotate", callback_data="cmd_rotate")],
-        [InlineKeyboardButton(text="📌 Hardmux", callback_data="cmd_hardmux"), InlineKeyboardButton(text="📝 Softmux", callback_data="cmd_softmux"), InlineKeyboardButton(text="♻️ Remux", callback_data="cmd_softremux")],
-        [InlineKeyboardButton(text="🎵 Extract Audio", callback_data="cmd_extract"), InlineKeyboardButton(text="🏷️ Metadata", callback_data="cmd_changemetadata"), InlineKeyboardButton(text="ℹ️ MediaInfo", callback_data="cmd_mediainfo")],
-        [InlineKeyboardButton(text="©️ Watermark", callback_data="cmd_watermark"), InlineKeyboardButton(text="📸 Screenshot", callback_data="cmd_genss"), InlineKeyboardButton(text="🎞️ Sample", callback_data="cmd_gensample")],
-        [InlineKeyboardButton(text="↩️ Kembali", callback_data="menu_main")]
+        # 🌟 ENGINE UTAMA (Paling Power Full)
+        [InlineKeyboardButton(text="🚀 Encode Video", callback_data="cmd_encode")],
+        
+        # 📦 FORMAT & UKURAN (Dasar)
+        [InlineKeyboardButton(text="🗜️ Compress", callback_data="cmd_compress"), 
+         InlineKeyboardButton(text="🔄 Convert", callback_data="cmd_convert"), 
+         InlineKeyboardButton(text="🔗 Merge", callback_data="cmd_merge")],
+         
+        # ✂️ PEMOTONGAN DURASI (Waktu)
+        [InlineKeyboardButton(text="🎞️ Trim", callback_data="cmd_trim"), 
+         InlineKeyboardButton(text="🔪 Cut", callback_data="cmd_cut"), 
+         InlineKeyboardButton(text="✂️ Split", callback_data="cmd_split")],
+         
+        # 📐 MANIPULASI FRAME (Visual Geometri)
+        [InlineKeyboardButton(text="📐 Crop", callback_data="cmd_crop"), 
+         InlineKeyboardButton(text="🎬 Autocrop", callback_data="cmd_autocrop"), 
+         InlineKeyboardButton(text="🔃 Rotate", callback_data="cmd_rotate")],
+         
+        # 📝 SUBTITLE & MUXING (Penggabungan Teks)
+        [InlineKeyboardButton(text="📌 Hardmux", callback_data="cmd_hardmux"), 
+         InlineKeyboardButton(text="📝 Softmux", callback_data="cmd_softmux"), 
+         InlineKeyboardButton(text="♻️ Remux", callback_data="cmd_softremux")],
+         
+        # 🎛️ MANIPULASI TRACK & DATA (Sistem Dalam)
+        [InlineKeyboardButton(text="🎵 Extract Audio", callback_data="cmd_extract"), 
+         InlineKeyboardButton(text="🔀 Change Index", callback_data="cmd_changeindex"),
+         InlineKeyboardButton(text="🏷️ Metadata", callback_data="cmd_changemetadata")],
+         
+        # 📸 ASET & PREVIEW VISUAL (Tambahan)
+        [InlineKeyboardButton(text="©️ Watermark", callback_data="cmd_watermark"), 
+         InlineKeyboardButton(text="📸 Screenshot", callback_data="cmd_genss"), 
+         InlineKeyboardButton(text="🎞️ Sample", callback_data="cmd_gensample")],
+         
+        # ℹ️ INFORMASI & NAVIGASI
+        [InlineKeyboardButton(text="ℹ️ MediaInfo", callback_data="cmd_mediainfo"),
+         InlineKeyboardButton(text="↩️ Kembali", callback_data="menu_main")]
     ])
 
 def get_assets_kb() -> InlineKeyboardMarkup:
@@ -238,7 +267,7 @@ async def catch_all_commands(callback: CallbackQuery):
             
     await callback.answer(f"🚀 Memanggil Modul {command_name}...", show_alert=False)
     
-    # Membuat "Pesan Tiruan" yang mewarisi context dari pesan Dashboard/Auto-Detect
+    # Membuat "Pesan Tiruan" yang mewarisi context dari pesan Dashboard
     fake_msg = callback.message.model_copy(update={
         "from_user": callback.from_user,
         "chat": callback.message.chat,
@@ -267,6 +296,9 @@ async def catch_all_commands(callback: CallbackQuery):
             "softremux": getattr(med, "_softremux", None), "leech": getattr(med, "_leech_file", None),
             "mirror": getattr(med, "_mirror_file", None), "status": getattr(med, "_status", None),
             
+            "encode": getattr(med, "_encode_video", None),
+            "changeindex": getattr(med, "_change_index", None) or getattr(adv, "_change_index", None),
+            
             "trim": getattr(adv, "_trim_video", None), "split": getattr(adv, "_split_video", None),
             "cut": getattr(adv, "_cut_video", None), "rotate": getattr(adv, "_rotate_video", None),
             "crop": getattr(adv, "_crop_video", None), "autocrop": getattr(adv, "_autocrop_video", None),
@@ -274,6 +306,8 @@ async def catch_all_commands(callback: CallbackQuery):
             
             "changemetadata": getattr(med, "_change_metadata", None) or getattr(adv, "_change_metadata", None),
             "mediainfo": getattr(med, "_media_info", None) or getattr(adv, "_media_info", None),
+            "genss": getattr(adv, "_gen_screenshots", None) or getattr(med, "_gen_screenshots", None),
+            "gensample": getattr(adv, "_gen_video_sample", None) or getattr(med, "_gen_video_sample", None),
             
             "verify": getattr(vip, "_verify_payment", None), "myvip": getattr(vip, "_my_vip_status", None)
         }
@@ -282,7 +316,6 @@ async def catch_all_commands(callback: CallbackQuery):
         
         # Eksekusi langsung jika fitur ditemukan di Backend!
         if target_handler:
-            # (Kita sengaja tidak menghapus callback.message di sini agar backend bisa nge-reply)
             return await target_handler(fake_msg)
             
     except Exception as e:
@@ -328,63 +361,5 @@ async def cmd_dashboard(message: Message):
     is_admin = check_is_admin(message.from_user.id)
     bar, pct = get_storage_status()
     await message.answer(text=MAIN_DASHBOARD_TEXT.format(name=message.from_user.first_name, storage_bar=bar, storage=pct), reply_markup=get_main_menu_kb(is_admin), parse_mode="HTML")
-
-# ==========================================
-# 9. AUTO-DETECT MEDIA (APP MODE)
-# ==========================================
-@ui_router.message(F.video | F.document | F.audio | F.photo)
-async def auto_detect_media(message: Message):
-    # 🚨 PENCEGAH BENTROK: Jika User sedang ditanya oleh Backend (misal disuruh milih resolusi / kirim video), abaikan!
-    if is_user_in_waiter(message.chat.id, message.from_user.id):
-        return 
-    
-    mime = ""
-    if message.video: mime = "video"
-    elif message.audio: mime = "audio"
-    elif message.photo: mime = "photo"
-    elif message.document:
-        mime_type = str(message.document.mime_type).lower()
-        if mime_type.startswith("video/"): mime = "video"
-        elif mime_type.startswith("audio/"): mime = "audio"
-        elif mime_type.startswith("image/"): mime = "photo"
-        else: mime = "doc"
-
-    if mime == "video":
-        kb = InlineKeyboardMarkup(inline_keyboard=[
-            [InlineKeyboardButton(text="🗜️ Compress", callback_data="cmd_compress"),
-             InlineKeyboardButton(text="🔄 Convert", callback_data="cmd_convert")],
-            [InlineKeyboardButton(text="🎞️ Trim", callback_data="cmd_trim"),
-             InlineKeyboardButton(text="©️ Watermark", callback_data="cmd_watermark")],
-            [InlineKeyboardButton(text="🎵 Extract Audio", callback_data="cmd_extract"),
-             InlineKeyboardButton(text="📸 Screenshot", callback_data="cmd_genss")],
-            [InlineKeyboardButton(text="➕ Add to Assets", callback_data="cmd_addgameplay"),
-             InlineKeyboardButton(text="❌ Abaikan", callback_data="action_cancel")]
-        ])
-        
-        size_mb = 0
-        if message.video: size_mb = message.video.file_size / 1048576
-        elif message.document: size_mb = message.document.file_size / 1048576
-        
-        text = (
-            "<b>🎬 Video Terdeteksi!</b>\n"
-            f"<code>Ukuran: {round(size_mb, 2)} MB</code>\n\n"
-            "<i>Pilih aksi di bawah, sistem akan langsung mengeksekusi file ini!</i> 👇"
-        )
-        await message.reply(text, reply_markup=kb, parse_mode="HTML")
-
-    elif mime == "audio":
-        kb = InlineKeyboardMarkup(inline_keyboard=[
-            [InlineKeyboardButton(text="🔊 Tambah ke SFX Assets", callback_data="cmd_addsfx")],
-            [InlineKeyboardButton(text="❌ Abaikan", callback_data="action_cancel")]
-        ])
-        await message.reply("<b>🎵 File Audio Terdeteksi!</b>\n\n<i>Pilih aksi di bawah:</i>", reply_markup=kb, parse_mode="HTML")
-        
-    elif mime == "photo":
-        kb = InlineKeyboardMarkup(inline_keyboard=[
-            [InlineKeyboardButton(text="©️ Set sbg Watermark", callback_data="cmd_savewatermark"),
-             InlineKeyboardButton(text="🖼️ Set sbg Thumbnail", callback_data="cmd_savethumb")],
-            [InlineKeyboardButton(text="❌ Abaikan", callback_data="action_cancel")]
-        ])
-        await message.reply("<b>🖼️ Gambar Terdeteksi!</b>\n\n<i>Jadikan gambar ini sebagai default?</i>", reply_markup=kb, parse_mode="HTML")
 
 __all__ = ["ui_router"]
