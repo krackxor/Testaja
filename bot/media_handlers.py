@@ -6,16 +6,11 @@
 ║  CHANGELOG dari versi lama:                                          ║
 ║  [FIX] Memisahkan /compress agar lebih instan (tanpa dub/sub).       ║
 ║  [FIX] /watermark kini menggunakan tombol Skip yang aman dari error. ║
-║  [FIX] /hardmux kini hanya meminta 1 subtitle lalu otomatis lanjut.  ║
 ║  [NEW] /softmux & /softremux kini mendukung penambahan file Audio!   ║
 ║  [NEW PREMIUM] /convert kini 100% FULL TOMBOL! Mendukung Multi-Select║
-║                dengan tombol "✅ Selesai" tanpa perlu mengetik koma. ║
-║  [UPDATE] Konsistensi tombol dan teks pembatalan di seluruh fitur.   ║
-║  [HOTFIX] /convert kini mematuhi input dan lepas dari Global Config. ║
-║  [HOTFIX] /watermark menggunakan 9 Ikon Sudut Arah lengkap.          ║
-║  [HOTFIX] Mencegah Auto-Delete pada media user agar proses berjalan. ║
 ║  [HOTFIX] /changeindex menggunakan FULL TOMBOL (Interactive Builder) ║
-║           Bisa menyusun ulang & hapus track tanpa mengetik indeks!   ║
+║  [HOTFIX] /genss dan /gensample kini FULL TOMBOL dan lepas dari      ║
+║           pengaturan global!                                         ║
 ╚══════════════════════════════════════════════════════════════════════╝
 """
 
@@ -148,7 +143,6 @@ async def _generic_video_handler(message: Message, process_name: str, cmd_name: 
     if link == "invalid": return await safe_reply(message, "❗ Tautan tidak valid")
         
     if not link:
-        # Parameter Auto-Delete di set ke False agar file tidak terhapus
         ne = await ask_media_OR_url(message, chat_id, user_id, [f"/{cmd_name}{CMD_SUFFIX}", "stop"], "Kirim Video atau URL", 120, "video/", False)
         if ne and ne not in ["cancelled", "stopped"]: link = await get_url_from_message(ne)
         else: return
@@ -181,13 +175,12 @@ async def _encode_video(message: Message):
     link = _sanitize_link_for_db(link)
     fname = _get_fname(link, custom_file_name)
 
-    # Prompt Subtitle
     kb_skip = _make_reply_kb(["⏭ Skip", "❌ Batal"], 2)
     ask_sub = await message.reply("💬 Kirim file Subtitle (SRT/ASS) untuk di-Hardmux.\n\nAtau tekan tombol `⏭ Skip` jika tidak perlu.", reply_markup=kb_skip)
     sub_msg = await wait_for_message(chat_id, user_id, 120)
     await _clean_msgs(ask_sub)
     
-    txt_sub = (sub_msg.text or "").lower()
+    txt_sub = (sub_msg.text or "").lower() if sub_msg else ""
     if "batal" in txt_sub: return await message.answer("❌ Dibatalkan.", reply_markup=ReplyKeyboardRemove())
     
     sub_path = None
@@ -198,12 +191,11 @@ async def _encode_video(message: Message):
         sub_name_str = sub_msg.document.file_name
         await Telegram.AIOGRAM_BOT.download(sub_msg.document, destination=sub_path)
 
-    # Prompt Audio Dubbing
     ask_aud = await message.reply("🎵 Kirim file Audio (MP3/M4A) untuk Dubbing.\n\nAtau tekan tombol `⏭ Skip` jika tidak perlu.", reply_markup=kb_skip)
     aud_msg = await wait_for_message(chat_id, user_id, 120)
     await _clean_msgs(ask_aud)
     
-    txt_aud = (aud_msg.text or "").lower()
+    txt_aud = (aud_msg.text or "").lower() if aud_msg else ""
     if "batal" in txt_aud: return await message.answer("❌ Dibatalkan.", reply_markup=ReplyKeyboardRemove())
     
     aud_path = None
@@ -397,7 +389,7 @@ async def _convert_video(message: Message):
     ps.convert_quality = str(sorted_res[0])
     ps.convert_list = sorted_res 
     ps.video_resolution = str(sorted_res[0])
-    ps.custom_watermark = {"enabled": False} 
+    ps.custom_watermark = {"enabled": False}
 
     await get_thumbnail(ps, [f"/convert{CMD_SUFFIX}", "pass"], 120)
     task = build_task(ps, link)
@@ -725,14 +717,127 @@ async def _hardmux(message: Message): await _subtitle_mux_handler(message, Names
 
 
 # ═══════════════════════════════════════════════════════════════════════
-#  GENSAMPLE / GENSS
+#  GENSAMPLE / GENSS (INTERACTIVE WIZARD)
 # ═══════════════════════════════════════════════════════════════════════
 
 @router.message(Command(f"gensample{CMD_SUFFIX}"))
-async def _gen_video_sample(message: Message): await _generic_video_handler(message, Names.gensample, "gensample")
+async def _gen_video_sample(message: Message):
+    if not await vip_check(message): return
+    user_id, chat_id = message.from_user.id, message.chat.id
+    if user_id not in get_data(): await new_user(user_id, SAVE_TO_DATABASE)
+
+    link, custom_file_name = await get_link(message)
+    if link == "invalid": return await safe_reply(message, "❗ Tautan tidak valid")
+    if not link:
+        ne = await ask_media_OR_url(message, chat_id, user_id, [f"/gensample{CMD_SUFFIX}", "stop"], "🎬 Kirim Video atau URL untuk dibuatkan Sampel", 120, "video/", False)
+        if ne and ne not in ["cancelled", "stopped"]: link = await get_url_from_message(ne)
+        else: return
+
+    link = _sanitize_link_for_db(link)
+    fname = _get_fname(link, custom_file_name)
+
+    opts_buttons = ["30 Detik", "60 Detik", "90 Detik", "120 Detik", "❌ Batal"]
+    ask_dur = await message.reply(
+        "⏱️ **Pilih Durasi Sampel Video:**\n\n"
+        "Silakan tekan tombol di bawah untuk menentukan durasi sampel yang ingin dipotong dari pertengahan video.", 
+        reply_markup=_make_reply_kb(opts_buttons, 2)
+    )
+    
+    resp = await wait_for_message(chat_id, user_id, 120)
+    await _clean_msgs(ask_dur, resp)
+    
+    if not resp or "batal" in (resp.text or "").lower():
+        return await message.answer("❌ Dibatalkan.", reply_markup=ReplyKeyboardRemove())
+        
+    dur_txt = (resp.text or "").lower().replace(" detik", "").strip()
+    if not dur_txt.isdigit():
+        return await message.answer("❌ Input tidak valid. Harus berupa angka.", reply_markup=ReplyKeyboardRemove())
+        
+    sample_duration = int(dur_txt)
+
+    kb_conf = _make_reply_kb(["✅ Buat Sampel", "❌ Batal"], 2)
+    conf_txt = (
+        f"**🎞️ KONFIRMASI PEMBUATAN SAMPEL**\n\n"
+        f"🎬 File: `{fname}`\n"
+        f"⏱️ Durasi Target: `{sample_duration} Detik`\n\n"
+        "Lanjutkan?"
+    )
+    conf_msg = await message.reply(conf_txt, reply_markup=kb_conf)
+    press = await wait_for_message(chat_id, user_id, 120)
+    await _clean_msgs(conf_msg, press)
+    
+    if not press or "batal" in (press.text or "").lower():
+        return await message.answer("❌ Dibatalkan.", reply_markup=ReplyKeyboardRemove())
+        
+    await message.answer("✅ Mempersiapkan proses pembuatan sampel...", reply_markup=ReplyKeyboardRemove())
+
+    ps = ProcessStatus(user_id, chat_id, get_username(message), message.from_user.first_name, message, Names.gensample, custom_file_name)
+    ps.custom_sample_duration = sample_duration # Inject durasi custom
+    ps.custom_watermark = {"enabled": False} 
+    await get_thumbnail(ps, [f"/gensample{CMD_SUFFIX}", "pass"], 120)
+    task = build_task(ps, link)
+    await submit_task(task)
+    await update_status_message(message)
+
 
 @router.message(Command(f"genss{CMD_SUFFIX}"))
-async def _gen_screenshots(message: Message): await _generic_video_handler(message, Names.genss, "genss")
+async def _gen_screenshots(message: Message):
+    if not await vip_check(message): return
+    user_id, chat_id = message.from_user.id, message.chat.id
+    if user_id not in get_data(): await new_user(user_id, SAVE_TO_DATABASE)
+
+    link, custom_file_name = await get_link(message)
+    if link == "invalid": return await safe_reply(message, "❗ Tautan tidak valid")
+    if not link:
+        ne = await ask_media_OR_url(message, chat_id, user_id, [f"/genss{CMD_SUFFIX}", "stop"], "📷 Kirim Video atau URL untuk di-Screenshot", 120, "video/", False)
+        if ne and ne not in ["cancelled", "stopped"]: link = await get_url_from_message(ne)
+        else: return
+
+    link = _sanitize_link_for_db(link)
+    fname = _get_fname(link, custom_file_name)
+
+    opts_buttons = ["3", "5", "7", "10", "15", "20", "❌ Batal"]
+    ask_num = await message.reply(
+        "📷 **Pilih Jumlah Screenshot:**\n\n"
+        "Silakan tekan tombol angka di bawah untuk menentukan berapa banyak screenshot yang ingin diambil secara merata.", 
+        reply_markup=_make_reply_kb(opts_buttons, 3)
+    )
+    
+    resp = await wait_for_message(chat_id, user_id, 120)
+    await _clean_msgs(ask_num, resp)
+    
+    if not resp or "batal" in (resp.text or "").lower():
+        return await message.answer("❌ Dibatalkan.", reply_markup=ReplyKeyboardRemove())
+        
+    ss_num_text = (resp.text or "").strip()
+    if not ss_num_text.isdigit():
+        return await message.answer("❌ Input tidak valid. Harus berupa angka.", reply_markup=ReplyKeyboardRemove())
+        
+    ss_num = int(ss_num_text)
+    
+    kb_conf = _make_reply_kb(["✅ Ambil Screenshot", "❌ Batal"], 2)
+    conf_txt = (
+        f"**📷 KONFIRMASI SCREENSHOT**\n\n"
+        f"🎬 File: `{fname}`\n"
+        f"🔢 Jumlah Target: `{ss_num} Gambar`\n\n"
+        "Lanjutkan?"
+    )
+    conf_msg = await message.reply(conf_txt, reply_markup=kb_conf)
+    press2 = await wait_for_message(chat_id, user_id, 120)
+    await _clean_msgs(conf_msg, press2)
+    
+    if not press2 or "batal" in (press2.text or "").lower():
+        return await message.answer("❌ Dibatalkan.", reply_markup=ReplyKeyboardRemove())
+        
+    await message.answer("✅ Mempersiapkan proses...", reply_markup=ReplyKeyboardRemove())
+
+    ps = ProcessStatus(user_id, chat_id, get_username(message), message.from_user.first_name, message, Names.genss, custom_file_name)
+    ps.custom_ss_no = ss_num # Inject jumlah screenshot custom
+    ps.custom_watermark = {"enabled": False} 
+    await get_thumbnail(ps, [f"/genss{CMD_SUFFIX}", "pass"], 120)
+    task = build_task(ps, link)
+    await submit_task(task)
+    await update_status_message(message)
 
 
 # ═══════════════════════════════════════════════════════════════════════
@@ -756,7 +861,6 @@ async def _change_metadata(message: Message):
     link = _sanitize_link_for_db(link)
     fname = _get_fname(link, custom_file_name)
 
-    # FITUR BARU: FULL TOMBOL METADATA (List of Strings - TYPE SAFE)
     meta_data = {"title": "", "author": "", "year": "", "comment": "", "encoder": ""}
     opts_buttons = ["✏️ Title", "👤 Author", "📅 Year", "💬 Comment", "🛠 Encoder", "✅ Selesai", "❌ Batal"]
     
