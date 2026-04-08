@@ -9,10 +9,8 @@
 ║  [UX PREMIUM] Menerapkan Reply Keyboard pendek yang konsisten.       ║
 ║  [FIX HIGH] Extract & Mediainfo Bypass (Instan Download native TG)   ║
 ║  [UPDATE] Konsistensi Ikon, Teks Batal, dan Timeout selaras 100%.    ║
-║  [HOTFIX] /changemetadata FULL TOMBOL! (Title, Author, Year, dll)    ║
-║  [NEW PREMIUM] /extract Terintegrasi: Bisa ekstrak Audio, Subtitle,  ║
+║  [HOTFIX] /extract Terintegrasi: Bisa ekstrak Audio, Subtitle,       ║
 ║           Thumbnail HD, dan ZIP Frames dalam SATU MENU!              ║
-║  [NEW PREMIUM] /changeindex menggunakan Interactive Builder (No-Dup) ║
 ╚══════════════════════════════════════════════════════════════════════╝
 """
 
