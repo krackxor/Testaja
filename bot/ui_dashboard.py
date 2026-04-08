@@ -1,6 +1,7 @@
 """
 UI Dashboard Template for STUDIO KHOIRUL (Aiogram 3.x)
-Versi: PROFESSIONAL v4.4 - Mobile Friendly UI + RAM/CPU Stats + Red Back Buttons
+Versi: PROFESSIONAL v4.10 - Settings Grid & Callback Fix
+Fix: Perbaikan logika save vs set watermark, penyesuaian tata letak grid pengaturan.
 """
 
 import asyncio
@@ -23,13 +24,12 @@ BORDER_LIGHT = "────────────────────"
 DIVIDER = "│"
 
 def get_progress_bar(current: int, max_val: int, width: int = 10) -> str:
-    """Generate clean progress bar for mobile screens"""
     filled = int((current / max_val) * width)
     empty = width - filled
     return f"[{'▓' * filled}{'░' * empty}]"
 
 # ==========================================
-# 2. DASHBOARD TEXTS (MOBILE FRIENDLY)
+# 2. DASHBOARD TEXTS
 # ==========================================
 
 WELCOME_TEXT = """
@@ -84,36 +84,27 @@ def is_admin(user_id: int) -> bool:
     return user_id in Config.SUDO_USERS
 
 def get_system_stats() -> dict:
-    """Mengambil status Storage, CPU, dan RAM"""
     stats = {'storage': 0, 'cpu': 0, 'ram': 0}
-    
-    # 1. Storage
     try:
         total, used, free = shutil.disk_usage("/")
         stats['storage'] = int((used / total) * 100)
     except Exception:
         pass
-        
-    # 2. CPU & RAM (Membutuhkan psutil)
     try:
         import psutil
         stats['cpu'] = int(psutil.cpu_percent(interval=0.1))
         stats['ram'] = int(psutil.virtual_memory().percent)
     except ImportError:
-        pass # Jika tidak ada library psutil, kembalikan 0%
-        
-    # Buat Bar
+        pass
     stats['storage_bar'] = get_progress_bar(stats['storage'], 100, 10)
     stats['cpu_bar'] = get_progress_bar(stats['cpu'], 100, 10)
     stats['ram_bar'] = get_progress_bar(stats['ram'], 100, 10)
-    
     return stats
 
 def get_vip_badge(user_id: int) -> str:
     return "<code>👑 VIP</code>"
 
 def get_queue_count() -> int:
-    """Menghitung total antrean yang berjalan"""
     try:
         from bot_helper.Process.Running_Tasks import queued_task, working_task
         return len(queued_task) + len(working_task)
@@ -121,7 +112,6 @@ def get_queue_count() -> int:
         return 0
 
 def get_back_cancel_kb() -> InlineKeyboardMarkup:
-    """Tombol Kembali & Tutup yang ditekankan dengan warna Merah (Danger)"""
     return InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="↩️ Kembali", callback_data="menu_main", style="danger"),
          InlineKeyboardButton(text="❌ Tutup", callback_data="action_close", style="danger")]
@@ -149,22 +139,21 @@ def kb_main_menu(is_admin_user: bool = False) -> InlineKeyboardMarkup:
             InlineKeyboardButton(text="🎞️ Encode", callback_data="menu_encode", style="primary")
         ],
         [
-            InlineKeyboardButton(text="✂️ Editor", callback_data="menu_editor", style="primary"),
-            InlineKeyboardButton(text="🎮 Aset", callback_data="menu_assets", style="primary")
+            InlineKeyboardButton(text="✂️ Buka Editor Video", callback_data="menu_editor", style="primary")
         ],
         [
-            InlineKeyboardButton(text="📥 Download", callback_data="menu_download"),
-            InlineKeyboardButton(text="⚙️ Pengaturan", callback_data="settings")
+            InlineKeyboardButton(text="🎮 Aset", callback_data="menu_assets"),
+            InlineKeyboardButton(text="📥 Download", callback_data="menu_download")
         ],
         [
+            InlineKeyboardButton(text="⚙️ Pengaturan", callback_data="settings"),
             InlineKeyboardButton(text="👑 VIP", callback_data="menu_vip", style="success")
         ]
     ]
     if is_admin_user:
         buttons.append([
-            InlineKeyboardButton(text="🔧 Admin", callback_data="menu_admin")
+            InlineKeyboardButton(text="🔧 Admin Control Panel", callback_data="menu_admin")
         ])
-        
     buttons.append([
         InlineKeyboardButton(text="❌ Tutup", callback_data="action_close", style="danger")
     ])
@@ -205,61 +194,65 @@ def kb_encode() -> InlineKeyboardMarkup:
             InlineKeyboardButton(text="🎛️ Encode Custom", callback_data="cmd_customencode", style="primary")
         ],
         [
-            InlineKeyboardButton(text="ℹ️ Info Encode", callback_data="info_encode")
-        ],
-        [
+            InlineKeyboardButton(text="ℹ️ Info Encode", callback_data="info_encode"),
             InlineKeyboardButton(text="↩️ Kembali", callback_data="menu_main", style="danger")
         ]
     ])
 
 def kb_editor() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=[
+        # --- 📦 FORMAT & DASAR ---
         [
             InlineKeyboardButton(text="🗜️ Kompres", callback_data="cmd_compress"),
             InlineKeyboardButton(text="🔄 Konversi", callback_data="cmd_convert")
         ],
+        [
+            InlineKeyboardButton(text="🔗 Gabung", callback_data="cmd_merge")
+        ],
+        # --- ⏱ TIMELINE & WAKTU ---
         [
             InlineKeyboardButton(text="✂️ Trim", callback_data="cmd_trim"),
             InlineKeyboardButton(text="🔪 Potong", callback_data="cmd_cut"),
             InlineKeyboardButton(text="📐 Split", callback_data="cmd_split")
         ],
         [
-            InlineKeyboardButton(text="🔗 Gabung", callback_data="cmd_merge")
+            InlineKeyboardButton(text="⚡ Kecepatan", callback_data="cmd_speed"),
+            InlineKeyboardButton(text="📁 Ekstensi", callback_data="cmd_extension")
         ],
+        # --- 🖼️ VISUAL & BINGKAI ---
         [
             InlineKeyboardButton(text="📐 Crop", callback_data="cmd_crop"),
             InlineKeyboardButton(text="🎬 Auto Crop", callback_data="cmd_autocrop"),
             InlineKeyboardButton(text="🔃 Rotasi", callback_data="cmd_rotate")
         ],
         [
-            InlineKeyboardButton(text="⚡ Kecepatan", callback_data="cmd_speed"),
-            InlineKeyboardButton(text="©️ Watermark", callback_data="cmd_watermark")
+            InlineKeyboardButton(text="©️ Upload Watermark", callback_data="cmd_watermark")
         ],
+        # --- 🎵 AUDIO & SUBTITLE ---
         [
-            InlineKeyboardButton(text="🔇 Mute", callback_data="cmd_mute"),
+            InlineKeyboardButton(text="🔇 Mute Audio", callback_data="cmd_mute"),
             InlineKeyboardButton(text="🎙️ Dubbing", callback_data="cmd_dubbing")
         ],
         [
             InlineKeyboardButton(text="📌 Hardmux", callback_data="cmd_hardmux"),
-            InlineKeyboardButton(text="📝 Softmux", callback_data="cmd_softmux")
+            InlineKeyboardButton(text="📝 Softmux", callback_data="cmd_softmux"),
+            InlineKeyboardButton(text="♻️ Remux", callback_data="cmd_softremux")
+        ],
+        # --- ⚙️ SISTEM & UTILITAS ---
+        [
+            InlineKeyboardButton(text="🏷️ Metadata", callback_data="cmd_changemetadata"),
+            InlineKeyboardButton(text="🔀 Ubah Index", callback_data="cmd_changeindex")
         ],
         [
-            InlineKeyboardButton(text="♻️ Remux", callback_data="cmd_softremux"),
-            InlineKeyboardButton(text="🔀 Index", callback_data="cmd_changeindex")
-        ],
-        [
-            InlineKeyboardButton(text="📁 Ekstensi", callback_data="cmd_extension"),
-            InlineKeyboardButton(text="🏷️ Metadata", callback_data="cmd_changemetadata")
-        ],
-        [
-            InlineKeyboardButton(text="📥 Ekstrak", callback_data="cmd_extract"),
-            InlineKeyboardButton(text="ℹ️ Info Media", callback_data="cmd_mediainfo")
+            InlineKeyboardButton(text="📥 Ekstrak", callback_data="cmd_extract")
         ],
         [
             InlineKeyboardButton(text="📸 Screenshot", callback_data="cmd_genss"),
             InlineKeyboardButton(text="🎞️ Sample", callback_data="cmd_gensample")
         ],
+        # --- NAVIGASI ---
         [
+            InlineKeyboardButton(text="ℹ️ Info Media", callback_data="cmd_mediainfo"),
             InlineKeyboardButton(text="↩️ Kembali", callback_data="menu_main", style="danger")
         ]
     ])
@@ -267,14 +260,14 @@ def kb_editor() -> InlineKeyboardMarkup:
 def kb_assets() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=[
         [
-            InlineKeyboardButton(text="➕ Tambah", callback_data="cmd_addgameplay", style="success"),
-            InlineKeyboardButton(text="📋 Daftar", callback_data="cmd_listgameplay")
+            InlineKeyboardButton(text="➕ Tambah Footage", callback_data="cmd_addgameplay", style="success")
+        ],
+        [
+            InlineKeyboardButton(text="📋 List Footage", callback_data="cmd_listgameplay"),
+            InlineKeyboardButton(text="🔊 Tambah SFX", callback_data="cmd_addsfx")
         ],
         [
             InlineKeyboardButton(text="🗑️ Hapus", callback_data="cmd_deletegameplay", style="danger"),
-            InlineKeyboardButton(text="🔊 SFX", callback_data="cmd_addsfx")
-        ],
-        [
             InlineKeyboardButton(text="↩️ Kembali", callback_data="menu_main", style="danger")
         ]
     ])
@@ -282,8 +275,8 @@ def kb_assets() -> InlineKeyboardMarkup:
 def kb_download() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=[
         [
-            InlineKeyboardButton(text="📥 Leech", callback_data="cmd_leech"),
-            InlineKeyboardButton(text="☁️ Mirror", callback_data="cmd_mirror")
+            InlineKeyboardButton(text="📥 Leech URL", callback_data="cmd_leech"),
+            InlineKeyboardButton(text="☁️ Mirror Cloud", callback_data="cmd_mirror")
         ],
         [
             InlineKeyboardButton(text="↩️ Kembali", callback_data="menu_main", style="danger")
@@ -291,18 +284,28 @@ def kb_download() -> InlineKeyboardMarkup:
     ])
 
 def kb_settings() -> InlineKeyboardMarkup:
+    """
+    CUSTOM SETTINGS GRID
+    - Baris 1: Rclone (1 Kolom)
+    - Baris 2: Watermark & Thumb (2 Kolom) -> menggunakan set_watermark untuk konfigurasi
+    - Baris 3: Video, Audio, Metadata (3 Kolom)
+    """
     return InlineKeyboardMarkup(inline_keyboard=[
         [
-            InlineKeyboardButton(text="🎥 Setting Video", callback_data="set_video", style="primary"),
-            InlineKeyboardButton(text="🎵 Setting Audio", callback_data="set_audio", style="primary")
+            InlineKeyboardButton(text="💾 Set Rclone", callback_data="cmd_saveconfig", style="success")
         ],
         [
-            InlineKeyboardButton(text="©️ Setting Watermark", callback_data="set_watermark"),
-            InlineKeyboardButton(text="🏷️ Setting Metadata", callback_data="set_metadata")
+            InlineKeyboardButton(text="©️ Set Watermark", callback_data="set_watermark", style="primary"),
+            InlineKeyboardButton(text="🖼️ Set Thumb", callback_data="cmd_savethumb", style="primary")
         ],
         [
-            InlineKeyboardButton(text="🔗 Setting Merge", callback_data="set_merge"),
-            InlineKeyboardButton(text="📝 Setting Mux", callback_data="set_mux")
+            InlineKeyboardButton(text="🎥 Set Video", callback_data="set_video", style="primary"),
+            InlineKeyboardButton(text="🎵 Set Audio", callback_data="set_audio", style="primary"),
+            InlineKeyboardButton(text="🏷️ Set Metadata", callback_data="set_metadata", style="primary")
+        ],
+        [
+            InlineKeyboardButton(text="🔗 Set Merge", callback_data="set_merge"),
+            InlineKeyboardButton(text="📝 Set Muxing", callback_data="set_mux")
         ],
         [
             InlineKeyboardButton(text="↩️ Kembali", callback_data="menu_main", style="danger")
@@ -312,13 +315,11 @@ def kb_settings() -> InlineKeyboardMarkup:
 def kb_vip() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=[
         [
-            InlineKeyboardButton(text="👑 Status VIP", callback_data="cmd_myvip")
+            InlineKeyboardButton(text="👑 Status VIP", callback_data="cmd_myvip"),
+            InlineKeyboardButton(text="ℹ️ Info VIP", callback_data="cmd_vip_info", style="primary")
         ],
         [
             InlineKeyboardButton(text="💳 Verifikasi", callback_data="cmd_verify", style="success")
-        ],
-        [
-            InlineKeyboardButton(text="ℹ️ Info VIP", callback_data="cmd_vip_info", style="primary")
         ],
         [
             InlineKeyboardButton(text="↩️ Kembali", callback_data="menu_main", style="danger")
@@ -329,42 +330,36 @@ def kb_admin() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=[
         [
             InlineKeyboardButton(text="📊 Status", callback_data="cmd_status"),
-            InlineKeyboardButton(text="⏱️ Uptime", callback_data="cmd_time")
+            InlineKeyboardButton(text="⏱️ Uptime", callback_data="cmd_time"),
+            InlineKeyboardButton(text="🚀 Speed", callback_data="cmd_speedtest")
         ],
         [
-            InlineKeyboardButton(text="🚀 Speed", callback_data="cmd_speedtest"),
-            InlineKeyboardButton(text="📈 Stats", callback_data="cmd_stats")
-        ],
-        [
+            InlineKeyboardButton(text="📈 Stats", callback_data="cmd_stats"),
             InlineKeyboardButton(text="📜 Log", callback_data="cmd_log"),
-            InlineKeyboardButton(text="📁 Download", callback_data="cmd_logs")
+            InlineKeyboardButton(text="📁 Unduh", callback_data="cmd_logs")
+        ],
+        [
+            InlineKeyboardButton(text="🔄 Cek Config", callback_data="cmd_changeconfig"),
+            InlineKeyboardButton(text="🗑️ Hapus Config", callback_data="cmd_clearconfigs", style="danger")
         ],
         [
             InlineKeyboardButton(text="🧹 Bersihkan", callback_data="cmd_renew"),
             InlineKeyboardButton(text="💥 Reset DB", callback_data="cmd_resetdb", style="danger")
         ],
         [
-            InlineKeyboardButton(text="🔄 Config", callback_data="cmd_changeconfig"),
-            InlineKeyboardButton(text="🗑️ Hapus Config", callback_data="cmd_clearconfigs", style="danger")
+            InlineKeyboardButton(text="👮 List Sudo", callback_data="cmd_checksudo"),
+            InlineKeyboardButton(text="👑 List VIP", callback_data="cmd_view_vip")
         ],
         [
-            InlineKeyboardButton(text="👮 Daftar Sudo", callback_data="cmd_checksudo")
+            InlineKeyboardButton(text="➕ Sudo", callback_data="cmd_addsudo", style="success"),
+            InlineKeyboardButton(text="➖ Sudo", callback_data="cmd_delsudo", style="danger")
         ],
         [
-            InlineKeyboardButton(text="➕ Tambah Sudo", callback_data="cmd_addsudo", style="success"),
-            InlineKeyboardButton(text="➖ Hapus Sudo", callback_data="cmd_delsudo", style="danger")
+            InlineKeyboardButton(text="➕ VIP", callback_data="cmd_add_vip", style="success"),
+            InlineKeyboardButton(text="➖ VIP", callback_data="cmd_delete_vip", style="danger")
         ],
         [
-            InlineKeyboardButton(text="👑 Daftar VIP", callback_data="cmd_view_vip")
-        ],
-        [
-            InlineKeyboardButton(text="➕ Tambah VIP", callback_data="cmd_add_vip", style="success"),
-            InlineKeyboardButton(text="➖ Hapus VIP", callback_data="cmd_delete_vip", style="danger")
-        ],
-        [
-            InlineKeyboardButton(text="🔄 Restart", callback_data="cmd_restart", style="danger")
-        ],
-        [
+            InlineKeyboardButton(text="🔄 Restart", callback_data="cmd_restart", style="danger"),
             InlineKeyboardButton(text="↩️ Kembali", callback_data="menu_main", style="danger")
         ]
     ])
@@ -409,13 +404,27 @@ async def nav_encode(callback: CallbackQuery):
 
 @ui_router.callback_query(F.data == "menu_editor")
 async def nav_editor(callback: CallbackQuery):
-    text = create_section_header("✂️", "Editor", "Tools editing video profesional - potong, gabung, efek, dan lainnya")
+    text = f"""
+<b>╭─ ✂️ EDITOR VIDEO ─╮</b>
+
+Pusat modifikasi dan manipulasi video.
+
+<b>Kategori Alat:</b>
+📦 <b>Format:</b> Kompres, Konversi, Gabung
+⏱ <b>Timeline:</b> Trim, Cut, Split, Kecepatan
+📐 <b>Visual:</b> Crop, Rotasi, Watermark
+🎵 <b>Audio/Teks:</b> Mute, Dubbing, Muxing
+⚙️ <b>Utilitas:</b> Ekstrak, Sample, Metadata, Index
+
+<b>{BORDER_LIGHT}</b>
+<i>Pilih fitur di bawah 👇</i>
+"""
     await safe_edit(callback.message, text, kb_editor())
     await callback.answer()
 
 @ui_router.callback_query(F.data == "menu_assets")
 async def nav_assets(callback: CallbackQuery):
-    text = create_section_header("🎮", "Aset", "Kelola gameplay footage, sound effects, dan media library")
+    text = create_section_header("🎮", "Aset", "Kelola footage video mentahan, sound effects, dan media")
     await safe_edit(callback.message, text, kb_assets())
     await callback.answer()
 
@@ -427,7 +436,7 @@ async def nav_download(callback: CallbackQuery):
 
 @ui_router.callback_query(F.data == "settings")
 async def nav_settings(callback: CallbackQuery):
-    text = create_section_header("⚙️", "Pengaturan", "Konfigurasi global bot, watermark, resolusi, dan preferensi")
+    text = create_section_header("⚙️", "Pengaturan", "Konfigurasi global bot, rclone, watermark, dan profil")
     await safe_edit(callback.message, text, kb_settings())
     await callback.answer()
 
@@ -514,7 +523,8 @@ async def route_commands(callback: CallbackQuery):
     admin_cmds = {
         "speedtest", "restart", "renew", "log", "logs", "resetdb",
         "checksudo", "time", "stats", "add_vip", "delete_vip",
-        "view_vip", "addsudo", "delsudo", "changeconfig", "clearconfigs"
+        "view_vip", "addsudo", "delsudo", "changeconfig", "clearconfigs",
+        "saveconfig", "savethumb" # savewatermark tidak masuk admin protection jika user biasa boleh set default sendiri
     }
     
     if cmd in admin_cmds and not is_admin(user_id):
@@ -542,6 +552,9 @@ async def route_commands(callback: CallbackQuery):
             "resetdb": getattr(adm, "_resetdb", None), "addsudo": getattr(adm, "_addsudo", None),
             "delsudo": getattr(adm, "_delsudo", None), "changeconfig": getattr(adm, "_changeconfig", None),
             "clearconfigs": getattr(adm, "_clearconfig", None),
+            
+            "saveconfig": getattr(adm, "_saverclone", None), 
+            "savethumb": getattr(adm, "_savethumb", None),
             
             "encode": getattr(med, "_encode_video", None), "customencode": getattr(med, "_custom_encode_video", None),
             "compress": getattr(med, "_compress_video", None), "convert": getattr(med, "_convert_video", None),
@@ -581,8 +594,8 @@ async def route_commands(callback: CallbackQuery):
         print(f"[UI ROUTER ERROR] {e}")
     
     instructions = {
-        "addgameplay": "🎮 Kirim <b>video gameplay</b> atau <b>link</b> ke chat",
-        "deletegameplay": "🗑️ Cek daftar gameplay, lalu kirim <b>ID</b> yang akan dihapus",
+        "addgameplay": "🎮 Kirim <b>video footage</b> atau <b>link</b> ke chat",
+        "deletegameplay": "🗑️ Cek daftar footage, lalu kirim <b>ID</b> yang akan dihapus",
         "addsfx": "🔊 Kirim file <b>audio/SFX</b>",
         "listgameplay": "📋 Loading...\nJika gagal ketik <code>/listgameplay</code>",
         "recap": "🎬 Ketik <code>/recap</code> untuk memulai",
@@ -591,9 +604,9 @@ async def route_commands(callback: CallbackQuery):
         "delete_vip": "👑 Format: <code>/delete_vip [user_id]</code>",
         "addsudo": "👮 Format: <code>/addsudo [user_id]</code>",
         "delsudo": "👮 Format: <code>/delsudo [user_id]</code>",
-        "saveconfig": "💾 Kirim file <b>rclone.conf</b>",
-        "savewatermark": "©️ Kirim gambar untuk <b>watermark default</b>",
-        "savethumb": "🖼️ Kirim gambar untuk <b>thumbnail default</b>",
+        "saveconfig": "💾 Kirim file <b>rclone.conf</b> Anda ke chat ini.",
+        "savethumb": "🖼️ Kirim gambar ke chat ini untuk dijadikan <b>thumbnail default</b>.",
+        "watermark": "©️ Kirimkan media ke chat untuk diproses dengan Watermark (Pastikan Anda sudah mengaturnya di menu Set Watermark)."
     }
     
     instruction = instructions.get(cmd, "Modul memerlukan input.\n<i>Kirim file/media/link ke chat ini</i>")
