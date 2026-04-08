@@ -1,15 +1,14 @@
 """
 ╔══════════════════════════════════════════════════════════════════════╗
-║           bot_helper/Others/Names.py — v3.2                          ║
+║            bot_helper/Others/Names.py — v3.2                         ║
 ║                    Konstanta Nama Proses Bot                         ║
 ╠══════════════════════════════════════════════════════════════════════╣
 ║  CHANGELOG v3.2:                                                     ║
-║  [NEW]  fast_trim, video_speed, mute (Saran Optimasi)                ║
+║  [NEW]  fast_trim, speed, mute, dubbing (Optimasi & Fitur Baru)      ║
 ║  [NEW]  Mendaftarkan proses baru ke STATUS & FFMPEG_PROCESSES        ║
-║  [FIX]  Konsistensi emoji pada kategori proses baru                  ║
+║  [FIX]  Konsistensi string agar dikenali oleh FFMPEG Commands        ║
 ╚══════════════════════════════════════════════════════════════════════╝
 """
-
 
 class Names:
     # ── Proses FFmpeg ─────────────────────────────────────────────────
@@ -19,16 +18,18 @@ class Names:
     softmux        = "SoftMux"
     softremux      = "SoftReMux"
     convert        = "Convert"
+    encode         = "encode"       # [NEW] Default handler untuk dubbing & hardmux di FFMPEG
     hardmux        = "Hardmux"
     trim           = "Trim"
-    fast_trim      = "FastTrim"     # [NEW] Cut tanpa re-encode
+    fast_trim      = "fast_trim"    # [NEW] Cut tanpa re-encode
     split          = "Split"
     cut            = "Cut"
     crop           = "Crop"
     autocrop       = "Autocrop"
     rotate         = "Rotate"
-    video_speed    = "VideoSpeed"   # [NEW] Ubah kecepatan video
-    mute           = "MuteVideo"    # [NEW] Hapus audio
+    speed          = "speed"        # [NEW] Ubah kecepatan video
+    mute           = "mute"         # [NEW] Hapus audio
+    dubbing        = "dubbing"      # [NEW] Ganti audio video
     extension      = "Extension"
     extract        = "Extract"
     mediainfo      = "MediaInfo"
@@ -53,7 +54,7 @@ class Names:
     ytupload       = "YouTubeUpload" 
     autoclip       = "AutoClip"      
     movierecap     = "MovieRecap"    
-    top            = "Top"           
+    top            = "Top"            
     review         = "Review"        
     short_vid      = "Short"         
 
@@ -66,16 +67,18 @@ class Names:
         softmux:        "🎮 SoftMux Subtitle",
         softremux:      "🛩 SoftReMux Subtitle",
         convert:        "🚜 Mengonversi Video",
+        encode:         "⚙️ Meng-Encode Video",
         hardmux:        "🚍 HardMux Subtitle",
         trim:           "✂️ Memotong Video",
-        fast_trim:      "⚡ Memotong Cepat",    # [NEW]
+        fast_trim:      "⚡ Memotong Cepat",    
         split:          "✂️ Memisah Video",  
         cut:            "🔪 Memotong Segmen",
         crop:           "✂️ Crop Video",
         autocrop:       "✨ Autocrop Video",
         rotate:         "🔄 Memutar Video",
-        video_speed:    "🏃 Mengubah Kecepatan", # [NEW]
-        mute:           "🔇 Membisukan Video",   # [NEW]
+        speed:          "⚡ Mengubah Kecepatan", 
+        mute:           "🔇 Membisukan Video",   
+        dubbing:        "🎙 Melakukan Dubbing", 
         extension:      "🔀 Ganti Container",
         extract:        "📤 Ekstrak Stream",
         mediainfo:      "🔍 Media Info",
@@ -99,16 +102,18 @@ class Names:
         softmux,
         softremux,
         convert,
+        encode,         
         hardmux,
         trim,
-        fast_trim,      # [NEW]
+        fast_trim,      
         split,
         cut,
         crop,
         autocrop,
         rotate,
-        video_speed,    # [NEW]
-        mute,           # [NEW]
+        speed,          
+        mute,           
+        dubbing,        
         extension,
         extract,
         changeMetadata,
