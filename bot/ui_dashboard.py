@@ -140,7 +140,8 @@ def get_studio_kb() -> InlineKeyboardMarkup:
 def get_editor_kb() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=[
         # 🌟 ENGINE UTAMA (Paling Power Full)
-        [InlineKeyboardButton(text="🚀 Encode Video", callback_data="cmd_encode")],
+        [InlineKeyboardButton(text="🚀 Encode Video", callback_data="cmd_encode"),
+         InlineKeyboardButton(text="🎛️ Custom Encode", callback_data="cmd_customencode")], # [NEW TOMBOL]
         
         # 📦 FORMAT & UKURAN (Dasar)
         [InlineKeyboardButton(text="🗜️ Compress", callback_data="cmd_compress"), 
@@ -332,6 +333,7 @@ async def catch_all_commands(callback: CallbackQuery):
             "mirror": getattr(med, "_mirror_file", None), "status": getattr(med, "_status", None),
             
             "encode": getattr(med, "_encode_video", None),
+            "customencode": getattr(med, "_custom_encode_video", None), # [NEW ROUTING]
             "changeindex": getattr(med, "_change_index", None) or getattr(adv, "_change_index", None),
             
             "trim": getattr(adv, "_trim_video", None), "split": getattr(adv, "_split_video", None),
