@@ -1,9 +1,9 @@
 """
 ╔══════════════════════════════════════════════════════════════════════╗
 ║            bot_helper/Process/Running_Process.py                     ║
-║            Encoder1 Bot — v3.2                                       ║
+║            Encoder1 Bot — v3.4                                       ║
 ╠══════════════════════════════════════════════════════════════════════╣
-║  CHANGELOG v3.2:                                                     ║
+║  CHANGELOG v3.4:                                                     ║
 ║  [FIX HIGH] check_running_process tanpa lock → pakai lock            ║
 ║  [FIX]      list → set (O(1) lookup vs O(n) linear scan)             ║
 ║  [FIX]      check sync tapi append/remove async → konsisten          ║
@@ -11,6 +11,7 @@
 ║  [NEW]      get_all_processes() dan get_process_count()              ║
 ║  [NEW]      clear_all_processes() untuk emergency cleanup            ║
 ║  [NEW v3.2] Integrasi routing untuk Mute, Speed, dan Dubbing         ║
+║  [NEW v3.4] Integrasi routing untuk custom_encode                    ║
 ╚══════════════════════════════════════════════════════════════════════╝
 """
 
@@ -100,8 +101,8 @@ async def start_running_process(ps):
         from bot_helper.FFMPEG.FFMPEG_Processes import start_compress_convert_process
         return await start_compress_convert_process(ps)
         
-    # [NEW v3.2] Menggabungkan Convert, Encode, Mute, Speed, dan Dubbing ke dalam SATU handler utama
-    elif process in [Names.convert, Names.encode, Names.mute, Names.speed, Names.dubbing]:
+    # [NEW v3.2 & v3.4] Menggabungkan Convert, Encode, Mute, Speed, Dubbing, dan Custom Encode ke dalam SATU handler utama
+    elif process in [Names.convert, Names.encode, Names.mute, Names.speed, Names.dubbing, Names.custom_encode]:
         from bot_helper.FFMPEG.FFMPEG_Processes import start_compress_convert_process
         return await start_compress_convert_process(ps)
 
