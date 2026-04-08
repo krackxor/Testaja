@@ -1,7 +1,7 @@
 """
 ╔══════════════════════════════════════════════════════════════════════╗
-║             bot_helper/Process/Running_Tasks.py                      ║
-║             Encoder1 Bot — v3.1 (Aiogram 3.x)                         ║
+║            bot_helper/Process/Running_Tasks.py                       ║
+║            Encoder1 Bot — v3.2 (Aiogram 3.x)                         ║
 ╠══════════════════════════════════════════════════════════════════════╣
 ║  CHANGELOG dari versi lama:                                          ║
 ║  [FIX HIGH]  pkill ffmpeg global → kill PID spesifik                 ║
@@ -17,6 +17,7 @@
 ║              agar bot TIDAK LAGI STUCK saat inisialisasi.            ║
 ║  [CRITICAL]  Menyematkan asyncio.wait_for pada Download/Upload agar  ║
 ║              koneksi Pyrogram yang mati bisa dihentikan otomatis.    ║
+║  [NEW v3.2]  Auto-Cleanup untuk External Files (File Dubbing Audio)  ║
 ╚══════════════════════════════════════════════════════════════════════╝
 """
 
@@ -153,6 +154,18 @@ async def clear_trash(task: dict, trash_objects: list, multi_tasks: list) -> Non
             except Exception:
                 pass
         ps.garbage_messages = []
+
+    # ── [NEW v3.2] CLEANUP FILE EXTERNAL SEPERTI DUBBING AUDIO ──
+    if hasattr(ps, "custom_dub_audio") and ps.custom_dub_audio and os.path.exists(ps.custom_dub_audio):
+        try:
+            os.remove(ps.custom_dub_audio)
+            LOGGER.info(f"🧹 Berhasil menghapus file audio dubbing sementara: {ps.custom_dub_audio}")
+            # Coba hapus folder dubs_user_id jika kosong
+            parent_dir = os.path.dirname(ps.custom_dub_audio)
+            if not os.listdir(parent_dir):
+                os.rmdir(parent_dir)
+        except Exception as e:
+            LOGGER.warning(f"⚠️ Gagal menghapus file dubbing: {e}")
 
     if len(multi_tasks):
         if check_running_process(process_id):
