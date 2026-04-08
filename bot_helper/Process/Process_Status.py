@@ -1,23 +1,16 @@
 """
 ╔══════════════════════════════════════════════════════════════════════╗
 ║            bot_helper/Process/Process_Status.py                      ║
-║            Encoder1 Bot — v3.2                                       ║
+║            Encoder1 Bot — v3.9                                       ║
 ╠══════════════════════════════════════════════════════════════════════╣
 ║  CHANGELOG dari versi lama:                                          ║
 ║  [FIX HIGH]  get_data()[user_id] → .get() di 6+ tempat               ║
 ║  [FIX HIGH]  sync open() di async loop → aiofiles                    ║
 ║  [FIX HIGH]  move_send_files: return di dalam loop → fix bug         ║
-║  [FIX]       print() → LOGGER.debug()                                ║
-║  [FIX]       bare except → typed exception                           ║
-║  [FIX]       rclone log dibuka tiap baris → buka sekali              ║
-║  [FIX]       ValueError continue → break + warning                   ║
 ║  [FIX]       check_running_process throttle (10 iter = 5 detik)      ║
 ║  [FIX]       speed ZeroDivisionError → max(1, elapsed)               ║
-║  [FIX]       ETA ZeroDivisionError saat speed=0                      ║
-║  [FIX]       thumbnail fallback exists() check                       ║
-║  [FIX]       LOGGER.info(e) → LOGGER.error(exc_info=True)            ║
-║  [IMPROVE]   check_file_drive_link indentasi standard 4 spaces       ║
 ║  [NEW v3.2]  Tambah variabel memori untuk Dubbing, Speed, dan Mute   ║
+║  [NEW v3.9]  Tambah memori custom_ffmpeg_cmd & extra_inputs          ║
 ╚══════════════════════════════════════════════════════════════════════╝
 """
 
@@ -308,11 +301,13 @@ class ProcessStatus:
         self.crop_params   = None
         self.extract_maps  = []
 
-        # [TAMBAHAN FITUR v3.2 (Mute, Speed, Dubbing, Custom Watermark)]
-        self.custom_watermark = {}
-        self.custom_dub_audio = None
-        self.video_filters    = None
-        self.audio_filters    = None
+        # [TAMBAHAN FITUR v3.9: Mute, Speed, Dubbing, Custom Watermark, Custom Encode]
+        self.custom_watermark  = {}
+        self.custom_dub_audio  = None
+        self.video_filters     = None
+        self.audio_filters     = None
+        self.custom_ffmpeg_cmd = [] # <--- MEMORI UNTUK RAW FFMPEG COMMAND
+        self.extra_inputs      = [] # <--- MEMORI UNTUK FILE TAMBAHAN CUSTOM ENCODE
 
         # Thumbnail
         if not thumbnail and exists(f"./userdata/{user_id}_Thumbnail.jpg"):
