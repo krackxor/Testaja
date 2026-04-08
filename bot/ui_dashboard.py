@@ -1,7 +1,7 @@
 """
 UI Dashboard Template for STUDIO KHOIRUL (Aiogram 3.x)
-Versi: PROFESSIONAL v4.10 - Settings Grid & Callback Fix
-Fix: Perbaikan logika save vs set watermark, penyesuaian tata letak grid pengaturan.
+Versi: PROFESSIONAL v4.9 - Custom Dynamic Layout
+Fix: Penyesuaian tata letak tombol Editor spesifik sesuai request.
 """
 
 import asyncio
@@ -200,6 +200,10 @@ def kb_encode() -> InlineKeyboardMarkup:
     ])
 
 def kb_editor() -> InlineKeyboardMarkup:
+    """
+    CUSTOM EDITOR GRID
+    Layout disesuaikan spesifik dengan preferensi pengguna.
+    """
     return InlineKeyboardMarkup(inline_keyboard=[
         # --- 📦 FORMAT & DASAR ---
         [
@@ -226,7 +230,7 @@ def kb_editor() -> InlineKeyboardMarkup:
             InlineKeyboardButton(text="🔃 Rotasi", callback_data="cmd_rotate")
         ],
         [
-            InlineKeyboardButton(text="©️ Upload Watermark", callback_data="cmd_watermark")
+            InlineKeyboardButton(text="©️ Watermark", callback_data="cmd_watermark")
         ],
         # --- 🎵 AUDIO & SUBTITLE ---
         [
@@ -284,30 +288,24 @@ def kb_download() -> InlineKeyboardMarkup:
     ])
 
 def kb_settings() -> InlineKeyboardMarkup:
-    """
-    CUSTOM SETTINGS GRID
-    - Baris 1: Rclone (1 Kolom)
-    - Baris 2: Watermark & Thumb (2 Kolom) -> menggunakan set_watermark untuk konfigurasi
-    - Baris 3: Video, Audio, Metadata (3 Kolom)
-    """
     return InlineKeyboardMarkup(inline_keyboard=[
         [
-            InlineKeyboardButton(text="💾 Set Rclone", callback_data="cmd_saveconfig", style="success")
+            InlineKeyboardButton(text="💾 Set Rclone", callback_data="cmd_saveconfig", style="success"),
+            InlineKeyboardButton(text="🖼️ Set Thumb", callback_data="cmd_savethumb", style="success")
         ],
         [
-            InlineKeyboardButton(text="©️ Set Watermark", callback_data="set_watermark", style="primary"),
-            InlineKeyboardButton(text="🖼️ Set Thumb", callback_data="cmd_savethumb", style="primary")
+            InlineKeyboardButton(text="©️ Set Watermark", callback_data="cmd_savewatermark", style="success")
         ],
         [
             InlineKeyboardButton(text="🎥 Set Video", callback_data="set_video", style="primary"),
-            InlineKeyboardButton(text="🎵 Set Audio", callback_data="set_audio", style="primary"),
-            InlineKeyboardButton(text="🏷️ Set Metadata", callback_data="set_metadata", style="primary")
+            InlineKeyboardButton(text="🎵 Set Audio", callback_data="set_audio", style="primary")
         ],
         [
             InlineKeyboardButton(text="🔗 Set Merge", callback_data="set_merge"),
             InlineKeyboardButton(text="📝 Set Muxing", callback_data="set_mux")
         ],
         [
+            InlineKeyboardButton(text="🏷️ Set Metadata", callback_data="set_metadata"),
             InlineKeyboardButton(text="↩️ Kembali", callback_data="menu_main", style="danger")
         ]
     ])
@@ -500,7 +498,6 @@ async def route_settings(callback: CallbackQuery):
         handlers = {
             "set_video": getattr(cb_handler, "_video_settings", None),
             "set_audio": getattr(cb_handler, "_audio_settings", None),
-            "set_watermark": getattr(cb_handler, "_watermark_settings", None),
             "set_metadata": getattr(cb_handler, "_metadata_settings", None),
             "set_merge": getattr(cb_handler, "_merge_settings", None),
             "set_mux": getattr(cb_handler, "_mux_settings", None)
@@ -524,7 +521,7 @@ async def route_commands(callback: CallbackQuery):
         "speedtest", "restart", "renew", "log", "logs", "resetdb",
         "checksudo", "time", "stats", "add_vip", "delete_vip",
         "view_vip", "addsudo", "delsudo", "changeconfig", "clearconfigs",
-        "saveconfig", "savethumb" # savewatermark tidak masuk admin protection jika user biasa boleh set default sendiri
+        "saveconfig", "savewatermark", "savethumb"
     }
     
     if cmd in admin_cmds and not is_admin(user_id):
@@ -554,6 +551,7 @@ async def route_commands(callback: CallbackQuery):
             "clearconfigs": getattr(adm, "_clearconfig", None),
             
             "saveconfig": getattr(adm, "_saverclone", None), 
+            "savewatermark": getattr(adm, "_savewatermark", None),
             "savethumb": getattr(adm, "_savethumb", None),
             
             "encode": getattr(med, "_encode_video", None), "customencode": getattr(med, "_custom_encode_video", None),
@@ -605,8 +603,8 @@ async def route_commands(callback: CallbackQuery):
         "addsudo": "👮 Format: <code>/addsudo [user_id]</code>",
         "delsudo": "👮 Format: <code>/delsudo [user_id]</code>",
         "saveconfig": "💾 Kirim file <b>rclone.conf</b> Anda ke chat ini.",
+        "savewatermark": "©️ Kirim gambar ke chat ini untuk dijadikan <b>watermark default</b>.",
         "savethumb": "🖼️ Kirim gambar ke chat ini untuk dijadikan <b>thumbnail default</b>.",
-        "watermark": "©️ Kirimkan media ke chat untuk diproses dengan Watermark (Pastikan Anda sudah mengaturnya di menu Set Watermark)."
     }
     
     instruction = instructions.get(cmd, "Modul memerlukan input.\n<i>Kirim file/media/link ke chat ini</i>")
