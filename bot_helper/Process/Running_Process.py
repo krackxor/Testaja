@@ -1,20 +1,22 @@
 """
 ╔══════════════════════════════════════════════════════════════════════╗
-║           bot_helper/Process/Running_Process.py                      ║
-║           Encoder1 Bot — v3.1                                        ║
+║            bot_helper/Process/Running_Process.py                     ║
+║            Encoder1 Bot — v3.2                                       ║
 ╠══════════════════════════════════════════════════════════════════════╣
-║  CHANGELOG dari versi lama:                                          ║
-║  [FIX HIGH] check_running_process tanpa lock → pakai lock           ║
-║  [FIX]      list → set (O(1) lookup vs O(n) linear scan)            ║
-║  [FIX]      check sync tapi append/remove async → konsisten         ║
-║  [IMPROVE]  Type hints di semua fungsi                              ║
-║  [NEW]      get_all_processes() dan get_process_count()             ║
-║  [NEW]      clear_all_processes() untuk emergency cleanup           ║
+║  CHANGELOG v3.2:                                                     ║
+║  [FIX HIGH] check_running_process tanpa lock → pakai lock            ║
+║  [FIX]      list → set (O(1) lookup vs O(n) linear scan)             ║
+║  [FIX]      check sync tapi append/remove async → konsisten          ║
+║  [IMPROVE]  Type hints di semua fungsi                               ║
+║  [NEW]      get_all_processes() dan get_process_count()              ║
+║  [NEW]      clear_all_processes() untuk emergency cleanup            ║
+║  [NEW v3.2] Integrasi routing untuk Mute, Speed, dan Dubbing         ║
 ╚══════════════════════════════════════════════════════════════════════╝
 """
 
 from asyncio import Lock
 from typing import Any
+from bot_helper.Others.Names import Names
 
 # ── State ──────────────────────────────────────────────────────────────
 # [FIX] set bukan list — O(1) lookup, thread-safer untuk concurrent access
@@ -23,21 +25,12 @@ _lock              = Lock()
 
 
 # ═══════════════════════════════════════════════════════════════════════
-#  PUBLIC API
+#  PUBLIC API (STATE MANAGEMENT)
 # ═══════════════════════════════════════════════════════════════════════
 
 def check_running_process(process_id: Any) -> bool:
     """
     Cek apakah process_id sedang aktif.
-
-    [FIX HIGH] Sebelumnya: baca tanpa lock sementara write pakai lock
-               = race condition jika task lain modify set bersamaan.
-    Sekarang: set membership check di CPython adalah GIL-protected
-              untuk operasi sederhana. Tapi tetap lebih aman dengan
-              snapshot: cek `process_id in frozenset(_running_processes)`.
-
-    Sync function dipertahankan untuk backward compat (dipanggil dari
-    non-async context seperti progress callback di Step 6 & 7).
     """
     # frozenset() buat snapshot immutable — aman dari concurrent modification
     return process_id in frozenset(_running_processes)
@@ -46,7 +39,6 @@ def check_running_process(process_id: Any) -> bool:
 async def append_running_process(process_id: Any) -> bool:
     """
     Tambahkan process_id ke set running processes.
-
     [FIX] list.append() → set.add() — O(1), auto-deduplicate
     Return True jika berhasil ditambahkan, False jika sudah ada.
     """
@@ -60,7 +52,6 @@ async def append_running_process(process_id: Any) -> bool:
 async def remove_running_process(process_id: Any) -> bool:
     """
     Hapus process_id dari set running processes.
-
     [FIX] list.remove() bisa ValueError → set.discard() aman
     Return True jika berhasil dihapus, False jika tidak ada.
     """
@@ -92,3 +83,90 @@ async def clear_all_processes() -> int:
         count = len(_running_processes)
         _running_processes.clear()
         return count
+
+
+# ═══════════════════════════════════════════════════════════════════════
+#  TRAFFIC CONTROLLER (ROUTING FFmpeg)
+# ═══════════════════════════════════════════════════════════════════════
+
+async def start_running_process(ps):
+    """
+    Fungsi 'Polisi Lalu Lintas'.
+    Mengarahkan tugas berdasarkan Names ke dalam fungsi FFmpeg_Processes yang tepat.
+    """
+    process = ps.process_type
+
+    if process == Names.compress:
+        from bot_helper.FFMPEG.FFMPEG_Processes import start_compress_convert_process
+        return await start_compress_convert_process(ps)
+        
+    # [NEW v3.2] Menggabungkan Convert, Encode, Mute, Speed, dan Dubbing ke dalam SATU handler utama
+    elif process in [Names.convert, Names.encode, Names.mute, Names.speed, Names.dubbing]:
+        from bot_helper.FFMPEG.FFMPEG_Processes import start_compress_convert_process
+        return await start_compress_convert_process(ps)
+
+    elif process == Names.watermark:
+        from bot_helper.FFMPEG.FFMPEG_Processes import start_watermark_process
+        return await start_watermark_process(ps)
+
+    elif process == Names.merge:
+        from bot_helper.FFMPEG.FFMPEG_Processes import start_merge_process
+        return await start_merge_process(ps)
+
+    elif process in [Names.softmux, Names.softremux]:
+        from bot_helper.FFMPEG.FFMPEG_Processes import start_softmux_process
+        return await start_softmux_process(ps)
+
+    elif process == Names.hardmux:
+        from bot_helper.FFMPEG.FFMPEG_Processes import start_hardmux_process
+        return await start_hardmux_process(ps)
+
+    elif process in [Names.trim, Names.fast_trim]:
+        from bot_helper.FFMPEG.FFMPEG_Processes import start_trim_process
+        return await start_trim_process(ps)
+
+    elif process == Names.split:
+        from bot_helper.FFMPEG.FFMPEG_Processes import start_split_process
+        return await start_split_process(ps)
+
+    elif process == Names.cut:
+        from bot_helper.FFMPEG.FFMPEG_Processes import start_cut_process
+        return await start_cut_process(ps)
+
+    elif process in [Names.crop, Names.autocrop]:
+        from bot_helper.FFMPEG.FFMPEG_Processes import start_crop_process
+        return await start_crop_process(ps)
+
+    elif process == Names.rotate:
+        from bot_helper.FFMPEG.FFMPEG_Processes import start_rotate_process
+        return await start_rotate_process(ps)
+
+    elif process == Names.extension:
+        from bot_helper.FFMPEG.FFMPEG_Processes import start_extension_process
+        return await start_extension_process(ps)
+
+    elif process == Names.extract:
+        from bot_helper.FFMPEG.FFMPEG_Processes import start_extract_process
+        return await start_extract_process(ps)
+
+    elif process == Names.changeMetadata:
+        from bot_helper.FFMPEG.FFMPEG_Processes import start_change_metadata_process
+        return await start_change_metadata_process(ps)
+
+    elif process == Names.changeindex:
+        from bot_helper.FFMPEG.FFMPEG_Processes import start_changeindex_process
+        return await start_changeindex_process(ps)
+
+    elif process == Names.gensample:
+        from bot_helper.FFMPEG.FFMPEG_Processes import start_gensample_process
+        return await start_gensample_process(ps)
+
+    elif process == Names.genss:
+        from bot_helper.FFMPEG.FFMPEG_Processes import start_genss_process
+        return await start_genss_process(ps)
+
+    elif process == Names.mediainfo:
+        from bot_helper.FFMPEG.FFMPEG_Processes import start_mediainfo_process
+        return await start_mediainfo_process(ps)
+
+    return False
