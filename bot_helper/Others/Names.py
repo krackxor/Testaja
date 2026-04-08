@@ -1,11 +1,11 @@
 """
 ╔══════════════════════════════════════════════════════════════════════╗
-║            bot_helper/Others/Names.py — v3.2                         ║
+║            bot_helper/Others/Names.py — v3.4                         ║
 ║                    Konstanta Nama Proses Bot                         ║
 ╠══════════════════════════════════════════════════════════════════════╣
-║  CHANGELOG v3.2:                                                     ║
+║  CHANGELOG v3.4:                                                     ║
 ║  [NEW]  fast_trim, speed, mute, dubbing (Optimasi & Fitur Baru)      ║
-║  [NEW]  Mendaftarkan proses baru ke STATUS & FFMPEG_PROCESSES        ║
+║  [NEW]  Mendaftarkan custom_encode (Raw FFmpeg Command by User)      ║
 ║  [FIX]  Konsistensi string agar dikenali oleh FFMPEG Commands        ║
 ╚══════════════════════════════════════════════════════════════════════╝
 """
@@ -18,18 +18,19 @@ class Names:
     softmux        = "SoftMux"
     softremux      = "SoftReMux"
     convert        = "Convert"
-    encode         = "encode"       # [NEW] Default handler untuk dubbing & hardmux di FFMPEG
+    encode         = "encode"       # Default handler untuk dubbing & hardmux
+    custom_encode  = "custom_encode"# [NEW] Fitur Bebas Encode (Raw FFmpeg Command)
     hardmux        = "Hardmux"
     trim           = "Trim"
-    fast_trim      = "fast_trim"    # [NEW] Cut tanpa re-encode
+    fast_trim      = "fast_trim"    # Cut tanpa re-encode
     split          = "Split"
     cut            = "Cut"
     crop           = "Crop"
     autocrop       = "Autocrop"
     rotate         = "Rotate"
-    speed          = "speed"        # [NEW] Ubah kecepatan video
-    mute           = "mute"         # [NEW] Hapus audio
-    dubbing        = "dubbing"      # [NEW] Ganti audio video
+    speed          = "speed"        # Ubah kecepatan video
+    mute           = "mute"         # Hapus audio
+    dubbing        = "dubbing"      # Ganti audio video
     extension      = "Extension"
     extract        = "Extract"
     mediainfo      = "MediaInfo"
@@ -68,6 +69,7 @@ class Names:
         softremux:      "🛩 SoftReMux Subtitle",
         convert:        "🚜 Mengonversi Video",
         encode:         "⚙️ Meng-Encode Video",
+        custom_encode:  "🎛️ Custom Encoding",   # [NEW]
         hardmux:        "🚍 HardMux Subtitle",
         trim:           "✂️ Memotong Video",
         fast_trim:      "⚡ Memotong Cepat",    
@@ -103,6 +105,7 @@ class Names:
         softremux,
         convert,
         encode,         
+        custom_encode,  # [NEW]
         hardmux,
         trim,
         fast_trim,      
