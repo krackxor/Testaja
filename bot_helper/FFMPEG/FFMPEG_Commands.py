@@ -1,9 +1,9 @@
 """
 ╔══════════════════════════════════════════════════════════════════════╗
 ║            bot_helper/FFMPEG/FFMPEG_Commands.py                      ║
-║            Encoder1 Bot — v3.4 (Strict Encode Isolation)             ║
+║            Encoder1 Bot — v3.4 (Strict Encode Isolation + Tools)     ║
 ╠══════════════════════════════════════════════════════════════════════╣
-║  CHANGELOG dari versi lama:                                          ║
+║  CHANGELOG v3.4:                                                     ║
 ║  [FIX CRITICAL] Memasukkan kembali semua instruksi untuk Split,      ║
 ║                 Extract, Autocrop, GenSample, dan GenSS.             ║
 ║  [NEW]      Alat cepat (/trim, /cut) menggunakan Stream Copy instan  ║
@@ -11,6 +11,8 @@
 ║             untuk perintah /encode. Sisanya DIABAIKAN total!         ║
 ║  [SECURITY] get_data()[user_id] → .get() — tidak crash KeyError      ║
 ║  [SECURITY] drawtext escape lebih ketat — cegah filter injection     ║
+║  [NEW]      Integrasi penuh fitur MUTE, SPEED, dan DUBBING instan    ║
+║  [FIX]      GenSample Re-encode veryfast agar Audio/Video Sinkron    ║
 ╚══════════════════════════════════════════════════════════════════════╝
 """
 
@@ -124,8 +126,8 @@ class FFmpegCommandBuilder:
             self.merge_settings     = self.user_data.get("merge", {})
             self.mux_settings       = self.user_data.get("mux", {})
         else:
-            # Jika perintah lain (Convert, Compress, Trim, dll), KOSONGKAN SEMUA SETTINGAN GLOBAL
-            # Agar ffmpeg bekerja secara bersih, independen, tanpa watermark bocor, dan instan!
+            # Jika perintah lain (Convert, Compress, Trim, Mute, Speed, dll)
+            # KOSONGKAN SEMUA SETTINGAN GLOBAL agar instan dan bersih
             self.video_settings     = {}
             self.audio_settings     = {}
             self.metadata_settings  = {}
@@ -171,10 +173,15 @@ class FFmpegCommandBuilder:
                 if validated: self.command.extend(validated)
 
     def build_audio_filters(self) -> None:
-        if not self.audio_settings.get("enabled", False) and self.ps.process_type not in [Names.cut]: return
+        if self.ps.process_type == "speed" and hasattr(self.ps, "audio_filters") and self.ps.audio_filters:
+            self.audio_filters.extend(self.ps.audio_filters)
+            
+        if not self.audio_settings.get("enabled", False) and self.ps.process_type not in [Names.cut, "speed"]: return
+        
         if self.ps.process_type == Names.cut and hasattr(self.ps, "cut_ranges") and self.ps.cut_ranges:
             select_parts = [f"between(t,{start},{end})" for start, end in self.ps.cut_ranges]
             self.audio_filters.append(f"aselect='not({'+'.join(select_parts)})',asetpts=N/SR/TB")
+            
         normalization = self.audio_settings.get("normalization", "Off")
         if normalization == "loudnorm": self.audio_filters.append("loudnorm=I=-16:TP=-1.5:LRA=11")
         elif normalization == "dynaudnorm": self.audio_filters.append("dynaudnorm")
@@ -183,24 +190,31 @@ class FFmpegCommandBuilder:
         elif custom_filter == "lowpass": self.audio_filters.append("lowpass=f=3000")
 
     def build_audio_codec(self) -> None:
-        if not self.audio_settings.get("enabled", False) and self.ps.process_type not in [Names.cut]:
+        if self.ps.process_type == "mute":
+            self.command.extend(["-an"])
+            return
+
+        if not self.audio_settings.get("enabled", False) and self.ps.process_type not in [Names.cut, "speed", "dubbing"]:
             self.command.extend(["-c:a", "copy"]); return
+            
         codec = self.audio_settings.get("codec", "Auto")
-        if self.ps.process_type == Names.cut: codec = "aac"
+        if self.ps.process_type in [Names.cut, "speed", "dubbing"]: codec = "aac"
         
         if hasattr(self.ps, "custom_dub_audio") and self.ps.custom_dub_audio:
-            if os.path.exists(self.ps.custom_dub_audio):
-                codec = "aac" 
+            if os.path.exists(self.ps.custom_dub_audio): codec = "aac" 
             
         if codec == "Auto":
             if self.stream_info and self.stream_info.has_audio: self.command.extend(["-c:a", "copy"])
             else: self.command.extend(["-c:a", "aac", "-b:a", DEFAULT_AUDIO_BR])
             return
-        if codec == "copy" and self.ps.process_type != Names.cut:
+            
+        if codec == "copy" and self.ps.process_type not in [Names.cut, "speed", "dubbing"]:
             self.command.extend(["-c:a", "copy"]); return
+            
         if self.audio_filters: self.command.extend(["-af", ",".join(self.audio_filters)])
         codec_map = {"aac": "aac", "mp3": "libmp3lame", "opus": "libopus", "vorbis": "libvorbis", "flac": "flac", "ac3": "ac3"}
         self.command.extend(["-c:a", codec_map.get(codec, codec)])
+        
         if codec == "aac":
             profile = self.audio_settings.get("codec_profile", "Auto")
             if profile != "Auto": self.command.extend(["-profile:a", profile.replace("-", "_")])
@@ -215,6 +229,9 @@ class FFmpegCommandBuilder:
         if samplerate != "Auto": self.command.extend(["-ar", samplerate])
 
     def build_video_filters(self) -> None:
+        if self.ps.process_type == "speed" and hasattr(self.ps, "video_filters") and self.ps.video_filters:
+            self.video_filters.extend(self.ps.video_filters)
+            
         if self.ps.process_type == Names.cut and hasattr(self.ps, "cut_ranges") and self.ps.cut_ranges:
             select_parts = [f"between(t,{start},{end})" for start, end in self.ps.cut_ranges]
             self.video_filters.append(f"select='not({'+'.join(select_parts)})',setpts=N/FRAME_RATE/TB")
@@ -290,11 +307,20 @@ class FFmpegCommandBuilder:
         self.use_filter_complex  = True
 
     def build_video_codec(self) -> None:
-        needs_encode = (self.video_filters or self.use_filter_complex or (self.video_settings.get("enabled", True) and self.ps.process_type in [Names.compress, Names.convert, "encode"]) or self.ps.process_type in [Names.cut, Names.crop, Names.rotate, Names.watermark, Names.hardmux])
-        if not needs_encode: self.command.extend(["-c:v", "copy"]); return
+        # Jika mute atau dubbing TANPA filter video (seperti scale, rotasi), kita bisa STREAM COPY video untuk kecepatan luar biasa!
+        can_copy_video = not self.video_filters and not self.use_filter_complex and self.ps.process_type in ["mute", "dubbing"]
+        if can_copy_video:
+            self.command.extend(["-c:v", "copy"])
+            return
 
-        # 🚨 KECEPATAN INSTAN: Jika perintah BUKAN encode, paksa ffmpeg berjalan sangat cepat!
-        if self.ps.process_type == "encode":
+        needs_encode = (self.video_filters or self.use_filter_complex or (self.video_settings.get("enabled", True) and self.ps.process_type in [Names.compress, Names.convert, "encode"]) or self.ps.process_type in [Names.cut, Names.crop, Names.rotate, Names.watermark, Names.hardmux, "speed"])
+        
+        if not needs_encode: 
+            self.command.extend(["-c:v", "copy"])
+            return
+
+        # 🚨 KECEPATAN INSTAN: Jika perintah BUKAN encode/compress/convert, paksa ffmpeg berjalan sangat cepat!
+        if self.ps.process_type in ["encode", Names.compress, Names.convert]:
             encoder = self.video_settings.get("encoder", "libx264")
             preset  = self.video_settings.get("preset", DEFAULT_PRESET)
             crf     = _safe_crf(self.video_settings.get("crf", DEFAULT_CRF))
@@ -314,8 +340,8 @@ class FFmpegCommandBuilder:
             self.command.extend(["-movflags", "+faststart"])
 
     def apply_filters_and_maps(self) -> None:
-        has_dubbing = hasattr(self.ps, "custom_dub_audio") and self.ps.custom_dub_audio
-        if has_dubbing and os.path.exists(self.ps.custom_dub_audio):
+        has_dubbing = hasattr(self.ps, "custom_dub_audio") and self.ps.custom_dub_audio and os.path.exists(self.ps.custom_dub_audio)
+        if has_dubbing:
             self.command.extend(["-i", self.ps.custom_dub_audio])
             self.current_audio_label = "[1:a]"
             
@@ -326,12 +352,19 @@ class FFmpegCommandBuilder:
 
         if self.use_filter_complex:
             self.command.extend(["-filter_complex", ";".join(self.filter_complex_parts), "-map", self.current_video_label])
-            self.command.extend(["-map", "1:a" if has_dubbing else "0:a?"])
+            if self.ps.process_type != "mute":
+                self.command.extend(["-map", "1:a" if has_dubbing else "0:a?"])
         elif self.video_filters:
             self.command.extend(["-vf", ",".join(self.video_filters)])
-            if has_dubbing: self.command.extend(["-map", "0:v", "-map", "1:a"])
+            if self.ps.process_type != "mute":
+                self.command.extend(["-map", "0:v", "-map", "1:a" if has_dubbing else "0:a?"])
+            else:
+                self.command.extend(["-map", "0:v"])
         else:
-            if self.video_settings.get("map", True): self.command.extend(["-map", "0:v?", "-map", "1:a" if has_dubbing else "0:a?"])
+            if self.ps.process_type == "mute":
+                self.command.extend(["-map", "0:v?"])
+            elif self.video_settings.get("map", True):
+                self.command.extend(["-map", "0:v?", "-map", "1:a" if has_dubbing else "0:a?"])
 
         if self.video_settings.get("copy_sub", True) and self.ps.process_type != Names.hardmux:
             self.command.extend(["-map", "0:s?", "-c:s", "copy"])
@@ -367,7 +400,7 @@ class FFmpegCommandBuilder:
         input_file = str(self.ps.send_files[-1]) if self.ps.send_files else ""
         if not input_file: return None, None, None, None, 0
         stream_info = self.probe_input_file(input_file)
-        self.command.extend(["-progress", log_file, "-i", input_file, "-ss", str(self.ps.trim_start), "-to", str(self.ps.trim_end), "-c:v", "copy", "-c:a", "copy", "-map", "0:v?", "-map", "0:a?", "-avoid_negative_ts", "make_zero", "-y", output_file])
+        self.command.extend(["-progress", log_file, "-ss", str(self.ps.trim_start), "-to", str(self.ps.trim_end), "-i", input_file, "-c:v", "copy", "-c:a", "copy", "-map", "0:v?", "-map", "0:a?", "-avoid_negative_ts", "make_zero", "-y", output_file])
         return self.command, log_file, input_file, output_file, stream_info.duration if stream_info else 0
         
     def build_split_command(self):
@@ -434,7 +467,9 @@ class FFmpegCommandBuilder:
         input_file = str(self.ps.send_files[-1]) if self.ps.send_files else ""
         if not input_file: return None, None, None, None, 0
         stream_info = self.probe_input_file(input_file)
-        self.command.extend(["-progress", log_file, "-i", input_file, "-ss", "00:00:05", "-t", "30", "-c", "copy", "-y", output_file])
+        
+        # [FIX] Diubah dari "-c copy" menjadi re-encode veryfast agar Audio dan Video sinkron
+        self.command = ["ffmpeg", "-hide_banner", "-loglevel", "warning", "-stats", "-progress", log_file, "-ss", "00:00:05", "-i", input_file, "-t", "30", "-c:v", "libx264", "-preset", "veryfast", "-crf", "24", "-c:a", "aac", "-b:a", "128k", "-y", output_file]
         return self.command, log_file, input_file, output_file, 30
 
     def build_genss_command(self):
@@ -447,7 +482,9 @@ class FFmpegCommandBuilder:
         stream_info = self.probe_input_file(input_file)
         
         ss_no = self.user_data.get("ss_no", 5)
-        self.command.extend(["-progress", log_file, "-i", input_file, "-vf", f"fps={ss_no}/{max(1, stream_info.duration)}", "-y", output_file])
+        # [FIX] Perhitungan screenshot berdasarkan durasi total agar jumlah output akurat
+        interval = max(1, int(stream_info.duration / max(1, ss_no)))
+        self.command.extend(["-progress", log_file, "-i", input_file, "-vf", f"fps=1/{interval}", "-vframes", str(ss_no), "-y", output_file])
         return self.command, log_file, input_file, output_file, stream_info.duration if stream_info else 0
 
     def build_extension_command(self):
@@ -602,7 +639,8 @@ class FFmpegCommandBuilder:
     def build(self):
         process_type = self.ps.process_type
         try:
-            if process_type in [Names.compress, Names.watermark, Names.convert, Names.hardmux, Names.cut, Names.rotate, Names.crop, "encode"]:
+            # Menggabungkan fitur MUTE, SPEED, DUBBING ke dalam proses kompresi utama!
+            if process_type in [Names.compress, Names.watermark, Names.convert, Names.hardmux, Names.cut, Names.rotate, Names.crop, "encode", "mute", "speed", "dubbing"]:
                 return self.build_compress_convert_command()
             elif process_type == Names.trim: return self.build_trim_command()
             elif process_type == Names.extension: return self.build_extension_command()
