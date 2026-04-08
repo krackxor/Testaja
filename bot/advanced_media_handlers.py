@@ -5,26 +5,22 @@
 ╠══════════════════════════════════════════════════════════════════════╣
 ║  CHANGELOG dari versi lama:                                          ║
 ║  [UX PREMIUM] Menambahkan Kotak Konfirmasi Detail di SEMUA perintah  ║
-║                agar pengguna tahu persis parameter apa yang diatur.  ║
 ║  [UX PREMIUM] Menerapkan Auto-Delete agar chat tetap bersih & rapi.  ║
 ║  [UX PREMIUM] Menerapkan Reply Keyboard pendek yang konsisten.       ║
 ║  [FIX HIGH] Extract & Mediainfo Bypass (Instan Download native TG)   ║
-║  [FIX HIGH] Implementasi CMD_SUFFIX pada semua Command filter        ║
 ║  [UPDATE] Konsistensi Ikon, Teks Batal, dan Timeout selaras 100%.    ║
-║  [HOTFIX] Menghentikan penghapusan media user agar tidak gagal unduh.║
-║  [HOTFIX] Memutus Settingan Global (Watermark) agar proses Murni &   ║
-║           Jauh Lebih Cepat.                                          ║
-║  [HOTFIX] /extract & /mediainfo kini menampilkan Progress Bar Pyrogram║
-║  [HOTFIX] /extract kini menampilkan struktur Audio & Subtitle video  ║
-║           serta bisa Multi-Select dengan tombol super interaktif!    ║
-║  [HOTFIX] /changemetadata FULL TOMBOL! (Title, Author, Year, Comment)║
-║           Menyelesaikan isu TypeError karena format input yang salah.║
+║  [HOTFIX] /changemetadata FULL TOMBOL! (Title, Author, Year, dll)    ║
+║  [NEW PREMIUM] /extract Terintegrasi: Bisa ekstrak Audio, Subtitle,  ║
+║           Thumbnail HD, dan ZIP Frames dalam SATU MENU!              ║
+║  [NEW PREMIUM] /changeindex menggunakan Interactive Builder (No-Dup) ║
 ╚══════════════════════════════════════════════════════════════════════╝
 """
 
 # ── Standard Library ──────────────────────────────────────────────────
 import asyncio
 import time
+import os
+import shutil
 from json import loads as json_loads
 from os.path import exists
 from shutil import rmtree
@@ -133,7 +129,7 @@ async def _trim_video(message: Message):
         try:
             ask_msg = await message.reply("Kirim Video atau URL yang ingin di-trim.")
             resp = await wait_for_message(chat_id, user_id, 120)
-            await _clean_msgs(ask_msg) # Cukup hapus pesan bot, biarkan media user tetap ada
+            await _clean_msgs(ask_msg) 
             if resp.video or resp.document: link = resp
             elif (resp.text or "").startswith("http"): link = resp.text
             else: return await message.answer("❌ Input tidak valid. Dibatalkan.", reply_markup=ReplyKeyboardRemove())
@@ -236,7 +232,7 @@ async def _split_video(message: Message):
         try:
             ask_msg = await message.reply("Kirim Video atau URL yang ingin dibagi (split).")
             resp = await wait_for_message(chat_id, user_id, 120)
-            await _clean_msgs(ask_msg) # Cukup hapus pesan bot
+            await _clean_msgs(ask_msg) 
             if resp.video or resp.document: link = resp
             elif (resp.text or "").startswith("http"): link = resp.text
             else: return await message.answer("❌ Input tidak valid. Dibatalkan.", reply_markup=ReplyKeyboardRemove())
@@ -332,7 +328,7 @@ async def _cut_video(message: Message):
         try:
             ask_msg = await message.reply("Kirim Video atau URL yang bagiannya ingin dibuang.")
             resp = await wait_for_message(chat_id, user_id, 120)
-            await _clean_msgs(ask_msg) # Cukup hapus pesan bot
+            await _clean_msgs(ask_msg) 
             if resp.video or resp.document: link = resp
             elif (resp.text or "").startswith("http"): link = resp.text
             else: return await message.answer("❌ Input tidak valid. Dibatalkan.", reply_markup=ReplyKeyboardRemove())
@@ -431,7 +427,7 @@ async def _rotate_video(message: Message):
         try:
             ask_msg = await message.reply("Kirim Video atau URL yang ingin diputar/dibalik.")
             resp = await wait_for_message(chat_id, user_id, 120)
-            await _clean_msgs(ask_msg) # Cukup hapus pesan bot
+            await _clean_msgs(ask_msg) 
             if resp.video or resp.document: link = resp
             elif (resp.text or "").startswith("http"): link = resp.text
             else: return await message.answer("❌ Input tidak valid. Dibatalkan.", reply_markup=ReplyKeyboardRemove())
@@ -510,7 +506,7 @@ async def _crop_video(message: Message):
         try:
             ask_msg = await message.reply("Kirim Video atau URL yang ingin di-crop.")
             resp = await wait_for_message(chat_id, user_id, 120)
-            await _clean_msgs(ask_msg) # Cukup hapus pesan bot
+            await _clean_msgs(ask_msg) 
             if resp.video or resp.document: link = resp
             elif (resp.text or "").startswith("http"): link = resp.text
             else: return await message.answer("❌ Input tidak valid. Dibatalkan.", reply_markup=ReplyKeyboardRemove())
@@ -585,7 +581,7 @@ async def _autocrop_video(message: Message):
         try:
             ask_msg = await message.reply("Kirim Video atau URL untuk autocrop.")
             resp = await wait_for_message(chat_id, user_id, 120)
-            await _clean_msgs(ask_msg) # Cukup hapus pesan bot
+            await _clean_msgs(ask_msg) 
             if resp.video or resp.document: link = resp
             elif (resp.text or "").startswith("http"): link = resp.text
             else: return await message.answer("❌ Input tidak valid. Dibatalkan.", reply_markup=ReplyKeyboardRemove())
@@ -640,7 +636,7 @@ async def _extension_changer(message: Message):
         try:
             ask_msg = await message.reply("Kirim file (video/audio/subtitle) yang ekstensinya ingin diubah.")
             resp = await wait_for_message(chat_id, user_id, 120)
-            await _clean_msgs(ask_msg) # Cukup hapus pesan bot
+            await _clean_msgs(ask_msg) 
             if resp.document or resp.video or resp.audio: link = resp
             elif (resp.text or "").startswith("http"): link = resp.text
             else: return await message.answer("❌ Input tidak valid. Dibatalkan.", reply_markup=ReplyKeyboardRemove())
@@ -711,7 +707,7 @@ async def _extension_changer(message: Message):
 
 
 # ═══════════════════════════════════════════════════════════════════════
-#  /extract
+#  /extract (TERINTEGRASI: AUDIO/SUBTITLE, THUMBNAIL, FRAMES ZIP)
 # ═══════════════════════════════════════════════════════════════════════
 
 @router.message(Command(f"extract{CMD_SUFFIX}"))
@@ -726,9 +722,9 @@ async def _extract_streams(message: Message):
     if link == "invalid": return await safe_reply(message, "❗ Tautan tidak valid.")
     if not link:
         try:
-            ask_msg = await message.reply("Kirim Video atau URL yang stream-nya ingin diekstrak.")
+            ask_msg = await message.reply("Kirim Video atau URL yang ingin diekstrak (Audio, Subtitle, Thumbnail, atau Frame).")
             resp = await wait_for_message(chat_id, user_id, 120)
-            await _clean_msgs(ask_msg) # Cukup hapus pesan bot
+            await _clean_msgs(ask_msg)
             if resp.video or resp.document: link = resp
             elif (resp.text or "").startswith("http"): link = resp.text
             else: return await message.answer("❌ Input tidak valid. Dibatalkan.", reply_markup=ReplyKeyboardRemove())
@@ -761,7 +757,6 @@ async def _extract_streams(message: Message):
             downloaded = False
             if pyro_client:
                 try:
-                    # Mencari pesan yg benar dari chat id asli
                     pyro_msg = await pyro_client.get_messages(link.chat.id, link.message_id)
                     await pyro_client.download_media(message=pyro_msg, file_name=dest, progress=_progress)
                     downloaded = True
@@ -774,6 +769,8 @@ async def _extract_streams(message: Message):
             temp_ps.append_dw_files(dest)
             return dest, temp_ps
 
+        from bot_helper.Aria2.Aria2_Engine import Aria2
+        from bot_helper.Process.Running_Tasks import add_task, working_task, queued_task
         funcs = [["Aria", Aria2.add_aria2c_download, [link, temp_ps, False, False, False, False]]]
         await add_task({"process_status": temp_ps, "functions": funcs})
         
@@ -791,7 +788,7 @@ async def _extract_streams(message: Message):
 
     if not input_file or not exists(input_file):
         await dling_msg.edit_text("❌ Gagal mengunduh berkas.")
-        try: await asyncio.to_thread(rmtree, temp_ps.dir, ignore_errors=True)
+        try: await asyncio.to_thread(shutil.rmtree, temp_ps.dir, ignore_errors=True)
         except Exception: pass
         return
 
@@ -799,7 +796,8 @@ async def _extract_streams(message: Message):
         proc = await create_subprocess_exec("ffprobe", "-v", "quiet", "-print_format", "json", "-show_streams", input_file, stdout=asyncioPIPE)
         stdout, _ = await proc.communicate()
         all_streams = json_loads(stdout.decode("utf-8", "replace")).get("streams", [])
-    except Exception as e: return await safe_reply(message, f"❌ Gagal menganalisis video: `{e}`")
+    except Exception as e: 
+        return await safe_reply(message, f"❌ Gagal menganalisis video: `{e}`")
 
     # Menganalisa Stream Audio & Subtitle
     txt = f"🎞️ **Info Stream `{fname}`**\n\n"
@@ -827,114 +825,204 @@ async def _extract_streams(message: Message):
             
         txt += f"**{si}.** {icon} | `{codec}` | {info}\n"
 
-    if not extractable_streams:
-        return await dling_msg.edit_text("❌ Tidak ada stream audio atau subtitle yang dapat diekstrak pada video ini.")
-
+    # MENU UTAMA EKSTRAKSI
     await dling_msg.delete()
-
-    # Membuat Sistem Multi-Select Button
-    async def build_extract_kb(selected_indices):
-        opts_buttons = []
-        for s in extractable_streams:
-            si = s.get("index")
-            ct = s.get("codec_type")
-            lang = s.get("tags", {}).get("language", "und").upper()
-            icon = "🎧" if ct == "audio" else "📖"
-            btn_text = f"✅ {icon} Stream {si}" if si in selected_indices else f"{icon} Stream {si}"
-            opts_buttons.append(btn_text)
-        
-        opts_buttons.append("✅ Selesai")
-        opts_buttons.append("❌ Batal")
-        return _make_reply_kb(opts_buttons, 2)
-
-    selected_indices = []
-    ask_ex = await message.reply(
-        f"{txt}\n\n"
-        "🗜️ **Pilih Stream untuk Diekstrak:**\n\n"
-        "Tekan tombol stream di bawah. Anda bisa memilih lebih dari satu.\n"
-        "Jika sudah selesai, tekan **✅ Selesai**.", 
-        reply_markup=await build_extract_kb(selected_indices)
+    kb_main = _make_reply_kb(["🗜 Extract Audio/Subtitle", "🖼 Extract Thumbnail", "🎞 Extract Frames (ZIP)", "❌ Batal"], 2)
+    ask_main = await message.reply(
+        f"{txt}\n"
+        "🗜️ **Pilih Mode Ekstraksi:**\n\n"
+        "Silakan pilih apa yang ingin Anda ekstrak dari video ini melalui tombol di bawah.",
+        reply_markup=kb_main
     )
+    
+    res_main = await wait_for_message(chat_id, user_id, 120)
+    await _clean_msgs(ask_main, res_main)
+    
+    txt_main = (res_main.text or "").lower() if res_main else ""
+    
+    if not res_main or "batal" in txt_main:
+        try: await asyncio.to_thread(shutil.rmtree, temp_ps.dir, ignore_errors=True)
+        except: pass
+        return await message.answer("❌ Dibatalkan.", reply_markup=ReplyKeyboardRemove())
 
-    try:
-        while True:
-            resp = await wait_for_message(chat_id, user_id, 120)
-            await _clean_msgs(resp)
+    # ==========================================
+    # BRANCH 1: EXTRACT THUMBNAIL
+    # ==========================================
+    if "thumbnail" in txt_main:
+        msg_run = await message.answer("🖼 Mengekstrak Thumbnail HD...", reply_markup=ReplyKeyboardRemove())
+        out_file = f"{temp_ps.dir}/thumb_ext.jpg"
+        
+        cmd = f'ffmpeg -hide_banner -y -i "{input_file}" -ss 00:00:05 -vframes 1 -q:v 2 "{out_file}"'
+        proc = await asyncio.create_subprocess_shell(cmd)
+        await proc.communicate()
+        
+        if os.path.exists(out_file):
+            await message.reply_photo(FSInputFile(out_file), caption="✅ Thumbnail berhasil diekstrak!")
+        else:
+            await message.answer("❌ Gagal mengekstrak thumbnail.")
             
-            if not resp:
-                await _clean_msgs(ask_ex)
-                return await message.answer("❌ Waktu habis. Dibatalkan.", reply_markup=ReplyKeyboardRemove())
+        await msg_run.delete()
+        try: await asyncio.to_thread(shutil.rmtree, temp_ps.dir, ignore_errors=True)
+        except: pass
+        return
+
+    # ==========================================
+    # BRANCH 2: EXTRACT FRAMES (ZIP)
+    # ==========================================
+    elif "frames" in txt_main:
+        ask_int = await message.reply("🎞 **Mau ambil frame setiap berapa detik?**\n_(Ketik angka saja, contoh: `5` artinya 1 gambar setiap 5 detik)_", reply_markup=ReplyKeyboardRemove())
+        res_int = await wait_for_message(chat_id, user_id, 60)
+        await _clean_msgs(ask_int, res_int)
+        
+        interval = (res_int.text or "").strip()
+        if not interval.isdigit(): interval = "5" # Default jika input ngawur
+        
+        msg_run = await message.answer(f"🎞 Sedang mengekstrak frame (1 gambar per {interval} detik) dan membuat ZIP...\n_Mohon tunggu sebentar._")
+        
+        out_dir = f"{temp_ps.dir}/frames"
+        os.makedirs(out_dir, exist_ok=True)
+        
+        cmd = f'ffmpeg -hide_banner -y -i "{input_file}" -vf "fps=1/{interval}" -q:v 2 "{out_dir}/frame_%04d.jpg"'
+        proc = await asyncio.create_subprocess_shell(cmd)
+        await proc.communicate()
+        
+        zip_path = f"{temp_ps.dir}/Frames_Extracted.zip"
+        try:
+            shutil.make_archive(zip_path.replace('.zip', ''), 'zip', out_dir)
+            if os.path.exists(zip_path):
+                await message.reply_document(FSInputFile(zip_path), caption=f"✅ Ekstrak Frame selesai! (Interval: {interval} detik)")
+            else:
+                await msg_run.edit_text("❌ Gagal membuat file ZIP.")
+        except Exception as e:
+            await msg_run.edit_text(f"❌ Terjadi kesalahan: {e}")
+            
+        await msg_run.delete()
+        try: await asyncio.to_thread(shutil.rmtree, temp_ps.dir, ignore_errors=True)
+        except: pass
+        return
+
+    # ==========================================
+    # BRANCH 3: EXTRACT AUDIO / SUBTITLE
+    # ==========================================
+    elif "audio" in txt_main or "subtitle" in txt_main or "extract" in txt_main:
+        if not extractable_streams:
+            try: await asyncio.to_thread(shutil.rmtree, temp_ps.dir, ignore_errors=True)
+            except: pass
+            return await message.answer("❌ Tidak ada stream audio atau subtitle yang dapat diekstrak pada video ini.", reply_markup=ReplyKeyboardRemove())
+
+        async def build_extract_kb(selected_indices):
+            opts_buttons = []
+            for s in extractable_streams:
+                si = s.get("index")
+                ct = s.get("codec_type")
+                icon = "🎧" if ct == "audio" else "📖"
+                btn_text = f"✅ {icon} Stream {si}" if si in selected_indices else f"{icon} Stream {si}"
+                opts_buttons.append(btn_text)
+            opts_buttons.append("✅ Selesai")
+            opts_buttons.append("❌ Batal")
+            return _make_reply_kb(opts_buttons, 2)
+
+        selected_indices = []
+        ask_ex = await message.reply(
+            f"{txt}\n"
+            "🗜️ **Pilih Stream untuk Diekstrak:**\n\n"
+            "Tekan tombol stream di bawah. Anda bisa memilih lebih dari satu.\n"
+            "Jika sudah selesai, tekan **✅ Selesai**.", 
+            reply_markup=await build_extract_kb(selected_indices)
+        )
+
+        try:
+            while True:
+                resp = await wait_for_message(chat_id, user_id, 120)
+                await _clean_msgs(resp)
                 
-            msg_txt = (resp.text or "")
-            if "batal" in msg_txt.lower():
-                await _clean_msgs(ask_ex)
+                if not resp:
+                    await _clean_msgs(ask_ex)
+                    return await message.answer("❌ Waktu habis. Dibatalkan.", reply_markup=ReplyKeyboardRemove())
+                    
+                msg_txt = (resp.text or "")
+                if "batal" in msg_txt.lower():
+                    await _clean_msgs(ask_ex)
+                    try: await asyncio.to_thread(shutil.rmtree, temp_ps.dir, ignore_errors=True)
+                    except: pass
+                    return await message.answer("❌ Dibatalkan.", reply_markup=ReplyKeyboardRemove())
+                    
+                if "selesai" in msg_txt.lower():
+                    await _clean_msgs(ask_ex)
+                    break
+                    
+                match = _re.search(r'Stream (\d+)', msg_txt, _re.IGNORECASE)
+                if match:
+                    idx = int(match.group(1))
+                    if idx in selected_indices:
+                        selected_indices.remove(idx)
+                    else:
+                        selected_indices.append(idx)
+                    
+                    sel_str = ", ".join(map(str, sorted(selected_indices))) if selected_indices else "(Belum ada)"
+                    try:
+                        await ask_ex.edit_text(
+                            f"{txt}\n"
+                            f"🗜️ **Pilih Stream untuk Diekstrak:**\n\n"
+                            f"✅ **Terpilih:** `Stream {sel_str}`\n\n"
+                            f"Tekan tombol stream lain untuk menambah/menghapus, atau **✅ Selesai** jika sudah.",
+                            reply_markup=await build_extract_kb(selected_indices)
+                        )
+                    except Exception:
+                        pass
+                else:
+                    err = await message.answer("❌ Input tidak valid.")
+                    await asyncio.sleep(1.5)
+                    await _clean_msgs(err)
+
+            if not selected_indices:
+                try: await asyncio.to_thread(shutil.rmtree, temp_ps.dir, ignore_errors=True)
+                except: pass
+                return await message.answer("❌ Anda tidak memilih stream apapun. Dibatalkan.", reply_markup=ReplyKeyboardRemove())
+
+            selected = sorted(selected_indices)
+            
+            kb_conf = _make_reply_kb(["✅ Ekstrak", "❌ Batal"], 2)
+            idx_str = ", ".join(map(str, selected))
+            conf_txt = (
+                f"**🗜️ KONFIRMASI EKSTRAKSI STREAM**\n\n"
+                f"🎬 File: `{fname}`\n"
+                f"🔢 Index Stream: `{idx_str}`\n\n"
+                "Lanjutkan?"
+            )
+            conf_msg = await message.reply(conf_txt, reply_markup=kb_conf)
+            press2 = await wait_for_message(chat_id, user_id, 120)
+            await _clean_msgs(conf_msg, press2)
+            
+            if "batal" in (press2.text or "").lower():
+                try: await asyncio.to_thread(shutil.rmtree, temp_ps.dir, ignore_errors=True)
+                except: pass
                 return await message.answer("❌ Dibatalkan.", reply_markup=ReplyKeyboardRemove())
                 
-            if "selesai" in msg_txt.lower():
-                await _clean_msgs(ask_ex)
-                break
-                
-            # Mencari angka "Stream X"
-            match = _re.search(r'Stream (\d+)', msg_txt, _re.IGNORECASE)
-            if match:
-                idx = int(match.group(1))
-                if idx in selected_indices:
-                    selected_indices.remove(idx)
-                else:
-                    selected_indices.append(idx)
-                
-                sel_str = ", ".join(map(str, sorted(selected_indices))) if selected_indices else "(Belum ada)"
-                try:
-                    await ask_ex.edit_text(
-                        f"{txt}\n\n"
-                        f"🗜️ **Pilih Stream untuk Diekstrak:**\n\n"
-                        f"✅ **Terpilih:** `Stream {sel_str}`\n\n"
-                        f"Tekan tombol stream lain untuk menambah/menghapus, atau **✅ Selesai** jika sudah."
-                    )
-                except Exception:
-                    pass
-            else:
-                err = await message.answer("❌ Input tidak valid.")
-                await asyncio.sleep(1.5)
-                await _clean_msgs(err)
-
-        if not selected_indices:
-            return await message.answer("❌ Anda tidak memilih stream apapun. Dibatalkan.", reply_markup=ReplyKeyboardRemove())
-
-        selected = sorted(selected_indices)
-        
-        kb_conf = _make_reply_kb(["✅ Ekstrak", "❌ Batal"], 2)
-        idx_str = ", ".join(map(str, selected))
-        conf_txt = (
-            f"**🗜️ KONFIRMASI EKSTRAKSI STREAM**\n\n"
-            f"🎬 File: `{fname}`\n"
-            f"🔢 Index Stream: `{idx_str}`\n\n"
-            "Lanjutkan?"
-        )
-        conf_msg = await message.reply(conf_txt, reply_markup=kb_conf)
-        press2 = await wait_for_message(chat_id, user_id, 120)
-        await _clean_msgs(conf_msg, press2)
-        
-        if "batal" in (press2.text or "").lower():
-            return await message.answer("❌ Dibatalkan.", reply_markup=ReplyKeyboardRemove())
+            await message.answer("✅ Mempersiapkan ekstraksi stream...", reply_markup=ReplyKeyboardRemove())
             
-        await message.answer("✅ Mempersiapkan ekstraksi...", reply_markup=ReplyKeyboardRemove())
-        
-    except asyncio.TimeoutError: return await message.answer("❌ Waktu habis. Dibatalkan.", reply_markup=ReplyKeyboardRemove())
-    except Exception as e:
-        LOGGER.error(f"/extract error: {e}", exc_info=True)
-        return await safe_reply(message, f"❌ Error: `{e}`")
+        except asyncio.TimeoutError: 
+            try: await asyncio.to_thread(shutil.rmtree, temp_ps.dir, ignore_errors=True)
+            except: pass
+            return await message.answer("❌ Waktu habis. Dibatalkan.", reply_markup=ReplyKeyboardRemove())
+        except Exception as e:
+            LOGGER.error(f"/extract error: {e}", exc_info=True)
+            try: await asyncio.to_thread(shutil.rmtree, temp_ps.dir, ignore_errors=True)
+            except: pass
+            return await safe_reply(message, f"❌ Error: `{e}`")
 
-    ps = ProcessStatus(user_id, chat_id, get_username(message), message.from_user.first_name, message, Names.extract, custom_file_name)
-    ps.extract_maps = [f"0:{s}" for s in selected]
-    ps.custom_watermark = {"enabled": False} # Bypass Setting Global
-    ps.move_send_files(temp_ps.send_files)
-    try: await asyncio.to_thread(rmtree, temp_ps.dir, ignore_errors=True)
-    except Exception: pass
+        # Masuk antrean task normal untuk Stream
+        ps = ProcessStatus(user_id, chat_id, get_username(message), message.from_user.first_name, message, Names.extract, custom_file_name)
+        ps.extract_maps = [f"0:{s}" for s in selected]
+        ps.custom_watermark = {"enabled": False} 
+        ps.move_send_files(temp_ps.send_files)
+        try: await asyncio.to_thread(shutil.rmtree, temp_ps.dir, ignore_errors=True)
+        except Exception: pass
 
-    final_task = {"process_status": ps, "functions": []}
-    await submit_task(final_task)
-    await update_status_message(message)
+        final_task = {"process_status": ps, "functions": []}
+        from bot_helper.Process.Running_Tasks import submit_task
+        await submit_task(final_task)
+        await update_status_message(message)
 
 
 # ═══════════════════════════════════════════════════════════════════════
@@ -955,7 +1043,7 @@ async def _media_info(message: Message):
         try:
             ask_msg = await message.reply("Kirim berkas media atau URL untuk analisis.")
             resp = await wait_for_message(chat_id, user_id, 120)
-            await _clean_msgs(ask_msg) # Cukup hapus pesan bot
+            await _clean_msgs(ask_msg) 
             if resp.video or resp.document or resp.audio: link = resp
             elif (resp.text or "").startswith("http"): link = resp.text
             else: return await message.answer("❌ Input tidak valid. Dibatalkan.", reply_markup=ReplyKeyboardRemove())
@@ -999,6 +1087,8 @@ async def _media_info(message: Message):
             temp_ps.append_dw_files(dest)
             return dest, temp_ps.dir
 
+        from bot_helper.Process.Running_Tasks import working_task, queued_task, add_task
+        from bot_helper.Aria2.Aria2_Engine import Aria2
         funcs = [["Aria", Aria2.add_aria2c_download, [link, temp_ps, False, False, False, False]]]
         await add_task({"process_status": temp_ps, "functions": funcs})
         
@@ -1017,7 +1107,7 @@ async def _media_info(message: Message):
         await dling_msg.edit_text("❌ Gagal mengunduh berkas.")
         if temp_dir:
             try:
-                await asyncio.to_thread(rmtree, temp_dir, ignore_errors=True)
+                await asyncio.to_thread(shutil.rmtree, temp_dir, ignore_errors=True)
             except Exception:
                 pass
         return
@@ -1096,222 +1186,10 @@ async def _media_info(message: Message):
     finally:
         if temp_dir:
             try:
-                await asyncio.to_thread(rmtree, temp_dir, ignore_errors=True)
+                await asyncio.to_thread(shutil.rmtree, temp_dir, ignore_errors=True)
             except Exception:
                 pass
 
-
-# ═══════════════════════════════════════════════════════════════════════
-#  CHANGE METADATA
-# ═══════════════════════════════════════════════════════════════════════
-
-@router.message(Command(f"changemetadata{CMD_SUFFIX}"))
-async def _change_metadata(message: Message):
-    if not await vip_check(message): return
-    user_id, chat_id = message.from_user.id, message.chat.id
-    cmd     = f"/changemetadata{CMD_SUFFIX}"
-    if user_id not in get_data(): await new_user(user_id, SAVE_TO_DATABASE)
-
-    link, custom_file_name = await get_link(message)
-    if link == "invalid": return await safe_reply(message, "❗ Tautan tidak valid")
-    if not link:
-        ne = await ask_media_OR_url(message, chat_id, user_id, [cmd, "stop"], "Kirim Video atau URL", 120, "video/", False)
-        if ne and ne not in ["cancelled", "stopped"]: link = await get_url_from_message(ne)
-        else: return
-
-    link = _sanitize_link_for_db(link)
-    fname = _get_fname(link, custom_file_name)
-
-    # FITUR BARU: FULL TOMBOL METADATA (List of Strings - TYPE SAFE)
-    meta_data = {"title": "", "author": "", "year": "", "comment": "", "encoder": ""}
-    opts_buttons = ["✏️ Title", "👤 Author", "📅 Year", "💬 Comment", "🛠 Encoder", "✅ Selesai", "❌ Batal"]
-    
-    kb = _make_reply_kb(opts_buttons, 3)
-    menu_msg = await message.reply("Memuat menu...", reply_markup=kb)
-
-    while True:
-        text_menu = (
-            f"**🏷️ MENU UBAH METADATA**\n\n"
-            f"🎬 File: `{fname}`\n\n"
-            f"**Metadata Saat Ini:**\n"
-            f"✏️ **Title:** `{meta_data['title'] or '(Kosong)'}`\n"
-            f"👤 **Author:** `{meta_data['author'] or '(Kosong)'}`\n"
-            f"📅 **Year:** `{meta_data['year'] or '(Kosong)'}`\n"
-            f"💬 **Comment:** `{meta_data['comment'] or '(Kosong)'}`\n"
-            f"🛠 **Encoder:** `{meta_data['encoder'] or '(Kosong)'}`\n\n"
-            f"Pilih tombol di bawah untuk mengisi/mengubah nilai, lalu tekan **✅ Selesai** jika sudah."
-        )
-        
-        try:
-            await menu_msg.edit_text(text_menu)
-        except Exception:
-            pass # Abaikan jika pesan tidak berubah
-
-        resp = await wait_for_message(chat_id, user_id, 120)
-        await _clean_msgs(resp)
-
-        if not resp:
-            await _clean_msgs(menu_msg)
-            return await message.answer("❌ Waktu habis. Dibatalkan.", reply_markup=ReplyKeyboardRemove())
-            
-        txt = (resp.text or "").strip().lower()
-        
-        if "batal" in txt:
-            await _clean_msgs(menu_msg)
-            return await message.answer("❌ Dibatalkan.", reply_markup=ReplyKeyboardRemove())
-            
-        if "selesai" in txt:
-            await _clean_msgs(menu_msg)
-            break
-            
-        field = None
-        if "title" in txt: field = "title"
-        elif "author" in txt: field = "author"
-        elif "year" in txt: field = "year"
-        elif "comment" in txt: field = "comment"
-        elif "encoder" in txt or "encode" in txt: field = "encoder"
-        
-        if field:
-            ask_val = await message.answer(f"Ketik teks baru untuk **{field.capitalize()}**:\n_(Ketik 'hapus' untuk mengosongkan)_", reply_markup=ReplyKeyboardRemove())
-            val_resp = await wait_for_message(chat_id, user_id, 120)
-            await _clean_msgs(ask_val, val_resp)
-            
-            if val_resp and val_resp.text:
-                if val_resp.text.lower() == "hapus":
-                    meta_data[field] = ""
-                else:
-                    meta_data[field] = val_resp.text
-            
-            # Render ulang menu keyboard
-            await _clean_msgs(menu_msg)
-            menu_msg = await message.answer(text_menu, reply_markup=kb)
-        else:
-            err = await message.answer("❌ Input tidak valid.")
-            await asyncio.sleep(1.5)
-            await _clean_msgs(err)
-
-    # [CRITICAL FIX] Menggunakan List of Strings Lurus agar tidak terjadi TypeError
-    custom_metadata = []
-    for key, val in meta_data.items():
-        if val:
-            custom_metadata.extend(["-metadata", f"{key}={val}"])
-
-    if not custom_metadata:
-        return await message.answer("❌ Tidak ada metadata yang ditambahkan. Dibatalkan.", reply_markup=ReplyKeyboardRemove())
-
-    kb_conf = _make_reply_kb(["✅ Ubah Metadata", "❌ Batal"], 2)
-    conf_txt = (
-        f"**🏷️ KONFIRMASI UBAH METADATA**\n\n"
-        f"🎬 File: `{fname}`\n"
-        f"⚙️ Target: `{len(custom_metadata) // 2} Atribut`\n\n"
-        "Lanjutkan?"
-    )
-    conf_msg = await message.reply(conf_txt, reply_markup=kb_conf)
-    press2 = await wait_for_message(chat_id, user_id, 120)
-    await _clean_msgs(conf_msg, press2)
-    
-    if not press2 or "batal" in (press2.text or "").lower():
-        return await message.answer("❌ Dibatalkan.", reply_markup=ReplyKeyboardRemove())
-        
-    await message.answer("✅ Mempersiapkan proses...", reply_markup=ReplyKeyboardRemove())
-
-    ps = ProcessStatus(user_id, chat_id, get_username(message), message.from_user.first_name, message, Names.changeMetadata, custom_file_name, custom_metadata=custom_metadata)
-    ps.custom_watermark = {"enabled": False} # Bypass Setting Global
-    await get_thumbnail(ps, [cmd, "pass"], 120)
-    task = build_task(ps, link)
-    await submit_task(task)
-    await update_status_message(message)
-
-
-# ═══════════════════════════════════════════════════════════════════════
-#  CHANGE INDEX
-# ═══════════════════════════════════════════════════════════════════════
-
-@router.message(Command(f"changeindex{CMD_SUFFIX}"))
-async def _change_index(message: Message):
-    if not await vip_check(message): return
-    user_id = message.from_user.id
-    chat_id = message.chat.id
-    cmd     = f"/changeindex{CMD_SUFFIX}"
-    if user_id not in get_data(): await new_user(user_id, SAVE_TO_DATABASE)
-
-    link, custom_file_name = await get_link(message)
-    if link == "invalid": return await safe_reply(message, "❗ Tautan tidak valid")
-    if not link:
-        ne = await ask_media_OR_url(message, chat_id, user_id, [cmd, "stop"], "Kirim Video atau URL", 120, "video/", False)
-        if ne and ne not in ["cancelled", "stopped"]: link = await get_url_from_message(ne)
-        else: return
-
-    link = _sanitize_link_for_db(link)
-    fname = _get_fname(link, custom_file_name)
-
-    ie = await ask_text_event(chat_id, user_id, message, 120, "Kirim Indeks", message_hint=("`a` Audio | `s` Subtitle\nFormat: `a-3-1-2` (urutan 3,1,2)\nContoh: `s-2-1`"))
-    if not ie: return
-
-    custom_index = []
-    for m in str(ie.text).split("\n"):
-        mdata = str(m).strip().split("-")
-        try:
-            stream = str(mdata[0]).strip().lower()
-            mdata.pop(0)
-            for s in mdata:
-                si = int(s.strip()) - 1
-                custom_index += ["-map", f"0:{stream}:{si}"]
-            custom_index += [f"-disposition:{stream}:0", "default"]
-        except (ValueError, IndexError, Exception) as e:
-            return await safe_reply(ie, f"❗ Indeks Tidak Valid: `{e}`")
-
-    kb_conf = _make_reply_kb(["✅ Ubah Index", "❌ Batal"], 2)
-    conf_txt = (
-        f"**🔄 KONFIRMASI UBAH INDEX**\n\n"
-        f"🎬 File: `{fname}`\n"
-        f"🔢 Susunan Index: `{ie.text}`\n\n"
-        "Lanjutkan?"
-    )
-    conf_msg = await message.reply(conf_txt, reply_markup=kb_conf)
-    press2 = await wait_for_message(chat_id, user_id, 120)
-    await _clean_msgs(ie, conf_msg, press2)
-    
-    if not press2 or "batal" in (press2.text or "").lower():
-        return await message.answer("❌ Dibatalkan.", reply_markup=ReplyKeyboardRemove())
-        
-    await message.answer("✅ Mempersiapkan proses...", reply_markup=ReplyKeyboardRemove())
-
-    ps = ProcessStatus(user_id, chat_id, get_username(message), message.from_user.first_name, message, Names.changeindex, custom_file_name, custom_index=custom_index)
-    ps.custom_watermark = {"enabled": False} # Bypass Setting Global
-    await get_thumbnail(ps, [cmd, "pass"], 120)
-    task = build_task(ps, link)
-    await submit_task(task)
-    await update_status_message(message)
-
-# ═══════════════════════════════════════════════════════════════════════
-#  LEECH / MIRROR
-# ═══════════════════════════════════════════════════════════════════════
-
-async def _leech_mirror_handler(message: Message, process_name: str, cmd_name: str):
-    if not await vip_check(message): return
-    user_id = message.from_user.id
-    chat_id = message.chat.id
-    if user_id not in get_data(): await new_user(user_id, SAVE_TO_DATABASE)
-
-    link, custom_file_name = await get_link(message)
-    if link == "invalid": return await safe_reply(message, "❗ Tautan tidak valid")
-    if not link:
-        ne = await ask_url(message, chat_id, user_id, [f"/{cmd_name}{CMD_SUFFIX}", "stop"], "Kirim Tautan", 120, False)
-        if ne and ne not in ["cancelled", "stopped"]: link = await get_url_from_message(ne)
-        else: return
-
-    ps = ProcessStatus(user_id, chat_id, get_username(message), message.from_user.first_name, message, process_name, custom_file_name)
-    await get_thumbnail(ps, [f"/{cmd_name}{CMD_SUFFIX}", "pass"], 120)
-    task = build_task(ps, link)
-    await submit_task(task)
-    await update_status_message(message)
-
-@router.message(Command(f"leech{CMD_SUFFIX}"))
-async def _leech_file(message: Message): await _leech_mirror_handler(message, Names.leech, "leech")
-
-@router.message(Command(f"mirror{CMD_SUFFIX}"))
-async def _mirror_file(message: Message): await _leech_mirror_handler(message, Names.mirror, "mirror")
 
 # ═══════════════════════════════════════════════════════════════════════
 #  STATUS
