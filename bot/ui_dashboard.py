@@ -1,7 +1,6 @@
 """
 UI Dashboard Template for STUDIO KHOIRUL (Aiogram 3.x)
-Versi: PROFESSIONAL v4.2 - Semantic Color API 9.4 (Pro UI/UX)
-Fix: Hierarchy Visual, Minimalist & Elegant, Perfect Start Menu.
+Versi: PROFESSIONAL v4.4 - Mobile Friendly UI + RAM/CPU Stats + Red Back Buttons
 """
 
 import asyncio
@@ -22,17 +21,15 @@ ui_router = Router(name="ui_dashboard")
 BORDER_TOP = "━━━━━━━━━━━━━━━━━━━━"
 BORDER_LIGHT = "────────────────────"
 DIVIDER = "│"
-TOP_LEFT, TOP_RIGHT = "╭", "╮"
-BOTTOM_LEFT, BOTTOM_RIGHT = "╰", "╯"
-H_LINE, V_LINE = "─", "│"
 
 def get_progress_bar(current: int, max_val: int, width: int = 10) -> str:
+    """Generate clean progress bar for mobile screens"""
     filled = int((current / max_val) * width)
     empty = width - filled
     return f"[{'▓' * filled}{'░' * empty}]"
 
 # ==========================================
-# 2. DASHBOARD TEXTS
+# 2. DASHBOARD TEXTS (MOBILE FRIENDLY)
 # ==========================================
 
 WELCOME_TEXT = """
@@ -46,16 +43,17 @@ Solusi instan untuk <i>encoding</i>, <i>editing</i>, dan manajemen aset media la
 """
 
 MAIN_DASHBOARD = """
-<b>╔═══════════════════════╗</b>
-<b>║   STUDIO KHOIRUL      ║</b>
-<b>╚═══════════════════════╝</b>
+<b>💠 STUDIO KHOIRUL</b>
+━━━━━━━━━━━━━━━━━━━━
 
 <b>Halo, {name}</b> {vip_badge}
 
 <b>Status Sistem:</b>
   🟢 Engine: <code>Online</code>
   💾 Storage: {storage_bar} <code>{storage}%</code>
-  📊 Antrean: <code>0 / 3</code>
+  🖥 CPU: {cpu_bar} <code>{cpu}%</code>
+  🧠 RAM: {ram_bar} <code>{ram}%</code>
+  📊 Antrean: <code>{queue_count} / 3</code>
 
 <b>{BORDER_LIGHT}</b>
 <i>Pilih workspace di bawah 👇</i>
@@ -85,40 +83,55 @@ async def safe_edit(message: Message, text: str, reply_markup: InlineKeyboardMar
 def is_admin(user_id: int) -> bool:
     return user_id in Config.SUDO_USERS
 
-def get_storage_info() -> tuple:
+def get_system_stats() -> dict:
+    """Mengambil status Storage, CPU, dan RAM"""
+    stats = {'storage': 0, 'cpu': 0, 'ram': 0}
+    
+    # 1. Storage
     try:
         total, used, free = shutil.disk_usage("/")
-        usage = int((used / total) * 100)
+        stats['storage'] = int((used / total) * 100)
     except Exception:
-        usage = 45 # Fallback
-    return get_progress_bar(usage, 100, 10), usage
+        pass
+        
+    # 2. CPU & RAM (Membutuhkan psutil)
+    try:
+        import psutil
+        stats['cpu'] = int(psutil.cpu_percent(interval=0.1))
+        stats['ram'] = int(psutil.virtual_memory().percent)
+    except ImportError:
+        pass # Jika tidak ada library psutil, kembalikan 0%
+        
+    # Buat Bar
+    stats['storage_bar'] = get_progress_bar(stats['storage'], 100, 10)
+    stats['cpu_bar'] = get_progress_bar(stats['cpu'], 100, 10)
+    stats['ram_bar'] = get_progress_bar(stats['ram'], 100, 10)
+    
+    return stats
 
 def get_vip_badge(user_id: int) -> str:
     return "<code>👑 VIP</code>"
 
-def is_user_in_waiter(chat_id: int, user_id: int) -> bool:
+def get_queue_count() -> int:
+    """Menghitung total antrean yang berjalan"""
     try:
-        from bot.shared import USER_WAITERS
-        if user_id in USER_WAITERS: return True
-    except ImportError: pass
-    try:
-        from bot.shared import _waiters
-        if (chat_id, user_id) in _waiters: return True
-    except ImportError: pass
-    return False
+        from bot_helper.Process.Running_Tasks import queued_task, working_task
+        return len(queued_task) + len(working_task)
+    except Exception:
+        return 0
 
 def get_back_cancel_kb() -> InlineKeyboardMarkup:
+    """Tombol Kembali & Tutup yang ditekankan dengan warna Merah (Danger)"""
     return InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="↩️ Kembali", callback_data="menu_main"),
-         InlineKeyboardButton(text="✕ Tutup", callback_data="action_close", style="danger")]
+        [InlineKeyboardButton(text="↩️ Kembali", callback_data="menu_main", style="danger"),
+         InlineKeyboardButton(text="❌ Tutup", callback_data="action_close", style="danger")]
     ])
 
 # ==========================================
-# 4. KEYBOARD LAYOUTS (HIERARKI VISUAL PRO)
+# 4. KEYBOARD LAYOUTS
 # ==========================================
 
 def kb_start_menu() -> InlineKeyboardMarkup:
-    """Start menu: Hanya tombol masuk utama yang ditonjolkan (Hijau/Success)."""
     return InlineKeyboardMarkup(inline_keyboard=[
         [
             InlineKeyboardButton(text="👤 Owner", url="https://t.me/Krackxhor"),
@@ -130,7 +143,6 @@ def kb_start_menu() -> InlineKeyboardMarkup:
     ])
 
 def kb_main_menu(is_admin_user: bool = False) -> InlineKeyboardMarkup:
-    """Main menu: Menu utama Biru, Aksi Akhir Merah, Menu Pelengkap Default."""
     buttons = [
         [
             InlineKeyboardButton(text="🎬 Studio", callback_data="menu_studio", style="primary"),
@@ -145,7 +157,6 @@ def kb_main_menu(is_admin_user: bool = False) -> InlineKeyboardMarkup:
             InlineKeyboardButton(text="⚙️ Pengaturan", callback_data="settings")
         ],
         [
-            # VIP kita buat Hijau agar menarik untuk di-upgrade
             InlineKeyboardButton(text="👑 VIP", callback_data="menu_vip", style="success")
         ]
     ]
@@ -153,13 +164,13 @@ def kb_main_menu(is_admin_user: bool = False) -> InlineKeyboardMarkup:
         buttons.append([
             InlineKeyboardButton(text="🔧 Admin", callback_data="menu_admin")
         ])
+        
     buttons.append([
         InlineKeyboardButton(text="❌ Tutup", callback_data="action_close", style="danger")
     ])
     return InlineKeyboardMarkup(inline_keyboard=buttons)
 
 def kb_studio() -> InlineKeyboardMarkup:
-    """Semua dibiarkan default karena ini grid tools, kecuali tombol Youtube Upload (Biru)"""
     return InlineKeyboardMarkup(inline_keyboard=[
         [
             InlineKeyboardButton(text="🎬 Recap", callback_data="cmd_recap"),
@@ -181,12 +192,11 @@ def kb_studio() -> InlineKeyboardMarkup:
             InlineKeyboardButton(text="▶️ Upload YT", callback_data="cmd_ytupload", style="primary")
         ],
         [
-            InlineKeyboardButton(text="↩️ Kembali", callback_data="menu_main")
+            InlineKeyboardButton(text="↩️ Kembali", callback_data="menu_main", style="danger")
         ]
     ])
 
 def kb_encode() -> InlineKeyboardMarkup:
-    """Aksi utama Encode Hijau (Mulai eksekusi), Custom Biru."""
     return InlineKeyboardMarkup(inline_keyboard=[
         [
             InlineKeyboardButton(text="🚀 Encode Cepat", callback_data="cmd_encode", style="success")
@@ -198,15 +208,11 @@ def kb_encode() -> InlineKeyboardMarkup:
             InlineKeyboardButton(text="ℹ️ Info Encode", callback_data="info_encode")
         ],
         [
-            InlineKeyboardButton(text="↩️ Kembali", callback_data="menu_main")
+            InlineKeyboardButton(text="↩️ Kembali", callback_data="menu_main", style="danger")
         ]
     ])
 
 def kb_editor() -> InlineKeyboardMarkup:
-    """
-    KARENA GRID SANGAT PADAT: Semua tombol WAJIB Default (Transparan).
-    Jika diberi warna, mata user akan sangat pusing dan UI terlihat murah.
-    """
     return InlineKeyboardMarkup(inline_keyboard=[
         [
             InlineKeyboardButton(text="🗜️ Kompres", callback_data="cmd_compress"),
@@ -254,12 +260,11 @@ def kb_editor() -> InlineKeyboardMarkup:
             InlineKeyboardButton(text="🎞️ Sample", callback_data="cmd_gensample")
         ],
         [
-            InlineKeyboardButton(text="↩️ Kembali", callback_data="menu_main")
+            InlineKeyboardButton(text="↩️ Kembali", callback_data="menu_main", style="danger")
         ]
     ])
 
 def kb_assets() -> InlineKeyboardMarkup:
-    """Warna semantik: Tambah (Hijau), Hapus (Merah)."""
     return InlineKeyboardMarkup(inline_keyboard=[
         [
             InlineKeyboardButton(text="➕ Tambah", callback_data="cmd_addgameplay", style="success"),
@@ -270,7 +275,7 @@ def kb_assets() -> InlineKeyboardMarkup:
             InlineKeyboardButton(text="🔊 SFX", callback_data="cmd_addsfx")
         ],
         [
-            InlineKeyboardButton(text="↩️ Kembali", callback_data="menu_main")
+            InlineKeyboardButton(text="↩️ Kembali", callback_data="menu_main", style="danger")
         ]
     ])
 
@@ -281,12 +286,30 @@ def kb_download() -> InlineKeyboardMarkup:
             InlineKeyboardButton(text="☁️ Mirror", callback_data="cmd_mirror")
         ],
         [
-            InlineKeyboardButton(text="↩️ Kembali", callback_data="menu_main")
+            InlineKeyboardButton(text="↩️ Kembali", callback_data="menu_main", style="danger")
+        ]
+    ])
+
+def kb_settings() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [
+            InlineKeyboardButton(text="🎥 Setting Video", callback_data="set_video", style="primary"),
+            InlineKeyboardButton(text="🎵 Setting Audio", callback_data="set_audio", style="primary")
+        ],
+        [
+            InlineKeyboardButton(text="©️ Setting Watermark", callback_data="set_watermark"),
+            InlineKeyboardButton(text="🏷️ Setting Metadata", callback_data="set_metadata")
+        ],
+        [
+            InlineKeyboardButton(text="🔗 Setting Merge", callback_data="set_merge"),
+            InlineKeyboardButton(text="📝 Setting Mux", callback_data="set_mux")
+        ],
+        [
+            InlineKeyboardButton(text="↩️ Kembali", callback_data="menu_main", style="danger")
         ]
     ])
 
 def kb_vip() -> InlineKeyboardMarkup:
-    """Verifikasi (Hijau), Info (Biru)."""
     return InlineKeyboardMarkup(inline_keyboard=[
         [
             InlineKeyboardButton(text="👑 Status VIP", callback_data="cmd_myvip")
@@ -298,12 +321,11 @@ def kb_vip() -> InlineKeyboardMarkup:
             InlineKeyboardButton(text="ℹ️ Info VIP", callback_data="cmd_vip_info", style="primary")
         ],
         [
-            InlineKeyboardButton(text="↩️ Kembali", callback_data="menu_main")
+            InlineKeyboardButton(text="↩️ Kembali", callback_data="menu_main", style="danger")
         ]
     ])
 
 def kb_admin() -> InlineKeyboardMarkup:
-    """Warna semantik ketat: Semua yang bersifat menghapus/restart adalah Merah (Danger)."""
     return InlineKeyboardMarkup(inline_keyboard=[
         [
             InlineKeyboardButton(text="📊 Status", callback_data="cmd_status"),
@@ -343,7 +365,7 @@ def kb_admin() -> InlineKeyboardMarkup:
             InlineKeyboardButton(text="🔄 Restart", callback_data="cmd_restart", style="danger")
         ],
         [
-            InlineKeyboardButton(text="↩️ Kembali", callback_data="menu_main")
+            InlineKeyboardButton(text="↩️ Kembali", callback_data="menu_main", style="danger")
         ]
     ])
 
@@ -354,14 +376,20 @@ def kb_admin() -> InlineKeyboardMarkup:
 @ui_router.callback_query(F.data == "menu_main")
 async def nav_main(callback: CallbackQuery):
     admin_status = is_admin(callback.from_user.id)
-    bar, pct = get_storage_info()
+    stats = get_system_stats()
     vip_badge = get_vip_badge(callback.from_user.id)
+    queue_count = get_queue_count()
     
     text = MAIN_DASHBOARD.format(
         name=callback.from_user.first_name,
         vip_badge=vip_badge,
-        storage_bar=bar,
-        storage=pct,
+        storage_bar=stats['storage_bar'],
+        storage=stats['storage'],
+        cpu_bar=stats['cpu_bar'],
+        cpu=stats['cpu'],
+        ram_bar=stats['ram_bar'],
+        ram=stats['ram'],
+        queue_count=queue_count,
         BORDER_LIGHT=BORDER_LIGHT
     )
     await safe_edit(callback.message, text, kb_main_menu(admin_status))
@@ -399,9 +427,9 @@ async def nav_download(callback: CallbackQuery):
 
 @ui_router.callback_query(F.data == "settings")
 async def nav_settings(callback: CallbackQuery):
-    text = create_section_header("⚙️", "Pengaturan", "Konfigurasi bot, watermark, thumbnail, dan preferensi")
-    await safe_edit(callback.message, text, get_back_cancel_kb())
-    await callback.answer("⚙️ Gunakan perintah /settings untuk saat ini")
+    text = create_section_header("⚙️", "Pengaturan", "Konfigurasi global bot, watermark, resolusi, dan preferensi")
+    await safe_edit(callback.message, text, kb_settings())
+    await callback.answer()
 
 @ui_router.callback_query(F.data == "menu_vip")
 async def nav_vip(callback: CallbackQuery):
@@ -445,8 +473,38 @@ Kontrol penuh parameter encoding
     await callback.answer()
 
 # ==========================================
-# 7. COMMAND ROUTER
+# 7. COMMAND ROUTER & SETTINGS HANDLERS
 # ==========================================
+
+@ui_router.callback_query(F.data.startswith("set_"))
+async def route_settings(callback: CallbackQuery):
+    cmd = callback.data
+    await callback.answer(f"⚡ Mengakses {cmd.replace('_', ' ')}...")
+    fake_msg = callback.message.model_copy(update={
+        "from_user": callback.from_user,
+        "chat": callback.message.chat,
+        "text": f"/{cmd}" 
+    })
+    
+    try:
+        import bot.callbacks as cb_handler
+        handlers = {
+            "set_video": getattr(cb_handler, "_video_settings", None),
+            "set_audio": getattr(cb_handler, "_audio_settings", None),
+            "set_watermark": getattr(cb_handler, "_watermark_settings", None),
+            "set_metadata": getattr(cb_handler, "_metadata_settings", None),
+            "set_merge": getattr(cb_handler, "_merge_settings", None),
+            "set_mux": getattr(cb_handler, "_mux_settings", None)
+        }
+        handler = handlers.get(cmd)
+        if handler:
+            return await handler(fake_msg)
+    except Exception as e:
+        print(f"[UI SETTINGS ERROR] {e}")
+
+    text = f"<b>╭─ PENGATURAN AKTIF ─╮</b>\n<code>{cmd}</code>\n\nUntuk mengubah pengaturan ini, silakan ketik command aslinya di chat.\n\n<b>╰──────────────╯</b>"
+    await safe_edit(callback.message, text, get_back_cancel_kb())
+
 
 @ui_router.callback_query(F.data.startswith("cmd_"))
 async def route_commands(callback: CallbackQuery):
@@ -555,10 +613,6 @@ async def action_close(callback: CallbackQuery):
 
 @ui_router.message(Command("start"))
 async def cmd_start(message: Message):
-    """
-    Handler utama untuk inisialisasi sesi pengguna (perintah /start).
-    Hanya menampilkan 3 tombol: Owner, Channel, dan Masuk Dashboard (Hijau).
-    """
     await message.answer(
         text=WELCOME_TEXT,
         reply_markup=kb_start_menu(),
@@ -568,14 +622,20 @@ async def cmd_start(message: Message):
 @ui_router.message(F.text.in_(["/dashboard", "/menu"]))
 async def cmd_dashboard(message: Message):
     admin_status = is_admin(message.from_user.id)
-    bar, pct = get_storage_info()
+    stats = get_system_stats()
     vip_badge = get_vip_badge(message.from_user.id)
+    queue_count = get_queue_count()
     
     text = MAIN_DASHBOARD.format(
         name=message.from_user.first_name,
         vip_badge=vip_badge,
-        storage_bar=bar,
-        storage=pct,
+        storage_bar=stats['storage_bar'],
+        storage=stats['storage'],
+        cpu_bar=stats['cpu_bar'],
+        cpu=stats['cpu'],
+        ram_bar=stats['ram_bar'],
+        ram=stats['ram'],
+        queue_count=queue_count,
         BORDER_LIGHT=BORDER_LIGHT
     )
     await message.answer(
