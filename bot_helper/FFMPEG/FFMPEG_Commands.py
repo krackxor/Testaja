@@ -1,9 +1,9 @@
 """
 ╔══════════════════════════════════════════════════════════════════════╗
 ║            bot_helper/FFMPEG/FFMPEG_Commands.py                      ║
-║            Encoder1 Bot — v3.4 (Strict Encode Isolation + Tools)     ║
+║            Encoder1 Bot — v3.9 (Strict Encode Isolation + Tools)     ║
 ╠══════════════════════════════════════════════════════════════════════╣
-║  CHANGELOG v3.4:                                                     ║
+║  CHANGELOG dari versi lama:                                          ║
 ║  [FIX CRITICAL] Memasukkan kembali semua instruksi untuk Split,      ║
 ║                 Extract, Autocrop, GenSample, dan GenSS.             ║
 ║  [NEW]      Alat cepat (/trim, /cut) menggunakan Stream Copy instan  ║
@@ -13,6 +13,7 @@
 ║  [SECURITY] drawtext escape lebih ketat — cegah filter injection     ║
 ║  [NEW]      Integrasi penuh fitur MUTE, SPEED, dan DUBBING instan    ║
 ║  [FIX]      GenSample Re-encode veryfast agar Audio/Video Sinkron    ║
+║  [NEW v3.9] Custom Encode Builder (Mendukung Multi-Input Fast Queue) ║
 ╚══════════════════════════════════════════════════════════════════════╝
 """
 
@@ -126,7 +127,7 @@ class FFmpegCommandBuilder:
             self.merge_settings     = self.user_data.get("merge", {})
             self.mux_settings       = self.user_data.get("mux", {})
         else:
-            # Jika perintah lain (Convert, Compress, Trim, Mute, Speed, dll)
+            # Jika perintah lain (Convert, Compress, Trim, Mute, Speed, Custom Encode, dll)
             # KOSONGKAN SEMUA SETTINGAN GLOBAL agar instan dan bersih
             self.video_settings     = {}
             self.audio_settings     = {}
@@ -149,7 +150,7 @@ class FFmpegCommandBuilder:
     def get_output_name(self, convert_quality=False) -> str:
         extension = self.video_settings.get("extension", "mp4").lower()
         if self.ps.file_name: out_file_name, _ = splitext(self.ps.file_name)
-        elif self.ps.send_files: out_file_name, _ = splitext(self.ps.send_files[-1].split("/")[-1])
+        elif self.ps.send_files: out_file_name, _ = splitext(self.ps.send_files[0].split("/")[-1])
         else: out_file_name = f"output_{self.ps.process_id}"
         out_file_name = _sanitize_filename(out_file_name)
         if convert_quality: out_file_name = f"{out_file_name}_{convert_quality}p"
@@ -392,6 +393,33 @@ class FFmpegCommandBuilder:
             total_cut = sum(end - start for start, end in self.ps.cut_ranges)
             file_duration = max(0, file_duration - total_cut)
         return self.command, log_file, input_file, output_file, file_duration
+        
+    def build_custom_encode_command(self):
+        self.create_directory(f"{self.ps.dir}/custom_encode/")
+        log_file = f"{self.ps.dir}/custom_encode/ce_logs_{self.ps.process_id}.txt"
+        output_file = f"{self.ps.dir}/custom_encode/{self.get_output_name()}"
+        
+        # 1. Input video utama SELALU berada di urutan pertama unduhan (Index 0)
+        input_file = str(self.ps.send_files[0]) if self.ps.send_files else ""
+        if not input_file: return None, None, None, None, 0
+        stream_info = self.probe_input_file(input_file)
+        
+        self.command.extend(["-progress", log_file, "-i", input_file])
+        
+        # 2. Membaca sisa file yang diunduh dari antrean (Sebagai Input 1, Input 2, dst)
+        if len(self.ps.send_files) > 1:
+            for ext_file in self.ps.send_files[1:]:
+                if os.path.exists(ext_file):
+                    self.command.extend(["-i", str(ext_file)])
+        
+        # 3. Masukkan Command Kustom dari User
+        if hasattr(self.ps, "custom_ffmpeg_cmd") and self.ps.custom_ffmpeg_cmd:
+            self.command.extend(self.ps.custom_ffmpeg_cmd)
+        else:
+            self.command.extend(["-c", "copy"]) # Fallback aman
+            
+        self.command.extend(["-y", output_file])
+        return self.command, log_file, input_file, output_file, stream_info.duration if stream_info else 0
 
     def build_trim_command(self):
         self.create_directory(f"{self.ps.dir}/trim/")
@@ -642,6 +670,7 @@ class FFmpegCommandBuilder:
             # Menggabungkan fitur MUTE, SPEED, DUBBING ke dalam proses kompresi utama!
             if process_type in [Names.compress, Names.watermark, Names.convert, Names.hardmux, Names.cut, Names.rotate, Names.crop, "encode", "mute", "speed", "dubbing"]:
                 return self.build_compress_convert_command()
+            elif process_type == Names.custom_encode: return self.build_custom_encode_command()
             elif process_type == Names.trim: return self.build_trim_command()
             elif process_type == Names.extension: return self.build_extension_command()
             elif process_type == Names.merge: return self.build_merge_command()
