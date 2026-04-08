@@ -1,6 +1,6 @@
 """
 UI Dashboard Template for STUDIO KHOIRUL (Aiogram 3.x)
-Versi: PREMIUM AESTHETIC v3.3 (Super Bridge & Categories)
+Versi: PREMIUM AESTHETIC v3.4 (Super Bridge & Categories + New Tools)
 Fix: Seamless Backend Integration, No ImportError Crashes.
 """
 
@@ -147,10 +147,11 @@ def get_editor_kb() -> InlineKeyboardMarkup:
          InlineKeyboardButton(text="🔄 Convert", callback_data="cmd_convert"), 
          InlineKeyboardButton(text="🔗 Merge", callback_data="cmd_merge")],
          
-        # ✂️ PEMOTONGAN DURASI (Waktu)
+        # ✂️ PEMOTONGAN DURASI & KECEPATAN (Waktu)
         [InlineKeyboardButton(text="🎞️ Trim", callback_data="cmd_trim"), 
          InlineKeyboardButton(text="🔪 Cut", callback_data="cmd_cut"), 
          InlineKeyboardButton(text="✂️ Split", callback_data="cmd_split")],
+        [InlineKeyboardButton(text="⚡ Speed", callback_data="cmd_speed")],
          
         # 📐 MANIPULASI FRAME (Visual Geometri)
         [InlineKeyboardButton(text="📐 Crop", callback_data="cmd_crop"), 
@@ -161,17 +162,23 @@ def get_editor_kb() -> InlineKeyboardMarkup:
         [InlineKeyboardButton(text="📌 Hardmux", callback_data="cmd_hardmux"), 
          InlineKeyboardButton(text="📝 Softmux", callback_data="cmd_softmux"), 
          InlineKeyboardButton(text="♻️ Remux", callback_data="cmd_softremux")],
+
+        # 🎵 AUDIO MANIPULATION (Mute & Dubbing)
+        [InlineKeyboardButton(text="🔇 Mute", callback_data="cmd_mute"), 
+         InlineKeyboardButton(text="🎙️ Dubbing", callback_data="cmd_dubbing")],
          
         # 🎛️ MANIPULASI TRACK & DATA (Sistem Dalam)
         [InlineKeyboardButton(text="📁 Extension", callback_data="cmd_extension"),
-         InlineKeyboardButton(text="🎵 Extract Audio", callback_data="cmd_extract")],
+         InlineKeyboardButton(text="📥 Extract", callback_data="cmd_extract")],
         [InlineKeyboardButton(text="🔀 Change Index", callback_data="cmd_changeindex"),
          InlineKeyboardButton(text="🏷️ Metadata", callback_data="cmd_changemetadata")],
          
         # 📸 ASET & PREVIEW VISUAL (Tambahan)
         [InlineKeyboardButton(text="©️ Watermark", callback_data="cmd_watermark"), 
-         InlineKeyboardButton(text="📸 Screenshot", callback_data="cmd_genss"), 
          InlineKeyboardButton(text="🎞️ Sample", callback_data="cmd_gensample")],
+        [InlineKeyboardButton(text="📸 Screenshoot", callback_data="cmd_genss"),
+         InlineKeyboardButton(text="🖼️ Ext. Thumb", callback_data="cmd_ext_thumb"),
+         InlineKeyboardButton(text="🎞️ Ext. Frames", callback_data="cmd_ext_frames")],
          
         # ℹ️ INFORMASI & NAVIGASI
         [InlineKeyboardButton(text="ℹ️ MediaInfo", callback_data="cmd_mediainfo"),
@@ -330,7 +337,12 @@ async def catch_all_commands(callback: CallbackQuery):
             "trim": getattr(adv, "_trim_video", None), "split": getattr(adv, "_split_video", None),
             "cut": getattr(adv, "_cut_video", None), "rotate": getattr(adv, "_rotate_video", None),
             "crop": getattr(adv, "_crop_video", None), "autocrop": getattr(adv, "_autocrop_video", None),
-            "extract": getattr(adv, "_extract_streams", None),
+            
+            # [NEW ROUTING] Menambahkan Routing untuk Perintah Baru
+            "speed": getattr(med, "_speed_video", None), "mute": getattr(med, "_mute_video", None),
+            "dubbing": getattr(med, "_dubbing_video", None), "extract": getattr(med, "_extract_streams", None) or getattr(adv, "_extract_streams", None),
+            "ext_thumb": getattr(med, "_extract_thumbnail", None), "ext_frames": getattr(med, "_extract_frames_zip", None),
+            
             "extension": getattr(med, "_extension_changer", None) or getattr(adv, "_extension_changer", None),
             
             "changemetadata": getattr(med, "_change_metadata", None) or getattr(adv, "_change_metadata", None),
