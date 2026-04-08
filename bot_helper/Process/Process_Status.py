@@ -1,22 +1,23 @@
 """
 ╔══════════════════════════════════════════════════════════════════════╗
-║           bot_helper/Process/Process_Status.py                       ║
-║           Encoder1 Bot — v3.1                                        ║
+║            bot_helper/Process/Process_Status.py                      ║
+║            Encoder1 Bot — v3.2                                       ║
 ╠══════════════════════════════════════════════════════════════════════╣
 ║  CHANGELOG dari versi lama:                                          ║
-║  [FIX HIGH]  get_data()[user_id] → .get() di 6+ tempat             ║
-║  [FIX HIGH]  sync open() di async loop → aiofiles                  ║
-║  [FIX HIGH]  move_send_files: return di dalam loop → fix bug        ║
-║  [FIX]       print() → LOGGER.debug()                              ║
-║  [FIX]       bare except → typed exception                         ║
-║  [FIX]       rclone log dibuka tiap baris → buka sekali            ║
-║  [FIX]       ValueError continue → break + warning                 ║
-║  [FIX]       check_running_process throttle (10 iter = 5 detik)    ║
-║  [FIX]       speed ZeroDivisionError → max(1, elapsed)             ║
-║  [FIX]       ETA ZeroDivisionError saat speed=0                    ║
-║  [FIX]       thumbnail fallback exists() check                     ║
-║  [FIX]       LOGGER.info(e) → LOGGER.error(exc_info=True)         ║
-║  [IMPROVE]   check_file_drive_link indentasi standard 4 spaces     ║
+║  [FIX HIGH]  get_data()[user_id] → .get() di 6+ tempat               ║
+║  [FIX HIGH]  sync open() di async loop → aiofiles                    ║
+║  [FIX HIGH]  move_send_files: return di dalam loop → fix bug         ║
+║  [FIX]       print() → LOGGER.debug()                                ║
+║  [FIX]       bare except → typed exception                           ║
+║  [FIX]       rclone log dibuka tiap baris → buka sekali              ║
+║  [FIX]       ValueError continue → break + warning                   ║
+║  [FIX]       check_running_process throttle (10 iter = 5 detik)      ║
+║  [FIX]       speed ZeroDivisionError → max(1, elapsed)               ║
+║  [FIX]       ETA ZeroDivisionError saat speed=0                      ║
+║  [FIX]       thumbnail fallback exists() check                       ║
+║  [FIX]       LOGGER.info(e) → LOGGER.error(exc_info=True)            ║
+║  [IMPROVE]   check_file_drive_link indentasi standard 4 spaces       ║
+║  [NEW v3.2]  Tambah variabel memori untuk Dubbing, Speed, dan Mute   ║
 ╚══════════════════════════════════════════════════════════════════════╝
 """
 
@@ -52,9 +53,9 @@ download_dir            = Config.DOWNLOAD_DIR
 
 # Peta nama posisi watermark
 ws_name = {
-    "5:5":                              "Kiri Atas",
-    "main_w-overlay_w-5:5":            "Kanan Atas",
-    "5:main_h-overlay_h":              "Kiri Bawah",
+    "5:5":                                  "Kiri Atas",
+    "main_w-overlay_w-5:5":                 "Kanan Atas",
+    "5:main_h-overlay_h":                   "Kiri Bawah",
     "main_w-overlay_w-5:main_h-overlay_h-5": "Kanan Bawah",
 }
 
@@ -124,11 +125,11 @@ def generate_ffmpeg_status_head(user_id: int, pmode: str, input_size: int) -> st
     [FIX HIGH] get_data()[user_id] → .get() dengan fallback
     """
     # [FIX] Cache user_data sekali
-    user_data         = get_data().get(user_id, {})
-    video_settings    = user_data.get("video", {})
+    user_data          = get_data().get(user_id, {})
+    video_settings     = user_data.get("video", {})
     watermark_settings = user_data.get("watermark", {})
-    merge_settings    = user_data.get("merge", {})
-    mux_settings      = user_data.get("mux", {})
+    merge_settings     = user_data.get("merge", {})
+    mux_settings       = user_data.get("mux", {})
 
     if pmode in [Names.compress, Names.convert, Names.hardmux, Names.watermark]:
         qsize_text = (
@@ -295,7 +296,7 @@ class ProcessStatus:
         self.custom_index   = custom_index
         self.input_mode     = input_mode
 
-        # Fitur-fitur proses
+        # Fitur-fitur proses bawaan
         self.trim_start    = None
         self.trim_end      = None
         self.split_mode    = None
@@ -306,6 +307,12 @@ class ProcessStatus:
         self.file_type     = "video"
         self.crop_params   = None
         self.extract_maps  = []
+
+        # [TAMBAHAN FITUR v3.2 (Mute, Speed, Dubbing, Custom Watermark)]
+        self.custom_watermark = {}
+        self.custom_dub_audio = None
+        self.video_filters    = None
+        self.audio_filters    = None
 
         # Thumbnail
         if not thumbnail and exists(f"./userdata/{user_id}_Thumbnail.jpg"):
