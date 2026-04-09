@@ -113,8 +113,8 @@ def get_queue_count() -> int:
 
 def get_back_cancel_kb() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="↩️ Kembali", callback_data="menu_main"),
-         InlineKeyboardButton(text="❌ Tutup", callback_data="action_close")]
+        [InlineKeyboardButton(text="↩️ Kembali", callback_data="menu_main", style="danger"),
+         InlineKeyboardButton(text="❌ Tutup", callback_data="action_close", style="danger")]
     ])
 
 # ==========================================
@@ -124,78 +124,78 @@ def get_back_cancel_kb() -> InlineKeyboardMarkup:
 def kb_start_menu() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=[
         [
-            InlineKeyboardButton(text="👤 Owner", url="https://t.me/Krackxhor"),
-            InlineKeyboardButton(text="📢 Channel", url="https://t.me/TelMovIDCariFilm")
+            InlineKeyboardButton(text="👤 Owner", url="https://t.me/Krackxhor", style="primary"),
+            InlineKeyboardButton(text="📢 Channel", url="https://t.me/TelMovIDCariFilm", style="primary")
         ],
         [
-            InlineKeyboardButton(text="🚀 Masuk Dashboard", callback_data="menu_main")
+            InlineKeyboardButton(text="🚀 Masuk Dashboard", callback_data="menu_main", style="success")
         ]
     ])
 
 def kb_main_menu(is_admin_user: bool = False) -> InlineKeyboardMarkup:
     buttons = [
         [
-            InlineKeyboardButton(text="🎬 Studio", callback_data="menu_studio"),
-            InlineKeyboardButton(text="🎞️ Encode", callback_data="menu_encode")
+            InlineKeyboardButton(text="🎬 Studio", callback_data="menu_studio", style="primary"),
+            InlineKeyboardButton(text="🎞️ Encode", callback_data="menu_encode", style="primary")
         ],
         [
-            InlineKeyboardButton(text="✂️ Buka Editor Video", callback_data="menu_editor")
+            InlineKeyboardButton(text="✂️ Buka Editor Video", callback_data="menu_editor", style="primary")
         ],
         [
-            InlineKeyboardButton(text="🎮 Aset", callback_data="menu_assets"),
-            InlineKeyboardButton(text="📥 Download", callback_data="menu_download")
+            InlineKeyboardButton(text="🎮 Aset", callback_data="menu_assets", style="primary"),
+            InlineKeyboardButton(text="📥 Download", callback_data="menu_download", style="primary")
         ],
         [
-            InlineKeyboardButton(text="⚙️ Pengaturan", callback_data="settings"),
-            InlineKeyboardButton(text="👑 VIP", callback_data="menu_vip")
+            InlineKeyboardButton(text="⚙️ Pengaturan", callback_data="settings", style="primary"),
+            InlineKeyboardButton(text="👑 VIP", callback_data="menu_vip", style="success")
         ]
     ]
     if is_admin_user:
         buttons.append([
-            InlineKeyboardButton(text="🔧 Admin Control Panel", callback_data="menu_admin")
+            InlineKeyboardButton(text="🔧 Admin Control Panel", callback_data="menu_admin", style="primary")
         ])
     buttons.append([
-        InlineKeyboardButton(text="❌ Tutup", callback_data="action_close")
+        InlineKeyboardButton(text="❌ Tutup", callback_data="action_close", style="danger")
     ])
     return InlineKeyboardMarkup(inline_keyboard=buttons)
 
 def kb_studio() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=[
         [
-            InlineKeyboardButton(text="🎬 Recap", callback_data="cmd_recap"),
-            InlineKeyboardButton(text="🎥 Clip", callback_data="cmd_clip")
+            InlineKeyboardButton(text="🎬 Recap", callback_data="cmd_recap", style="primary"),
+            InlineKeyboardButton(text="🎥 Clip", callback_data="cmd_clip", style="primary")
         ],
         [
-            InlineKeyboardButton(text="🏆 Top Tier", callback_data="cmd_toptier"),
-            InlineKeyboardButton(text="📊 Verdict", callback_data="cmd_verdict")
+            InlineKeyboardButton(text="🏆 Top Tier", callback_data="cmd_toptier", style="primary"),
+            InlineKeyboardButton(text="📊 Verdict", callback_data="cmd_verdict", style="primary")
         ],
         [
-            InlineKeyboardButton(text="📖 Analisis", callback_data="cmd_lore"),
-            InlineKeyboardButton(text="🎯 Radar", callback_data="cmd_radar")
+            InlineKeyboardButton(text="📖 Analisis", callback_data="cmd_lore", style="primary"),
+            InlineKeyboardButton(text="🎯 Radar", callback_data="cmd_radar", style="primary")
         ],
         [
-            InlineKeyboardButton(text="⚡ Patch", callback_data="cmd_patch"),
-            InlineKeyboardButton(text="📚 Arsip", callback_data="cmd_archives")
+            InlineKeyboardButton(text="⚡ Patch", callback_data="cmd_patch", style="primary"),
+            InlineKeyboardButton(text="📚 Arsip", callback_data="cmd_archives", style="primary")
         ],
         [
-            InlineKeyboardButton(text="▶️ Upload YT", callback_data="cmd_ytupload")
+            InlineKeyboardButton(text="▶️ Upload YT", callback_data="cmd_ytupload", style="success")
         ],
         [
-            InlineKeyboardButton(text="↩️ Kembali", callback_data="menu_main")
+            InlineKeyboardButton(text="↩️ Kembali", callback_data="menu_main", style="danger")
         ]
     ])
 
 def kb_encode() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=[
         [
-            InlineKeyboardButton(text="🟢 Encode Cepat", callback_data="cmd_encode")
+            InlineKeyboardButton(text="🟢 Encode Cepat", callback_data="cmd_encode", style="success")
         ],
         [
-            InlineKeyboardButton(text="🎛️ Encode Custom", callback_data="cmd_customencode")
+            InlineKeyboardButton(text="🎛️ Encode Custom", callback_data="cmd_customencode", style="primary")
         ],
         [
-            InlineKeyboardButton(text="ℹ️ Info Encode", callback_data="info_encode"),
-            InlineKeyboardButton(text="↩️ Kembali", callback_data="menu_main")
+            InlineKeyboardButton(text="ℹ️ Info Encode", callback_data="info_encode", style="primary"),
+            InlineKeyboardButton(text="↩️ Kembali", callback_data="menu_main", style="danger")
         ]
     ])
 
@@ -203,165 +203,165 @@ def kb_editor() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=[
         # --- 📦 FORMAT & DASAR ---
         [
-            InlineKeyboardButton(text="🗜️ Kompres", callback_data="cmd_compress"),
-            InlineKeyboardButton(text="🔄 Konversi", callback_data="cmd_convert")
+            InlineKeyboardButton(text="🗜️ Kompres", callback_data="cmd_compress", style="primary"),
+            InlineKeyboardButton(text="🔄 Konversi", callback_data="cmd_convert", style="primary")
         ],
         [
-            InlineKeyboardButton(text="🔗 Gabung", callback_data="cmd_merge")
+            InlineKeyboardButton(text="🔗 Gabung", callback_data="cmd_merge", style="primary")
         ],
         # --- ⏱ TIMELINE & WAKTU ---
         [
-            InlineKeyboardButton(text="✂️ Trim", callback_data="cmd_trim"),
-            InlineKeyboardButton(text="🔪 Potong", callback_data="cmd_cut"),
-            InlineKeyboardButton(text="📐 Split", callback_data="cmd_split")
+            InlineKeyboardButton(text="✂️ Trim", callback_data="cmd_trim", style="primary"),
+            InlineKeyboardButton(text="🔪 Potong", callback_data="cmd_cut", style="primary"),
+            InlineKeyboardButton(text="📐 Split", callback_data="cmd_split", style="primary")
         ],
         [
-            InlineKeyboardButton(text="⚡ Kecepatan", callback_data="cmd_speed"),
-            InlineKeyboardButton(text="📁 Ekstensi", callback_data="cmd_extension")
+            InlineKeyboardButton(text="⚡ Kecepatan", callback_data="cmd_speed", style="primary"),
+            InlineKeyboardButton(text="📁 Ekstensi", callback_data="cmd_extension", style="primary")
         ],
         # --- 🖼️ VISUAL & BINGKAI ---
         [
-            InlineKeyboardButton(text="📐 Crop", callback_data="cmd_crop"),
-            InlineKeyboardButton(text="🎬 Auto Crop", callback_data="cmd_autocrop"),
-            InlineKeyboardButton(text="🔃 Rotasi", callback_data="cmd_rotate")
+            InlineKeyboardButton(text="📐 Crop", callback_data="cmd_crop", style="primary"),
+            InlineKeyboardButton(text="🎬 Auto Crop", callback_data="cmd_autocrop", style="primary"),
+            InlineKeyboardButton(text="🔃 Rotasi", callback_data="cmd_rotate", style="primary")
         ],
         [
-            InlineKeyboardButton(text="©️ Watermark", callback_data="cmd_watermark")
+            InlineKeyboardButton(text="©️ Watermark", callback_data="cmd_watermark", style="primary")
         ],
         # --- 🎵 AUDIO & SUBTITLE ---
         [
-            InlineKeyboardButton(text="🔇 Mute Audio", callback_data="cmd_mute"),
-            InlineKeyboardButton(text="🎙️ Dubbing", callback_data="cmd_dubbing")
+            InlineKeyboardButton(text="🔇 Mute Audio", callback_data="cmd_mute", style="primary"),
+            InlineKeyboardButton(text="🎙️ Dubbing", callback_data="cmd_dubbing", style="primary")
         ],
         [
-            InlineKeyboardButton(text="📌 Hardmux", callback_data="cmd_hardmux"),
-            InlineKeyboardButton(text="📝 Softmux", callback_data="cmd_softmux"),
-            InlineKeyboardButton(text="♻️ Remux", callback_data="cmd_softremux")
+            InlineKeyboardButton(text="📌 Hardmux", callback_data="cmd_hardmux", style="primary"),
+            InlineKeyboardButton(text="📝 Softmux", callback_data="cmd_softmux", style="primary"),
+            InlineKeyboardButton(text="♻️ Remux", callback_data="cmd_softremux", style="primary")
         ],
         # --- ⚙️ SISTEM & UTILITAS ---
         [
-            InlineKeyboardButton(text="🏷️ Metadata", callback_data="cmd_changemetadata"),
-            InlineKeyboardButton(text="🔀 Ubah Index", callback_data="cmd_changeindex")
+            InlineKeyboardButton(text="🏷️ Metadata", callback_data="cmd_changemetadata", style="primary"),
+            InlineKeyboardButton(text="🔀 Ubah Index", callback_data="cmd_changeindex", style="primary")
         ],
         [
-            InlineKeyboardButton(text="📥 Ekstrak", callback_data="cmd_extract")
+            InlineKeyboardButton(text="📥 Ekstrak", callback_data="cmd_extract", style="primary")
         ],
         [
-            InlineKeyboardButton(text="📸 Screenshot", callback_data="cmd_genss"),
-            InlineKeyboardButton(text="🎞️ Sample", callback_data="cmd_gensample")
+            InlineKeyboardButton(text="📸 Screenshot", callback_data="cmd_genss", style="primary"),
+            InlineKeyboardButton(text="🎞️ Sample", callback_data="cmd_gensample", style="primary")
         ],
         # --- NAVIGASI ---
         [
-            InlineKeyboardButton(text="ℹ️ Info Media", callback_data="cmd_mediainfo"),
-            InlineKeyboardButton(text="↩️ Kembali", callback_data="menu_main")
+            InlineKeyboardButton(text="ℹ️ Info Media", callback_data="cmd_mediainfo", style="primary"),
+            InlineKeyboardButton(text="↩️ Kembali", callback_data="menu_main", style="danger")
         ]
     ])
 
 def kb_assets() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=[
         [
-            InlineKeyboardButton(text="➕ Tambah Footage", callback_data="cmd_addgameplay")
+            InlineKeyboardButton(text="➕ Tambah Footage", callback_data="cmd_addgameplay", style="success")
         ],
         [
-            InlineKeyboardButton(text="📋 List Footage", callback_data="cmd_listgameplay"),
-            InlineKeyboardButton(text="🔊 Tambah SFX", callback_data="cmd_addsfx")
+            InlineKeyboardButton(text="📋 List Footage", callback_data="cmd_listgameplay", style="primary"),
+            InlineKeyboardButton(text="🔊 Tambah SFX", callback_data="cmd_addsfx", style="primary")
         ],
         [
-            InlineKeyboardButton(text="🗑️ Hapus", callback_data="cmd_deletegameplay"),
-            InlineKeyboardButton(text="↩️ Kembali", callback_data="menu_main")
+            InlineKeyboardButton(text="🗑️ Hapus", callback_data="cmd_deletegameplay", style="danger"),
+            InlineKeyboardButton(text="↩️ Kembali", callback_data="menu_main", style="danger")
         ]
     ])
 
 def kb_download() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=[
         [
-            InlineKeyboardButton(text="📥 Leech URL", callback_data="cmd_leech"),
-            InlineKeyboardButton(text="☁️ Mirror Cloud", callback_data="cmd_mirror")
+            InlineKeyboardButton(text="📥 Leech URL", callback_data="cmd_leech", style="primary"),
+            InlineKeyboardButton(text="☁️ Mirror Cloud", callback_data="cmd_mirror", style="primary")
         ],
         [
-            InlineKeyboardButton(text="↩️ Kembali", callback_data="menu_main")
+            InlineKeyboardButton(text="↩️ Kembali", callback_data="menu_main", style="danger")
         ]
     ])
 
 def kb_settings() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=[
         [
-            InlineKeyboardButton(text="💾 Set Rclone", callback_data="cmd_saveconfig"),
-            InlineKeyboardButton(text="🖼️ Set Thumb", callback_data="cmd_savethumb")
+            InlineKeyboardButton(text="💾 Set Rclone", callback_data="cmd_saveconfig", style="success"),
+            InlineKeyboardButton(text="🖼️ Set Thumb", callback_data="cmd_savethumb", style="success")
         ],
         [
-            InlineKeyboardButton(text="📥 Upload Watermark", callback_data="cmd_savewatermark"),
-            InlineKeyboardButton(text="©️ Setting Watermark", callback_data="watermark_settings")
+            InlineKeyboardButton(text="📥 Upload Watermark", callback_data="cmd_savewatermark", style="success"),
+            InlineKeyboardButton(text="©️ Setting Watermark", callback_data="watermark_settings", style="primary")
         ],
         [
-            InlineKeyboardButton(text="🎥 Video Prefs", callback_data="video_settings"),
-            InlineKeyboardButton(text="🎵 Audio Prefs", callback_data="audio_settings")
+            InlineKeyboardButton(text="🎥 Video Prefs", callback_data="video_settings", style="primary"),
+            InlineKeyboardButton(text="🎵 Audio Prefs", callback_data="audio_settings", style="primary")
         ],
         [
-            InlineKeyboardButton(text="🔗 Merge Rule", callback_data="merge_settings"),
-            InlineKeyboardButton(text="📝 Muxing Rule", callback_data="mux_settings")
+            InlineKeyboardButton(text="🔗 Merge Rule", callback_data="merge_settings", style="primary"),
+            InlineKeyboardButton(text="📝 Muxing Rule", callback_data="mux_settings", style="primary")
         ],
         [
-            InlineKeyboardButton(text="🚜 Target Konversi", callback_data="convert_settings"),
-            InlineKeyboardButton(text="🏷️ Metadata", callback_data="metadata_settings")
+            InlineKeyboardButton(text="🚜 Target Konversi", callback_data="convert_settings", style="primary"),
+            InlineKeyboardButton(text="🏷️ Metadata", callback_data="metadata_settings", style="primary")
         ],
         [
-            InlineKeyboardButton(text="🤖 Setting Umum (Bot)", callback_data="settings_bot")
+            InlineKeyboardButton(text="🤖 Setting Umum (Bot)", callback_data="settings_bot", style="primary")
         ],
         [
-            InlineKeyboardButton(text="↩️ Kembali", callback_data="menu_main")
+            InlineKeyboardButton(text="↩️ Kembali", callback_data="menu_main", style="danger")
         ]
     ])
 
 def kb_vip() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=[
         [
-            InlineKeyboardButton(text="👑 Status VIP", callback_data="cmd_myvip"),
-            InlineKeyboardButton(text="ℹ️ Info VIP", callback_data="cmd_vip_info")
+            InlineKeyboardButton(text="👑 Status VIP", callback_data="cmd_myvip", style="primary"),
+            InlineKeyboardButton(text="ℹ️ Info VIP", callback_data="cmd_vip_info", style="primary")
         ],
         [
-            InlineKeyboardButton(text="💳 Verifikasi", callback_data="cmd_verify")
+            InlineKeyboardButton(text="💳 Verifikasi", callback_data="cmd_verify", style="success")
         ],
         [
-            InlineKeyboardButton(text="↩️ Kembali", callback_data="menu_main")
+            InlineKeyboardButton(text="↩️ Kembali", callback_data="menu_main", style="danger")
         ]
     ])
 
 def kb_admin() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=[
         [
-            InlineKeyboardButton(text="📊 Status", callback_data="cmd_status"),
-            InlineKeyboardButton(text="⏱️ Uptime", callback_data="cmd_time"),
-            InlineKeyboardButton(text="⚡ Speedtest", callback_data="cmd_speedtest")
+            InlineKeyboardButton(text="📊 Status", callback_data="cmd_status", style="primary"),
+            InlineKeyboardButton(text="⏱️ Uptime", callback_data="cmd_time", style="primary"),
+            InlineKeyboardButton(text="⚡ Speedtest", callback_data="cmd_speedtest", style="primary")
         ],
         [
-            InlineKeyboardButton(text="📈 Stats", callback_data="cmd_stats"),
-            InlineKeyboardButton(text="📜 Log", callback_data="cmd_log"),
-            InlineKeyboardButton(text="📁 Unduh", callback_data="cmd_logs")
+            InlineKeyboardButton(text="📈 Stats", callback_data="cmd_stats", style="primary"),
+            InlineKeyboardButton(text="📜 Log", callback_data="cmd_log", style="primary"),
+            InlineKeyboardButton(text="📁 Unduh", callback_data="cmd_logs", style="primary")
         ],
         [
-            InlineKeyboardButton(text="🔄 Cek Config", callback_data="cmd_changeconfig"),
-            InlineKeyboardButton(text="🗑️ Hapus Config", callback_data="cmd_clearconfigs")
+            InlineKeyboardButton(text="🔄 Cek Config", callback_data="cmd_changeconfig", style="primary"),
+            InlineKeyboardButton(text="🗑️ Hapus Config", callback_data="cmd_clearconfigs", style="danger")
         ],
         [
-            InlineKeyboardButton(text="🧹 Bersihkan", callback_data="cmd_renew"),
-            InlineKeyboardButton(text="💥 Reset DB", callback_data="cmd_resetdb")
+            InlineKeyboardButton(text="🧹 Bersihkan", callback_data="cmd_renew", style="primary"),
+            InlineKeyboardButton(text="💥 Reset DB", callback_data="cmd_resetdb", style="danger")
         ],
         [
-            InlineKeyboardButton(text="👮 List Sudo", callback_data="cmd_checksudo"),
-            InlineKeyboardButton(text="👑 List VIP", callback_data="cmd_view_vip")
+            InlineKeyboardButton(text="👮 List Sudo", callback_data="cmd_checksudo", style="primary"),
+            InlineKeyboardButton(text="👑 List VIP", callback_data="cmd_view_vip", style="primary")
         ],
         [
-            InlineKeyboardButton(text="➕ Sudo", callback_data="cmd_addsudo"),
-            InlineKeyboardButton(text="➖ Sudo", callback_data="cmd_delsudo")
+            InlineKeyboardButton(text="➕ Sudo", callback_data="cmd_addsudo", style="success"),
+            InlineKeyboardButton(text="➖ Sudo", callback_data="cmd_delsudo", style="danger")
         ],
         [
-            InlineKeyboardButton(text="➕ VIP", callback_data="cmd_add_vip"),
-            InlineKeyboardButton(text="➖ VIP", callback_data="cmd_delete_vip")
+            InlineKeyboardButton(text="➕ VIP", callback_data="cmd_add_vip", style="success"),
+            InlineKeyboardButton(text="➖ VIP", callback_data="cmd_delete_vip", style="danger")
         ],
         [
-            InlineKeyboardButton(text="🔄 Restart", callback_data="cmd_restart"),
-            InlineKeyboardButton(text="↩️ Kembali", callback_data="menu_main")
+            InlineKeyboardButton(text="🔄 Restart", callback_data="cmd_restart", style="primary"),
+            InlineKeyboardButton(text="↩️ Kembali", callback_data="menu_main", style="danger")
         ]
     ])
 
