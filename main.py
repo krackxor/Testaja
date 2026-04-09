@@ -1,7 +1,7 @@
 """
 ╔══════════════════════════════════════════════════════════════════════╗
 ║                    main.py                                           ║
-║            Encoder1 Bot — v3.1 (Trinity Update)                      ║
+║            Encoder1 Bot — v3.2 (Trinity Update)                      ║
 ╠══════════════════════════════════════════════════════════════════════╣
 ║  CHANGELOG dari versi lama:                                          ║
 ║  [NEW]      Menggunakan asyncio.run() native Python 3.11             ║
@@ -14,6 +14,7 @@
 ║  [FIX]      Inisialisasi Aria2 Engine sebelum listener               ║
 ║  [NEW]      Startup Cleanup otomatis membersihkan folder downloads/  ║
 ║  [NEW]      Integrasi Premium UI Dashboard (STUDIO KHOIRUL)          ║
+║  [NEW]      Registrasi Router Subtitle Handlers (/autosub)           ║
 ╚══════════════════════════════════════════════════════════════════════╝
 """
 
@@ -62,8 +63,9 @@ import bot.Gameplay
 import bot.AutoClip
 import bot.MovieRecap
 import bot.YTUpload
+import bot.subtitle_handlers  # [TAMBAHAN BARU] Modul Auto Subtitle & Translate
 
-# [TAMBAHAN BARU] Import UI Dashboard (File Flow lama sudah dihapus)
+# [TAMBAHAN BARU] Import UI Dashboard
 import bot.ui_dashboard 
 
 # Import task background
@@ -157,7 +159,7 @@ async def main():
         bot.ui_dashboard,
         bot.admin_handlers, bot.vip_handlers, bot.media_handlers,
         bot.advanced_media_handlers, bot.callbacks, bot.Gameplay,
-        bot.AutoClip, bot.MovieRecap, bot.YTUpload
+        bot.AutoClip, bot.MovieRecap, bot.YTUpload, bot.subtitle_handlers
     ]
     
     loaded_routers = 0
@@ -214,7 +216,7 @@ async def main():
         LOGGER.info("🧹 Starting Auto-Cleaner Background Task...")
         asyncio.create_task(auto_clean_temp_dir("./temp/", max_age_hours=24))
 
-    LOGGER.info("⚡ Bot Upgraded to Trinity Architecture (v3.1) ⚡")
+    LOGGER.info("⚡ Bot Upgraded to Trinity Architecture (v3.2) ⚡")
 
     # 8. Start Aiogram Polling
     LOGGER.info("🔶 Starting Aiogram Polling...")
