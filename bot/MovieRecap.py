@@ -1,9 +1,11 @@
 """
 ╔══════════════════════════════════════════════════════════════════════╗
-║                    bot/MovieRecap.py — v3.3                          ║
+║                    bot/MovieRecap.py — v4.1                          ║
 ║        Movie Recap: Rangkuman Film Otomatis dengan Voiceover AI      ║
 ╠══════════════════════════════════════════════════════════════════════╣
-║  CHANGELOG:                                                          ║
+║  CHANGELOG v4.1:                                                     ║
+║  [UX PREMIUM] Implementasi API Warna Tombol Native Telegram 9.4+     ║
+║                (Primary, Success, Danger) pada Reply Keyboard.       ║
 ║  [UX PREMIUM] Standardisasi Hierarki Emoji (❌ Error, ⏳ Proses).      ║
 ║  [UX PREMIUM] Mengganti "❌ Skip" menjadi "⏭️ Skip" agar jelas.      ║
 ║  [UX PREMIUM] Migrasi Total Dashboard Inline menjadi Interactive     ║
@@ -78,7 +80,7 @@ ORIG_AUDIO_VOL = 0.10
 os.makedirs(TEMP_DIR, exist_ok=True)
 
 # ═══════════════════════════════════════════════════════════════════════
-#  UI & CLEANUP HELPERS
+#  UI & CLEANUP HELPERS (COLOR BUTTONS ENABLED)
 # ═══════════════════════════════════════════════════════════════════════
 
 async def _clean_msgs(*msgs):
@@ -89,11 +91,20 @@ async def _clean_msgs(*msgs):
             except Exception: pass
 
 def _make_reply_kb(options: list, row_width: int = 2) -> ReplyKeyboardMarkup:
-    """Membuat Reply Keyboard dengan mudah."""
+    """Membuat Reply Keyboard dengan mudah dan warna otomatis (Native Telegram)."""
     kb = []
     row = []
     for opt in options:
-        row.append(KeyboardButton(text=opt))
+        # Auto-Color Logic
+        if "Batal" in opt or "❌" in opt:
+            btn_style = "danger"
+        elif "Ya" in opt or "✅" in opt:
+            btn_style = "success"
+        else:
+            btn_style = "primary"
+            
+        row.append(KeyboardButton(text=opt, style=btn_style))
+        
         if len(row) == row_width:
             kb.append(row)
             row = []
@@ -360,7 +371,7 @@ async def _finish_and_send(process_status, original_message, movie_title, out_fi
         await _safe_edit(status_msg, process_status.status_message)
         yt_buttons = None
         if YOUTUBE_ENABLED and _HAS_YTUPLOAD:
-            yt_buttons = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="⬆️ Upload YouTube", callback_data=f"recap_yt_{process_status.user_id}_{process_status.process_id}")]])
+            yt_buttons = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="⬆️ Upload YouTube", callback_data=f"recap_yt_{process_status.user_id}_{process_status.process_id}", style="success")]])
         try:
             await Telegram.AIOGRAM_BOT.send_video(chat_id=original_message.chat.id, video=FSInputFile(out_file), caption=caption, supports_streaming=True, width=vw, height=vh, duration=vdur, reply_to_message_id=original_message.message_id, reply_markup=yt_buttons)
         except Exception as e:
@@ -372,7 +383,7 @@ async def _finish_and_send(process_status, original_message, movie_title, out_fi
             await _safe_edit(status_msg, process_status.status_message)
             try:
                 yt_link = await upload_to_youtube(out_file, yt_title, yt_desc, yt_privacy, process_status, status_msg)
-                await original_message.answer(f"📺 **YouTube:** [Tonton ↗]({yt_link})", reply_markup=InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="📺 Buka di YouTube", url=yt_link)]]))
+                await original_message.answer(f"📺 **YouTube:** [Tonton ↗]({yt_link})", reply_markup=InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="📺 Buka di YouTube", url=yt_link, style="success")]]))
             except Exception as e: await original_message.answer(f"⚠️ YouTube upload gagal: `{e}`")
         await _safe_edit(status_msg, f"✅ **Movie Recap Selesai!**\n🎬 **Film:** `{movie_title}`\n**Durasi:** `{get_readable_time(vid_dur)}`")
     finally: _cleanup(out_file)
@@ -412,7 +423,7 @@ async def recap_handler(message: Message, command: CommandObject) -> None:
     if not _is_vip(user_id): 
         return await message.reply(
             "👑 **Fitur Eksklusif VIP**\nHanya untuk member Premium.", 
-            reply_markup=InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="💬 Hubungi Admin", url=f"https://t.me/{Config.BOT_USERNAME}")]])
+            reply_markup=InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="💬 Hubungi Admin", url=f"https://t.me/{Config.BOT_USERNAME}", style="primary")]])
         )
         
     movie_title = (command.args or "").strip()
@@ -535,7 +546,7 @@ async def recap_handler(message: Message, command: CommandObject) -> None:
     ps.file_name = f"{movie_title}_recap"
     
     init_text  = f"🎬 **Movie Recap Dimulai**\n{'─'*32}\n  🎞️ Film      `{movie_title}`\n  🤖 Mode      `{'Auto AI Vision' if mode=='auto' else 'Chapter + Narasi'}`\n  ⏱️ Durasi    `{int(target_min)} menit`\n{'─'*32}\n**ID:** `{ps.process_id}`\n`/cancel{CMD_SUFFIX} process {ps.process_id}`"
-    cancel_btn = [[InlineKeyboardButton(text="❌ Batal", callback_data=f"rc_cancel_{user_id}_{ps.process_id}")]]
+    cancel_btn = [[InlineKeyboardButton(text="❌ Batal", callback_data=f"rc_cancel_{user_id}_{ps.process_id}", style="danger")]]
     
     status_msg = await message.answer(init_text, reply_markup=InlineKeyboardMarkup(inline_keyboard=cancel_btn))
     
@@ -546,7 +557,7 @@ async def recap_handler(message: Message, command: CommandObject) -> None:
 
 @router.callback_query(F.data.startswith("rc_cancel_"))
 async def rc_cancel_cb(call: CallbackQuery):
-    await call.answer("⏳ 🚫 Membatalkan...")
+    await call.answer("⏳ 🚫 Membatalkan...", show_alert=False)
     parts = call.data.split("_")
     uid = int(parts[2])
     
