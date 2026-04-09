@@ -1,6 +1,6 @@
 """
 ╔══════════════════════════════════════════════════════════════════════╗
-║       bot/admin_handlers.py — v3.3                                   ║
+║       bot/admin_handlers.py — v4.0                                   ║
 ║       Admin & System Command Handlers (Aiogram 3.x)                  ║
 ╠══════════════════════════════════════════════════════════════════════╣
 ║  Commands: /start /time /restart /herokurestart /log /logs           ║
@@ -9,8 +9,9 @@
 ║            /clearconfigs /checksudo /addsudo /delsudo /renew         ║
 ║            /resetdb /changeconfig /settings                          ║
 ╠══════════════════════════════════════════════════════════════════════╣
-║  CHANGELOG:                                                          ║
-║  [UX PREMIUM] Menerapkan Reply Keyboard Singkat ("✅ Ya", "❌ Batal")║
+║  CHANGELOG v4.0:                                                     ║
+║  [UX PREMIUM] Standardisasi Hierarki Emoji (❌ Error, ⏳ Proses).      ║
+║  [UX PREMIUM] Menerapkan Reply Keyboard Singkat ("✅ Ya", "❌ Batal")  ║
 ║  [UX PREMIUM] Menerapkan Auto-Delete agar chat tetap bersih & rapi.  ║
 ║  [UX PREMIUM] Menerapkan Kotak Konfirmasi (Summary Box) pada fitur   ║
 ║                krusial seperti /resetdb, /renew, dan /saveconfig.    ║
@@ -120,7 +121,7 @@ async def _startmsg(message: Message):
 @router.message(Command(f"time{CMD_SUFFIX}"))
 async def _timecmd(message: Message):
     if not sudo_user_checker_event(message): return
-    await message.reply(f"♻ Bot Aktif Selama **{getbotuptime()}**")
+    await message.reply(f"♻️ Bot Aktif Selama **{getbotuptime()}**")
 
 
 @router.message(Command(f"stats{CMD_SUFFIX}"))
@@ -154,7 +155,7 @@ async def _speed_test(message: Message):
 async def _restart(message: Message):
     if not owner_checker(message): return
     chat_id = message.chat.id
-    reply   = await message.reply("♻ Memulai Ulang...")
+    reply   = await message.reply("⏳ 🔄 Memulai Ulang (Restarting)...")
     await asyncio.to_thread(srun, ["pkill", "-f", "aria2c|ffmpeg|rclone"])
     await asyncio.to_thread(srun, ["python3", "update.py"])
     with open(".restartmsg", "w") as f:
@@ -167,12 +168,12 @@ async def _restart(message: Message):
 async def _heroku_restart(message: Message):
     if not owner_checker(message): return
     if not HEROKU_AVAILABLE:
-        return await message.reply("❗ heroku3 tidak terinstall.")
+        return await message.reply("❌ heroku3 tidak terinstall.")
     if not (Config.HEROKU_APP_NAME and Config.HEROKU_API_KEY):
-        return await message.reply("❗ HEROKU_APP_NAME atau HEROKU_API_KEY tidak ditemukan.")
+        return await message.reply("❌ HEROKU_APP_NAME atau HEROKU_API_KEY tidak ditemukan.")
     chat_id    = message.chat.id
     heroku_con = heroku_from_key(Config.HEROKU_API_KEY)
-    reply      = await message.reply("♻ Memulai Ulang Dyno Heroku...")
+    reply      = await message.reply("⏳ 🔄 Memulai Ulang Dyno Heroku...")
     with open(".restartmsg", "w") as f:
         f.truncate(0)
         f.write(f"{chat_id}\n{reply.message_id}\n")
@@ -197,7 +198,7 @@ async def _log(message: Message):
             log_text = log_text[-4000:] # Batas aman Telegram
         await message.reply(log_text, parse_mode=None)
     else: 
-        await message.reply("❗ Berkas Log Tidak Ditemukan")
+        await message.reply("❌ Berkas Log Tidak Ditemukan")
 
 
 @router.message(Command(f"logs{CMD_SUFFIX}"))
@@ -210,7 +211,7 @@ async def _logs(message: Message):
         try: await Telegram.AIOGRAM_BOT.send_document(chat_id, document=FSInputFile(log_file))
         except Exception as e: await message.reply(f"❌ Error: {e}")
     else:
-        await message.reply("❗ Berkas Log Tidak Ditemukan")
+        await message.reply("❌ Berkas Log Tidak Ditemukan")
 
 
 # ═══════════════════════════════════════════════════════════════════════
@@ -248,7 +249,7 @@ async def _cancel(message: Message):
     user_id  = message.from_user.id
     commands = (message.text or "").split(" ")
     if len(commands) != 3:
-        return await safe_reply(message, f"❗ Format: `/cancel{CMD_SUFFIX} aria|process <ID>`")
+        return await safe_reply(message, f"❌ Format: `/cancel{CMD_SUFFIX} aria|process <ID>`")
 
     processx, process_id, owner_id = commands[1], commands[2], Config.OWNER_ID
 
@@ -259,8 +260,8 @@ async def _cancel(message: Message):
                     await Aria2.cancel_download(process_id)
                     await remove_from_working_task(dl.listener().process_id)
                     await safe_reply(message, "✅ Berhasil Dibatalkan.")
-                else: await safe_reply(message, "❗ Anda tidak punya izin membatalkan tugas ini.")
-            else: await safe_reply(message, "❗ Tidak ada unduhan dengan ID ini.")
+                else: await safe_reply(message, "❌ Anda tidak punya izin membatalkan tugas ini.")
+            else: await safe_reply(message, "❌ Tidak ada unduhan dengan ID ini.")
             return
 
         if processx == "process":
@@ -268,8 +269,8 @@ async def _cancel(message: Message):
             if add_uid == user_id or user_id == owner_id:
                 ok = await remove_running_process(process_id)
                 await remove_from_working_task(process_id)
-                await safe_reply(message, "✅ Berhasil Dibatalkan." if ok else "❗ Proses tidak ditemukan.")
-            else: await safe_reply(message, "❗ Anda tidak punya izin membatalkan tugas ini.")
+                await safe_reply(message, "✅ Berhasil Dibatalkan." if ok else "❌ Proses tidak ditemukan.")
+            else: await safe_reply(message, "❌ Anda tidak punya izin membatalkan tugas ini.")
 
     except Exception as e: await safe_reply(message, str(e))
 
@@ -280,13 +281,13 @@ async def _ffmpeg_log(message: Message):
     chat_id  = message.chat.id
     commands = (message.text or "").split(" ")
     if len(commands) != 3 or commands[1] != "log":
-        return await safe_reply(message, f"❗ Format: `/ffmpeg{CMD_SUFFIX} log <process_id>`")
+        return await safe_reply(message, f"❌ Format: `/ffmpeg{CMD_SUFFIX} log <process_id>`")
         
     process_id = commands[2]
     try:
         log_file = await get_ffmpeg_log_file(process_id)
         if log_file: await Telegram.AIOGRAM_BOT.send_document(chat_id, document=FSInputFile(log_file))
-        else: await safe_reply(message, "❗ Berkas Log Tidak Ditemukan")
+        else: await safe_reply(message, "❌ Berkas Log Tidak Ditemukan")
     except Exception as e: await safe_reply(message, str(e))
 
 
@@ -304,7 +305,7 @@ async def _saverclone(message: Message):
     status = "Sudah Ada (Akan Ditimpa)" if exists(r_config) else "Belum Ada"
     
     kb = _make_reply_kb(["❌ Batal"], 1)
-    ask_txt = f"**⚙️ SETUP RCLONE**\n\nStatus: `{status}`\n\nKirim file `rclone.conf` atau URL konfigurasinya:"
+    ask_txt = f"**💾 SETUP RCLONE**\n\nStatus: `{status}`\n\nKirim file `rclone.conf` atau URL konfigurasinya:"
     ask_msg = await message.reply(ask_txt, reply_markup=kb)
     
     resp = await wait_for_message(chat_id, user_id, 120)
@@ -367,10 +368,10 @@ async def _savethumb(message: Message):
 async def _changeconfig(message: Message):
     if not owner_checker(message): return
     if not exists("config.env"):
-        return await safe_reply(message, "❗ Berkas `config.env` Tidak Ditemukan")
+        return await safe_reply(message, "❌ Berkas `config.env` Tidak Ditemukan")
     keys = get_env_keys("config.env")
     if not keys:
-        return await safe_reply(message, "❗ Tidak Ada Variabel Dalam Berkas `config.env`")
+        return await safe_reply(message, "❌ Tidak Ada Variabel Dalam Berkas `config.env`")
         
     kb_layout, row = [], []
     for k in keys:
@@ -382,7 +383,7 @@ async def _changeconfig(message: Message):
     kb_layout.append([InlineKeyboardButton(text="⭕ Tutup", callback_data="close_settings")])
     
     kb = InlineKeyboardMarkup(inline_keyboard=kb_layout)
-    await message.reply("Pilih Variabel untuk Diubah", reply_markup=kb)
+    await message.reply("🔄 Pilih Variabel untuk Diubah", reply_markup=kb)
 
 
 @router.message(Command(f"clearconfigs{CMD_SUFFIX}"))
@@ -391,8 +392,8 @@ async def _clearconfig(message: Message):
     path = "./userdata/botconfig.env"
     if exists(path):
         remove(path)
-        await safe_reply(message, f"✅ Berhasil Dihapus. Silakan jalankan `/restart{CMD_SUFFIX}` agar perubahan diterapkan.")
-    else: await safe_reply(message, "❗ Konfigurasi Tidak Ditemukan")
+        await safe_reply(message, f"✅ 🗑️ Berhasil Dihapus. Silakan jalankan `/restart{CMD_SUFFIX}` agar perubahan diterapkan.")
+    else: await safe_reply(message, "❌ Konfigurasi Tidak Ditemukan")
 
 
 # ═══════════════════════════════════════════════════════════════════════
@@ -402,7 +403,7 @@ async def _clearconfig(message: Message):
 @router.message(Command(f"checksudo{CMD_SUFFIX}"))
 async def _checksudo(message: Message):
     if not owner_checker(message): return
-    await message.reply(f"**Sudo Users:**\n`{sudo_users}`")
+    await message.reply(f"👮 **Sudo Users:**\n`{sudo_users}`")
 
 
 @router.message(Command(f"addsudo{CMD_SUFFIX}"))
@@ -427,11 +428,11 @@ async def _addsudo(message: Message):
         sudo_id = int(resp.text)
             
     if sudo_id in sudo_users:
-        return await message.answer(f"❗ ID sudah ada di Sudo.\n\n`{sudo_users}`", reply_markup=ReplyKeyboardRemove())
+        return await message.answer(f"❌ ID sudah ada di Sudo.\n\n`{sudo_users}`", reply_markup=ReplyKeyboardRemove())
         
     sudo_users.append(sudo_id)
     _save_sudo_list()
-    await message.answer(f"✅ Berhasil Ditambahkan.\n\n`{sudo_users}`", reply_markup=ReplyKeyboardRemove())
+    await message.answer(f"✅ ➕ Berhasil Ditambahkan.\n\n`{sudo_users}`", reply_markup=ReplyKeyboardRemove())
 
 
 @router.message(Command(f"delsudo{CMD_SUFFIX}"))
@@ -456,11 +457,11 @@ async def _delsudo(message: Message):
         sudo_id = int(resp.text)
             
     if sudo_id not in sudo_users:
-        return await message.answer(f"❗ ID Tidak Ditemukan.\n\n`{sudo_users}`", reply_markup=ReplyKeyboardRemove())
+        return await message.answer(f"❌ ID Tidak Ditemukan.\n\n`{sudo_users}`", reply_markup=ReplyKeyboardRemove())
         
     sudo_users.remove(sudo_id)
     _save_sudo_list()
-    await message.answer(f"✅ Berhasil Dihapus.\n\n`{sudo_users}`", reply_markup=ReplyKeyboardRemove())
+    await message.answer(f"✅ ➖ Berhasil Dihapus.\n\n`{sudo_users}`", reply_markup=ReplyKeyboardRemove())
 
 
 def _save_sudo_list() -> None:
