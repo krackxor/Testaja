@@ -1,18 +1,20 @@
 """
 ╔══════════════════════════════════════════════════════════════════════╗
-║       bot_helper/Handlers/media_handlers.py — v3.9                   ║
+║       bot_helper/Handlers/media_handlers.py — v4.0                   ║
 ║       Media Processing Command Handlers (Aiogram 3.x)                ║
 ╠══════════════════════════════════════════════════════════════════════╣
-║  CHANGELOG v3.9:                                                     ║
+║  CHANGELOG v4.0:                                                     ║
+║  [UX PREMIUM] Standardisasi Hierarki Emoji (❌ Error, ⏳ Proses).      ║
+║  [UX PREMIUM] Sinkronisasi ikon Watermark (©️) dengan Dashboard UI.  ║
 ║  [FIX] Memisahkan /compress agar lebih instan (tanpa dub/sub).       ║
 ║  [FIX] /watermark kini menggunakan tombol Skip yang aman dari error. ║
 ║  [NEW] /softmux & /softremux kini mendukung penambahan file Audio!   ║
 ║  [NEW PREMIUM] /convert kini 100% FULL TOMBOL! Mendukung Multi-Select║
 ║  [HOTFIX] /changeindex menggunakan FULL TOMBOL (Interactive Builder) ║
 ║  [HOTFIX] /genss dan /gensample kini FULL TOMBOL dan lepas dari      ║
-║           pengaturan global!                                         ║
+║            pengaturan global!                                        ║
 ║  [NEW FEATURES] Mengintegrasikan /mute, /speed, /dubbing, /ext_thumb,║
-║           dan /ext_frames!                                           ║
+║            dan /ext_frames!                                          ║
 ║  [NEW PREMIUM] /customencode dengan Fast Queue System Multi-Inputs!  ║
 ╚══════════════════════════════════════════════════════════════════════╝
 """
@@ -94,17 +96,17 @@ def _sanitize_link_for_db(link):
 # ═══════════════════════════════════════════════════════════════════════
 
 async def hardmux_multi_task(multi_ps, message: Message, chat_id, user_id, process_command) -> bool:
-    new_msg = await ask_media_OR_url(message, chat_id, user_id, [process_command, "stop"], "Kirim Berkas Subtitle SRT", 120, False, False, allow_magnet=False, allow_url=False)
+    new_msg = await ask_media_OR_url(message, chat_id, user_id, [process_command, "stop"], "💬 Kirim Berkas Subtitle SRT/ASS", 120, False, False, allow_magnet=False, allow_url=False)
     if not new_msg or new_msg in ["cancelled", "stopped", "batal"]: return False
     if not new_msg.document:
-        await safe_reply(message, "❗ Hanya Berkas Dokumen Telegram yang Didukung")
+        await safe_reply(message, "❌ Hanya Berkas Dokumen Telegram yang Didukung.")
         return False
     mime = str(new_msg.document.mime_type)
     if mime.startswith("video/") or mime.startswith("image/"):
         await safe_reply(message, "❌ Saya Membutuhkan Berkas Subtitle (SRT/ASS).")
         return False
     if new_msg.document.file_size >= 512_000:
-        await safe_reply(message, "❌ Ukuran Subtitle Lebih dari 500KB")
+        await safe_reply(message, "❌ Ukuran Subtitle Lebih dari 500KB.")
         return False
     sub_name = new_msg.document.file_name
     create_direc(f"{multi_ps.dir}/subtitles")
@@ -123,10 +125,10 @@ async def append_multi_task(process_status, process_name, cmd, message: Message)
 
 async def multi_tasks(process_status, cmd) -> bool:
     ffmpeg_funcs = [Names.compress, Names.watermark, Names.convert, Names.hardmux]
-    p_text = "\n".join(f"`{p}`" for p in ffmpeg_funcs)
+    p_text = "\n".join(f"🔹 `{p}`" for p in ffmpeg_funcs)
     q = 1; p_cmd = cmd; valid_list = ffmpeg_funcs + ["stop", "cancel", "batal"]; m_result = True; chat_message = process_status.event
     while True:
-        text = f"Apa yang Harus Dilakukan dengan Hasil **{p_cmd.replace('/', '').upper()}**\n🔶 Tugas Multi Ke-{q}\n\n{p_text}\n\n🔷 Kirim `stop` untuk Proses | `batal` untuk Batalkan"
+        text = f"Apa yang Harus Dilakukan dengan Hasil **{p_cmd.replace('/', '').upper()}**\n⚙️ Tugas Multi Ke-{q}\n\n{p_text}\n\n👉 Kirim `stop` untuk Proses | `batal` untuk Batalkan"
         from .shared import ask_text_list
         result = await ask_text_list(process_status.chat_id, process_status.user_id, chat_message, 120, text, valid_list)
         if not result: m_result = False; break
@@ -143,10 +145,10 @@ async def _generic_video_handler(message: Message, process_name: str, cmd_name: 
     if user_id not in get_data(): await new_user(user_id, SAVE_TO_DATABASE)
 
     link, custom_file_name = await get_link(message)
-    if link == "invalid": return await safe_reply(message, "❗ Tautan tidak valid")
+    if link == "invalid": return await safe_reply(message, "❌ Tautan tidak valid.")
         
     if not link:
-        ne = await ask_media_OR_url(message, chat_id, user_id, [f"/{cmd_name}{CMD_SUFFIX}", "stop"], "Kirim Video atau URL", 120, "video/", False)
+        ne = await ask_media_OR_url(message, chat_id, user_id, [f"/{cmd_name}{CMD_SUFFIX}", "stop"], "🎬 Kirim Video atau URL", 120, "video/", False)
         if ne and ne not in ["cancelled", "stopped"]: link = await get_url_from_message(ne)
         else: return
 
@@ -168,7 +170,7 @@ async def _encode_video(message: Message):
     if user_id not in get_data(): await new_user(user_id, SAVE_TO_DATABASE)
 
     link, custom_file_name = await get_link(message)
-    if link == "invalid": return await safe_reply(message, "❗ Tautan tidak valid")
+    if link == "invalid": return await safe_reply(message, "❌ Tautan tidak valid.")
         
     if not link:
         ne = await ask_media_OR_url(message, chat_id, user_id, [f"/encode{CMD_SUFFIX}", "stop"], "🎬 Kirim Video atau URL untuk di-Encode", 120, "video/", False)
@@ -178,8 +180,8 @@ async def _encode_video(message: Message):
     link = _sanitize_link_for_db(link)
     fname = _get_fname(link, custom_file_name)
 
-    kb_skip = _make_reply_kb(["⏭ Skip", "❌ Batal"], 2)
-    ask_sub = await message.reply("💬 Kirim file Subtitle (SRT/ASS) untuk di-Hardmux.\n\nAtau tekan tombol `⏭ Skip` jika tidak perlu.", reply_markup=kb_skip)
+    kb_skip = _make_reply_kb(["⏭️ Skip", "❌ Batal"], 2)
+    ask_sub = await message.reply("💬 Kirim file Subtitle (SRT/ASS) untuk di-Hardmux.\n\nAtau tekan tombol `⏭️ Skip` jika tidak perlu.", reply_markup=kb_skip)
     sub_msg = await wait_for_message(chat_id, user_id, 120)
     await _clean_msgs(ask_sub)
     
@@ -194,7 +196,7 @@ async def _encode_video(message: Message):
         sub_name_str = sub_msg.document.file_name
         await Telegram.AIOGRAM_BOT.download(sub_msg.document, destination=sub_path)
 
-    ask_aud = await message.reply("🎵 Kirim file Audio (MP3/M4A) untuk Dubbing.\n\nAtau tekan tombol `⏭ Skip` jika tidak perlu.", reply_markup=kb_skip)
+    ask_aud = await message.reply("🎵 Kirim file Audio (MP3/M4A) untuk Dubbing.\n\nAtau tekan tombol `⏭️ Skip` jika tidak perlu.", reply_markup=kb_skip)
     aud_msg = await wait_for_message(chat_id, user_id, 120)
     await _clean_msgs(ask_aud)
     
@@ -226,7 +228,7 @@ async def _encode_video(message: Message):
     if not press or "batal" in (press.text or "").lower():
          return await message.answer("❌ Dibatalkan.", reply_markup=ReplyKeyboardRemove())
          
-    await message.answer("✅ Mempersiapkan proses encode...", reply_markup=ReplyKeyboardRemove())
+    await message.answer("⏳ ✅ Mempersiapkan proses encode...", reply_markup=ReplyKeyboardRemove())
 
     ps = ProcessStatus(user_id, chat_id, get_username(message), message.from_user.first_name, message, "encode", custom_file_name)
     if sub_path: ps.append_subtitles(sub_path)
@@ -254,7 +256,7 @@ async def _compress_video(message: Message):
     if user_id not in get_data(): await new_user(user_id, SAVE_TO_DATABASE)
 
     link, custom_file_name = await get_link(message)
-    if link == "invalid": return await safe_reply(message, "❗ Tautan tidak valid")
+    if link == "invalid": return await safe_reply(message, "❌ Tautan tidak valid.")
         
     if not link:
         ne = await ask_media_OR_url(message, chat_id, user_id, [f"/compress{CMD_SUFFIX}", "stop"], "🎬 Kirim Video atau URL untuk di-Compress", 120, "video/", False)
@@ -277,7 +279,7 @@ async def _compress_video(message: Message):
     if not press or "batal" in (press.text or "").lower():
          return await message.answer("❌ Dibatalkan.", reply_markup=ReplyKeyboardRemove())
          
-    await message.answer("✅ Mempersiapkan proses compress...", reply_markup=ReplyKeyboardRemove())
+    await message.answer("⏳ ✅ Mempersiapkan proses compress...", reply_markup=ReplyKeyboardRemove())
 
     ps = ProcessStatus(user_id, chat_id, get_username(message), message.from_user.first_name, message, Names.compress, custom_file_name)
 
@@ -303,7 +305,7 @@ async def _convert_video(message: Message):
     if user_id not in get_data(): await new_user(user_id, SAVE_TO_DATABASE)
 
     link, custom_file_name = await get_link(message)
-    if link == "invalid": return await safe_reply(message, "❗ Tautan tidak valid")
+    if link == "invalid": return await safe_reply(message, "❌ Tautan tidak valid.")
         
     if not link:
         ne = await ask_media_OR_url(message, chat_id, user_id, [f"/convert{CMD_SUFFIX}", "stop"], "📺 Kirim Video atau URL untuk di-Convert", 120, "video/", False)
@@ -386,7 +388,7 @@ async def _convert_video(message: Message):
 
     await saveconfig(user_id, "convert", "convert_list", sorted_res, SAVE_TO_DATABASE)
          
-    await message.answer(f"✅ Mengantrekan proses konversi massa ({res_str})...", reply_markup=ReplyKeyboardRemove())
+    await message.answer(f"⏳ ✅ Mengantrekan proses konversi massa ({res_str})...", reply_markup=ReplyKeyboardRemove())
 
     ps = ProcessStatus(user_id, chat_id, get_username(message), message.from_user.first_name, message, Names.convert, custom_file_name)
     ps.convert_quality = str(sorted_res[0])
@@ -416,7 +418,7 @@ async def _custom_encode_video(message: Message):
     if user_id not in get_data(): await new_user(user_id, SAVE_TO_DATABASE)
 
     link, custom_file_name = await get_link(message)
-    if link == "invalid": return await safe_reply(message, "❗ Tautan tidak valid")
+    if link == "invalid": return await safe_reply(message, "❌ Tautan tidak valid.")
         
     if not link:
         ne = await ask_media_OR_url(message, chat_id, user_id, [f"/customencode{CMD_SUFFIX}", "stop"], "🎛️ Kirim Video Utama untuk Custom Encode", 120, "video/", False)
@@ -519,7 +521,7 @@ async def _custom_encode_video(message: Message):
          del ps
          return await message.answer("❌ Dibatalkan.", reply_markup=ReplyKeyboardRemove())
          
-    await message.answer("✅ Memasukkan ke antrean. Semua file akan diunduh & diproses otomatis...", reply_markup=ReplyKeyboardRemove())
+    await message.answer("⏳ ✅ Memasukkan ke antrean. Semua file akan diunduh & diproses otomatis...", reply_markup=ReplyKeyboardRemove())
 
     ps.custom_ffmpeg_cmd = custom_args 
     ps.custom_watermark = {"enabled": False} 
@@ -554,10 +556,10 @@ async def _add_watermark_interactive(message: Message):
     if user_id not in get_data(): await new_user(user_id, SAVE_TO_DATABASE)
 
     link, custom_file_name = await get_link(message)
-    if link == "invalid": return await safe_reply(message, "❗ Tautan tidak valid")
+    if link == "invalid": return await safe_reply(message, "❌ Tautan tidak valid.")
         
     if not link:
-        ne = await ask_media_OR_url(message, chat_id, user_id, [f"/watermark{CMD_SUFFIX}", "stop"], "🛺 Kirim Video atau URL untuk diberi Watermark", 120, "video/", False)
+        ne = await ask_media_OR_url(message, chat_id, user_id, [f"/watermark{CMD_SUFFIX}", "stop"], "©️ Kirim Video atau URL untuk diberi Watermark", 120, "video/", False)
         if ne and ne not in ["cancelled", "stopped"]: link = await get_url_from_message(ne)
         else: return
 
@@ -566,7 +568,7 @@ async def _add_watermark_interactive(message: Message):
     ps = ProcessStatus(user_id, chat_id, get_username(message), message.from_user.first_name, message, Names.watermark, custom_file_name)
 
     kb_mode = _make_reply_kb(["🖼️ Gambar / Logo", "✍️ Teks", "❌ Batal"], 2)
-    mode_msg = await message.reply("🛺 **Pilih Mode Watermark:**", reply_markup=kb_mode)
+    mode_msg = await message.reply("©️ **Pilih Mode Watermark:**", reply_markup=kb_mode)
     res_mode = await wait_for_message(chat_id, user_id, 60)
     await _clean_msgs(mode_msg, res_mode)
     
@@ -590,9 +592,9 @@ async def _add_watermark_interactive(message: Message):
         txt_msg = await ask_text_event(chat_id, user_id, message, 60, "✍️ Kirim teks untuk Watermark:", message_hint=None)
         if not txt_msg: return await message.answer("❌ Dibatalkan.", reply_markup=ReplyKeyboardRemove())
         
-        kb_skip = _make_reply_kb(["⏭ Skip", "❌ Batal"], 2)
+        kb_skip = _make_reply_kb(["⏭️ Skip", "❌ Batal"], 2)
         
-        ask_font = await message.reply("🔤 Kirim file Font (.ttf/.otf)\n\nAtau tekan tombol `⏭ Skip` untuk memakai font standar.", reply_markup=kb_skip)
+        ask_font = await message.reply("🔤 Kirim file Font (.ttf/.otf)\n\nAtau tekan tombol `⏭️ Skip` untuk memakai font standar.", reply_markup=kb_skip)
         font_msg = await wait_for_message(chat_id, user_id, 60)
         await _clean_msgs(ask_font)
         
@@ -606,7 +608,7 @@ async def _add_watermark_interactive(message: Message):
             font_path = f"./temp/wm_{user_id}/custom_font.ttf"
             await Telegram.AIOGRAM_BOT.download(font_msg.document, destination=font_path)
             
-        ask_color = await message.reply("🎨 Kirim warna teks (contoh: `white`, `red`, `yellow`, `#FF0000`)\n\nAtau tekan tombol `⏭ Skip` untuk warna default:", reply_markup=kb_skip)
+        ask_color = await message.reply("🎨 Kirim warna teks (contoh: `white`, `red`, `yellow`, `#FF0000`)\n\nAtau tekan tombol `⏭️ Skip` untuk warna default:", reply_markup=kb_skip)
         color_msg = await wait_for_message(chat_id, user_id, 60)
         await _clean_msgs(ask_color)
         
@@ -638,7 +640,7 @@ async def _add_watermark_interactive(message: Message):
     
     kb_conf = _make_reply_kb(["✅ Watermark", "❌ Batal"], 2)
     conf_txt = (
-        f"**🛺 KONFIRMASI WATERMARK**\n\n"
+        f"**©️ KONFIRMASI WATERMARK**\n\n"
         f"🎬 File: `{fname}`\n"
         f"🎨 Mode: `{mode.capitalize()}`\n"
         f"📍 Posisi: `{pos}`\n"
@@ -652,7 +654,7 @@ async def _add_watermark_interactive(message: Message):
     if not press or "batal" in (press.text or "").lower():
          return await message.answer("❌ Dibatalkan.", reply_markup=ReplyKeyboardRemove())
          
-    await message.answer("✅ Mempersiapkan proses watermark...", reply_markup=ReplyKeyboardRemove())
+    await message.answer("⏳ ✅ Mempersiapkan proses watermark...", reply_markup=ReplyKeyboardRemove())
     
     ps.custom_watermark = custom_wm
 
@@ -707,15 +709,15 @@ async def _merge_videos(message: Message):
             task["functions"].append(["TG", [ne]])
             idx += 1
         else:
-            err = await message.reply("❗ Format tidak valid atau bukan video.")
+            err = await message.reply("❌ Format tidak valid atau bukan video.")
             await asyncio.sleep(2)
             await _clean_msgs(err)
 
     if len(task["functions"]) < 2:
         del ps
-        return await message.answer("❗ Minimal 2 Berkas Diperlukan untuk Menggabungkan.", reply_markup=ReplyKeyboardRemove())
+        return await message.answer("❌ Minimal 2 Berkas Diperlukan untuk Menggabungkan.", reply_markup=ReplyKeyboardRemove())
 
-    await message.answer("✅ Mempersiapkan proses penggabungan...", reply_markup=ReplyKeyboardRemove())
+    await message.answer("⏳ ✅ Mempersiapkan proses penggabungan...", reply_markup=ReplyKeyboardRemove())
 
     await get_thumbnail(ps, [f"/merge{CMD_SUFFIX}", "pass"], 120)
     ps.custom_watermark = {"enabled": False}
@@ -740,9 +742,9 @@ async def _subtitle_mux_handler(message: Message, process_name: str, cmd_name: s
     if user_id not in get_data(): await new_user(user_id, SAVE_TO_DATABASE)
 
     link, custom_file_name = await get_link(message)
-    if link == "invalid": return await safe_reply(message, "❗ Tautan tidak valid")
+    if link == "invalid": return await safe_reply(message, "❌ Tautan tidak valid.")
     if not link:
-        ne = await ask_media_OR_url(message, chat_id, user_id, [f"/{cmd_name}{CMD_SUFFIX}", "stop"], "Kirim Video atau URL", 120, "video/", False)
+        ne = await ask_media_OR_url(message, chat_id, user_id, [f"/{cmd_name}{CMD_SUFFIX}", "stop"], "🎬 Kirim Video atau URL", 120, "video/", False)
         if ne and ne not in ["cancelled", "stopped"]: link = await get_url_from_message(ne)
         else: return
 
@@ -807,7 +809,7 @@ async def _subtitle_mux_handler(message: Message, process_name: str, cmd_name: s
                 break
             idx += 1
         else: 
-            err = await message.reply("❗ Hanya Berkas Media/Dokumen Telegram yang Didukung.")
+            err = await message.reply("❌ Hanya Berkas Media/Dokumen Telegram yang Didukung.")
             await asyncio.sleep(2)
             await _clean_msgs(err)
 
@@ -817,7 +819,7 @@ async def _subtitle_mux_handler(message: Message, process_name: str, cmd_name: s
         
     if not ps.subtitles: 
         del ps
-        return await message.answer(f"❗ Minimal 1 Berkas (Subtitle/Audio) Diperlukan untuk {process_name}.", reply_markup=ReplyKeyboardRemove())
+        return await message.answer(f"❌ Minimal 1 Berkas (Subtitle/Audio) Diperlukan untuk {process_name}.", reply_markup=ReplyKeyboardRemove())
 
     kb_conf = _make_reply_kb(["✅ Mux", "❌ Batal"], 2)
     conf_txt = (
@@ -833,7 +835,7 @@ async def _subtitle_mux_handler(message: Message, process_name: str, cmd_name: s
     if not press or "batal" in (press.text or "").lower():
          return await message.answer("❌ Dibatalkan.", reply_markup=ReplyKeyboardRemove())
          
-    await message.answer("✅ Mempersiapkan proses...", reply_markup=ReplyKeyboardRemove())
+    await message.answer("⏳ ✅ Mempersiapkan proses...", reply_markup=ReplyKeyboardRemove())
 
     await get_thumbnail(ps, [f"/{cmd_name}{CMD_SUFFIX}", "pass"], 120)
     ps.custom_watermark = {"enabled": False} 
@@ -868,7 +870,7 @@ async def _gen_video_sample(message: Message):
     if user_id not in get_data(): await new_user(user_id, SAVE_TO_DATABASE)
 
     link, custom_file_name = await get_link(message)
-    if link == "invalid": return await safe_reply(message, "❗ Tautan tidak valid")
+    if link == "invalid": return await safe_reply(message, "❌ Tautan tidak valid.")
     if not link:
         ne = await ask_media_OR_url(message, chat_id, user_id, [f"/gensample{CMD_SUFFIX}", "stop"], "🎬 Kirim Video atau URL untuk dibuatkan Sampel", 120, "video/", False)
         if ne and ne not in ["cancelled", "stopped"]: link = await get_url_from_message(ne)
@@ -910,7 +912,7 @@ async def _gen_video_sample(message: Message):
     if not press or "batal" in (press.text or "").lower():
         return await message.answer("❌ Dibatalkan.", reply_markup=ReplyKeyboardRemove())
         
-    await message.answer("✅ Mempersiapkan proses pembuatan sampel...", reply_markup=ReplyKeyboardRemove())
+    await message.answer("⏳ ✅ Mempersiapkan proses pembuatan sampel...", reply_markup=ReplyKeyboardRemove())
 
     ps = ProcessStatus(user_id, chat_id, get_username(message), message.from_user.first_name, message, Names.gensample, custom_file_name)
     ps.custom_sample_duration = sample_duration # Inject durasi custom
@@ -928,7 +930,7 @@ async def _gen_screenshots(message: Message):
     if user_id not in get_data(): await new_user(user_id, SAVE_TO_DATABASE)
 
     link, custom_file_name = await get_link(message)
-    if link == "invalid": return await safe_reply(message, "❗ Tautan tidak valid")
+    if link == "invalid": return await safe_reply(message, "❌ Tautan tidak valid.")
     if not link:
         ne = await ask_media_OR_url(message, chat_id, user_id, [f"/genss{CMD_SUFFIX}", "stop"], "📷 Kirim Video atau URL untuk di-Screenshot", 120, "video/", False)
         if ne and ne not in ["cancelled", "stopped"]: link = await get_url_from_message(ne)
@@ -970,7 +972,7 @@ async def _gen_screenshots(message: Message):
     if not press2 or "batal" in (press2.text or "").lower():
         return await message.answer("❌ Dibatalkan.", reply_markup=ReplyKeyboardRemove())
         
-    await message.answer("✅ Mempersiapkan proses...", reply_markup=ReplyKeyboardRemove())
+    await message.answer("⏳ ✅ Mempersiapkan proses...", reply_markup=ReplyKeyboardRemove())
 
     ps = ProcessStatus(user_id, chat_id, get_username(message), message.from_user.first_name, message, Names.genss, custom_file_name)
     ps.custom_ss_no = ss_num # Inject jumlah screenshot custom
@@ -990,14 +992,14 @@ async def _mute_video(message: Message):
     if not await vip_check(message): return
     user_id, chat_id = message.from_user.id, message.chat.id
     link, custom_file_name = await get_link(message)
-    if not link: return await safe_reply(message, f"Kirim video/URL lalu balas dengan perintah /mute{CMD_SUFFIX}")
+    if not link: return await safe_reply(message, f"❌ Kirim video/URL lalu balas dengan perintah /mute{CMD_SUFFIX}")
 
     ps = ProcessStatus(user_id, chat_id, get_username(message), message.from_user.first_name, message, "mute", custom_file_name)
     ps.custom_watermark = {"enabled": False}
     ps.audio_settings = {"enabled": False} 
     await get_thumbnail(ps, [f"/mute{CMD_SUFFIX}", "pass"], 120)
     
-    await message.answer("🔇 Memproses Mute Video (Menghapus Audio)...")
+    await message.answer("⏳ 🔇 Memproses Mute Video (Menghapus Audio)...")
     task = build_task(ps, link)
     await submit_task(task)
 
@@ -1007,7 +1009,7 @@ async def _dubbing_video(message: Message):
     user_id, chat_id = message.from_user.id, message.chat.id
     
     link, custom_file_name = await get_link(message)
-    if not link: return await safe_reply(message, f"Kirim video/URL lalu balas dengan perintah /dubbing{CMD_SUFFIX}")
+    if not link: return await safe_reply(message, f"❌ Kirim video/URL lalu balas dengan perintah /dubbing{CMD_SUFFIX}")
 
     ask_aud = await message.reply("🎵 Kirim file Audio (MP3/M4A/WAV) yang akan menggantikan suara asli video:")
     aud_msg = await wait_for_message(chat_id, user_id, 120)
@@ -1025,7 +1027,7 @@ async def _dubbing_video(message: Message):
     ps.custom_dub_audio = aud_path 
     ps.custom_watermark = {"enabled": False}
     
-    await message.answer("🎙 Memproses Dubbing (Suara Asli Dihapus, Suara Baru Dimasukkan)...")
+    await message.answer("⏳ 🎙️ Memproses Dubbing (Suara Asli Dihapus, Suara Baru Dimasukkan)...")
     await get_thumbnail(ps, [f"/dubbing{CMD_SUFFIX}", "pass"], 120)
     task = build_task(ps, link)
     await submit_task(task)
@@ -1036,7 +1038,7 @@ async def _speed_video(message: Message):
     user_id, chat_id = message.from_user.id, message.chat.id
     
     link, custom_file_name = await get_link(message)
-    if not link: return await safe_reply(message, f"Kirim video/URL lalu balas dengan perintah /speed{CMD_SUFFIX}")
+    if not link: return await safe_reply(message, f"❌ Kirim video/URL lalu balas dengan perintah /speed{CMD_SUFFIX}")
 
     kb_speed = _make_reply_kb(["Lambat (0.5x)", "Cepat (1.5x)", "Sangat Cepat (2.0x)", "❌ Batal"], 2)
     ask_spd = await message.reply("⚡ Pilih Kecepatan Video Baru:", reply_markup=kb_speed)
@@ -1054,7 +1056,7 @@ async def _speed_video(message: Message):
     ps.audio_filters = [f"atempo={speed_factor}"]
     ps.custom_watermark = {"enabled": False}
 
-    await message.answer(f"⚡ Memproses perubahan kecepatan menjadi {speed_factor}x...")
+    await message.answer(f"⏳ ⚡ Memproses perubahan kecepatan menjadi {speed_factor}x...")
     await get_thumbnail(ps, [f"/speed{CMD_SUFFIX}", "pass"], 120)
     task = build_task(ps, link)
     await submit_task(task)
@@ -1068,9 +1070,9 @@ async def _speed_video(message: Message):
 async def _extract_thumbnail(message: Message):
     if not await vip_check(message): return
     link, _ = await get_link(message)
-    if not link: return await safe_reply(message, "Kirim/Balas video lalu gunakan command ini.")
+    if not link: return await safe_reply(message, "❌ Kirim/Balas video lalu gunakan command ini.")
 
-    msg = await message.answer("🖼 Mengambil Thumbnail HD...")
+    msg = await message.answer("⏳ 🖼️ Mengambil Thumbnail HD...")
     user_id = message.from_user.id
     
     # Check if link is a Telegram object
@@ -1106,7 +1108,7 @@ async def _extract_thumbnail(message: Message):
 async def _extract_frames_zip(message: Message):
     if not await vip_check(message): return
     link, _ = await get_link(message)
-    if not link: return await safe_reply(message, "Kirim/Balas video lalu gunakan command ini.")
+    if not link: return await safe_reply(message, "❌ Kirim/Balas video lalu gunakan command ini.")
 
     ask = await message.reply("🎞 **Mau ambil frame setiap berapa detik?**\n_(Ketik angka saja, contoh: `5` artinya 1 gambar setiap 5 detik)_")
     res = await wait_for_message(message.chat.id, message.from_user.id, 60)
@@ -1115,7 +1117,7 @@ async def _extract_frames_zip(message: Message):
     interval = (res.text or "").strip()
     if not interval.isdigit(): interval = "5" 
     
-    msg = await message.answer(f"🎞 Sedang mengekstrak frame (1 gambar per {interval} detik) dan membuat ZIP...\n_Mohon tunggu sebentar._")
+    msg = await message.answer(f"⏳ 🎞️ Sedang mengekstrak frame (1 gambar per {interval} detik) dan membuat ZIP...\n_Mohon tunggu sebentar._")
     user_id = message.from_user.id
     
     if not isinstance(link, str):
@@ -1162,9 +1164,9 @@ async def _leech_mirror_handler(message: Message, process_name: str, cmd_name: s
     if user_id not in get_data(): await new_user(user_id, SAVE_TO_DATABASE)
 
     link, custom_file_name = await get_link(message)
-    if link == "invalid": return await safe_reply(message, "❗ Tautan tidak valid")
+    if link == "invalid": return await safe_reply(message, "❌ Tautan tidak valid.")
     if not link:
-        ne = await ask_url(message, chat_id, user_id, [f"/{cmd_name}{CMD_SUFFIX}", "stop"], "Kirim Tautan", 120, False)
+        ne = await ask_url(message, chat_id, user_id, [f"/{cmd_name}{CMD_SUFFIX}", "stop"], "🔗 Kirim Tautan", 120, False)
         if ne and ne not in ["cancelled", "stopped"]: link = await get_url_from_message(ne)
         else: return
 
