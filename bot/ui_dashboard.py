@@ -1,7 +1,7 @@
 """
 UI Dashboard Template for STUDIO KHOIRUL (Aiogram 3.x)
-Versi: PROFESSIONAL v5.5 - Custom Media Prompt & 120s Timeout Fix
-Update: Integrasi Menu AI, Subtitle Editor, Global Waiter
+Versi: PROFESSIONAL v6.0 - Full Fix UnboundLocalError + Navigation
+Update: Import safety, Full keyboard, 120s timeout, Admin protection
 """
 
 import asyncio
@@ -118,7 +118,7 @@ def get_back_cancel_kb() -> InlineKeyboardMarkup:
     ])
 
 # ==========================================
-# 4. KEYBOARD LAYOUTS
+# 4. KEYBOARD LAYOUTS (Lengkap)
 # ==========================================
 
 def kb_start_menu() -> InlineKeyboardMarkup:
@@ -162,16 +162,12 @@ def kb_main_menu(is_admin_user: bool = False) -> InlineKeyboardMarkup:
 
 def kb_ai() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=[
-        [
-            InlineKeyboardButton(text="🧠 Auto Subtitle (AI)", callback_data="cmd_autosub", style="primary")
-        ],
+        [InlineKeyboardButton(text="🧠 Auto Subtitle (AI)", callback_data="cmd_autosub", style="primary")],
         [
             InlineKeyboardButton(text="🌐 Auto Translate", callback_data="cmd_autotranslate", style="primary"),
             InlineKeyboardButton(text="📝 Editor Subtitle", callback_data="cmd_subedit", style="primary")
         ],
-        [
-            InlineKeyboardButton(text="↩️ Kembali", callback_data="menu_main", style="danger")
-        ]
+        [InlineKeyboardButton(text="↩️ Kembali", callback_data="menu_main", style="danger")]
     ])
 
 def kb_studio() -> InlineKeyboardMarkup:
@@ -192,22 +188,14 @@ def kb_studio() -> InlineKeyboardMarkup:
             InlineKeyboardButton(text="⚡ Patch", callback_data="cmd_patch", style="primary"),
             InlineKeyboardButton(text="📚 Arsip", callback_data="cmd_archives", style="primary")
         ],
-        [
-            InlineKeyboardButton(text="▶️ Upload YT", callback_data="cmd_ytupload", style="success")
-        ],
-        [
-            InlineKeyboardButton(text="↩️ Kembali", callback_data="menu_main", style="danger")
-        ]
+        [InlineKeyboardButton(text="▶️ Upload YT", callback_data="cmd_ytupload", style="success")],
+        [InlineKeyboardButton(text="↩️ Kembali", callback_data="menu_main", style="danger")]
     ])
 
 def kb_encode() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=[
-        [
-            InlineKeyboardButton(text="🚀 Encode Cepat", callback_data="cmd_encode", style="success")
-        ],
-        [
-            InlineKeyboardButton(text="🎛️ Encode Custom", callback_data="cmd_customencode", style="primary")
-        ],
+        [InlineKeyboardButton(text="🚀 Encode Cepat", callback_data="cmd_encode", style="success")],
+        [InlineKeyboardButton(text="🎛️ Encode Custom", callback_data="cmd_customencode", style="primary")],
         [
             InlineKeyboardButton(text="ℹ️ Info Encode", callback_data="info_encode", style="primary"),
             InlineKeyboardButton(text="↩️ Kembali", callback_data="menu_main", style="danger")
@@ -220,9 +208,7 @@ def kb_editor() -> InlineKeyboardMarkup:
             InlineKeyboardButton(text="🗜️ Kompres", callback_data="cmd_compress", style="primary"),
             InlineKeyboardButton(text="🔄 Konversi", callback_data="cmd_convert", style="primary")
         ],
-        [
-            InlineKeyboardButton(text="🔗 Gabung", callback_data="cmd_merge", style="primary")
-        ],
+        [InlineKeyboardButton(text="🔗 Gabung", callback_data="cmd_merge", style="primary")],
         [
             InlineKeyboardButton(text="✂️ Trim", callback_data="cmd_trim", style="primary"),
             InlineKeyboardButton(text="🔪 Potong", callback_data="cmd_cut", style="primary"),
@@ -237,9 +223,7 @@ def kb_editor() -> InlineKeyboardMarkup:
             InlineKeyboardButton(text="🎬 Auto Crop", callback_data="cmd_autocrop", style="primary"),
             InlineKeyboardButton(text="🔃 Rotasi", callback_data="cmd_rotate", style="primary")
         ],
-        [
-            InlineKeyboardButton(text="©️ Watermark", callback_data="cmd_watermark", style="primary")
-        ],
+        [InlineKeyboardButton(text="©️ Watermark", callback_data="cmd_watermark", style="primary")],
         [
             InlineKeyboardButton(text="🔇 Mute Audio", callback_data="cmd_mute", style="primary"),
             InlineKeyboardButton(text="🎙️ Dubbing", callback_data="cmd_dubbing", style="primary")
@@ -253,9 +237,7 @@ def kb_editor() -> InlineKeyboardMarkup:
             InlineKeyboardButton(text="🏷️ Metadata", callback_data="cmd_changemetadata", style="primary"),
             InlineKeyboardButton(text="🔀 Ubah Index", callback_data="cmd_changeindex", style="primary")
         ],
-        [
-            InlineKeyboardButton(text="📥 Ekstrak", callback_data="cmd_extract", style="primary")
-        ],
+        [InlineKeyboardButton(text="📥 Ekstrak", callback_data="cmd_extract", style="primary")],
         [
             InlineKeyboardButton(text="📸 Screenshot", callback_data="cmd_genss", style="primary"),
             InlineKeyboardButton(text="🎞️ Sample", callback_data="cmd_gensample", style="primary")
@@ -268,9 +250,7 @@ def kb_editor() -> InlineKeyboardMarkup:
 
 def kb_assets() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=[
-        [
-            InlineKeyboardButton(text="➕ Tambah Footage", callback_data="cmd_addgameplay", style="success")
-        ],
+        [InlineKeyboardButton(text="➕ Tambah Footage", callback_data="cmd_addgameplay", style="success")],
         [
             InlineKeyboardButton(text="📋 List Footage", callback_data="cmd_listgameplay", style="primary"),
             InlineKeyboardButton(text="🔊 Tambah SFX", callback_data="cmd_addsfx", style="primary")
@@ -287,9 +267,7 @@ def kb_download() -> InlineKeyboardMarkup:
             InlineKeyboardButton(text="📥 Leech URL", callback_data="cmd_leech", style="primary"),
             InlineKeyboardButton(text="☁️ Mirror Cloud", callback_data="cmd_mirror", style="primary")
         ],
-        [
-            InlineKeyboardButton(text="↩️ Kembali", callback_data="menu_main", style="danger")
-        ]
+        [InlineKeyboardButton(text="↩️ Kembali", callback_data="menu_main", style="danger")]
     ])
 
 def kb_settings() -> InlineKeyboardMarkup:
@@ -314,12 +292,8 @@ def kb_settings() -> InlineKeyboardMarkup:
             InlineKeyboardButton(text="🚜 Target Konversi", callback_data="convert_settings", style="primary"),
             InlineKeyboardButton(text="🏷️ Metadata", callback_data="metadata_settings", style="primary")
         ],
-        [
-            InlineKeyboardButton(text="🤖 Setting Umum (Bot)", callback_data="settings_bot", style="primary")
-        ],
-        [
-            InlineKeyboardButton(text="↩️ Kembali", callback_data="menu_main", style="danger")
-        ]
+        [InlineKeyboardButton(text="🤖 Setting Umum (Bot)", callback_data="settings_bot", style="primary")],
+        [InlineKeyboardButton(text="↩️ Kembali", callback_data="menu_main", style="danger")]
     ])
 
 def kb_vip() -> InlineKeyboardMarkup:
@@ -328,12 +302,8 @@ def kb_vip() -> InlineKeyboardMarkup:
             InlineKeyboardButton(text="👑 Status VIP", callback_data="cmd_myvip", style="primary"),
             InlineKeyboardButton(text="ℹ️ Info VIP", callback_data="cmd_vip_info", style="primary")
         ],
-        [
-            InlineKeyboardButton(text="💳 Verifikasi", callback_data="cmd_verify", style="success")
-        ],
-        [
-            InlineKeyboardButton(text="↩️ Kembali", callback_data="menu_main", style="danger")
-        ]
+        [InlineKeyboardButton(text="💳 Verifikasi", callback_data="cmd_verify", style="success")],
+        [InlineKeyboardButton(text="↩️ Kembali", callback_data="menu_main", style="danger")]
     ])
 
 def kb_admin() -> InlineKeyboardMarkup:
@@ -498,7 +468,7 @@ Kontrol penuh parameter encoding
     await callback.answer()
 
 # ==========================================
-# 7. COMMAND ROUTER (NEW CLICK & SEND LOGIC)
+# 7. COMMAND ROUTER - FIXED
 # ==========================================
 
 @ui_router.callback_query(F.data.startswith("cmd_"))
@@ -506,20 +476,29 @@ async def route_commands(callback: CallbackQuery):
     cmd = callback.data.split("_", 1)[1]
     user_id = callback.from_user.id
 
-    # Handler mapping untuk command
+    # Import modules di paling atas fungsi (mencegah UnboundLocalError)
+    try:
+        import bot.admin_handlers as adm
+        import bot.media_handlers as med
+        import bot.advanced_media_handlers as adv
+        import bot.vip_handlers as vip
+        import bot.subtitle_handlers as sub
+        import bot.subtitle_editor as subed
+        import bot.MovieRecap as recap
+        import bot.Gameplay as gp
+        import bot.AutoClip as autoclip
+        import bot.YTUpload as yt
+    except Exception as import_err:
+        print(f"[UI ROUTER IMPORT ERROR] {import_err}")
+        return await callback.answer("❌ Gagal memuat module handler.", show_alert=True)
+
     handlers = {
-        "speedtest": getattr(adm, "_speed_test", None),
-        "time": getattr(adm, "_timecmd", None),
-        "stats": getattr(adm, "_stats_msg", None),
-        "restart": getattr(adm, "_restart", None),
-        "renew": getattr(adm, "_renew", None),
-        "log": getattr(adm, "_log", None),
-        "logs": getattr(adm, "_logs", None),
-        "checksudo": getattr(adm, "_checksudo", None),
-        "resetdb": getattr(adm, "_resetdb", None),
-        "addsudo": getattr(adm, "_addsudo", None),
-        "delsudo": getattr(adm, "_delsudo", None),
-        "changeconfig": getattr(adm, "_changeconfig", None),
+        "speedtest": getattr(adm, "_speed_test", None), "time": getattr(adm, "_timecmd", None),
+        "stats": getattr(adm, "_stats_msg", None), "restart": getattr(adm, "_restart", None),
+        "renew": getattr(adm, "_renew", None), "log": getattr(adm, "_log", None),
+        "logs": getattr(adm, "_logs", None), "checksudo": getattr(adm, "_checksudo", None),
+        "resetdb": getattr(adm, "_resetdb", None), "addsudo": getattr(adm, "_addsudo", None),
+        "delsudo": getattr(adm, "_delsudo", None), "changeconfig": getattr(adm, "_changeconfig", None),
         "clearconfigs": getattr(adm, "_clearconfig", None),
 
         "saveconfig": getattr(adm, "_saverclone", None),
@@ -584,8 +563,7 @@ async def route_commands(callback: CallbackQuery):
         "autotranslate": getattr(sub, "autotranslate_handler", None),
         "subedit": getattr(subed, "subedit_start", None)
     }
-    
-    # Perintah yang langsung dieksekusi tanpa butuh input file
+
     admin_cmds = {
         "speedtest", "restart", "renew", "log", "logs", "resetdb",
         "checksudo", "time", "stats", "add_vip", "delete_vip",
@@ -593,8 +571,7 @@ async def route_commands(callback: CallbackQuery):
         "saveconfig", "savewatermark", "savethumb", "status", "verify", "myvip",
         "listgameplay"
     }
-    
-    # Perintah yang butuh user mengirimkan file (Video/Srt/Audio)
+
     media_cmds = {
         "encode", "customencode", "compress", "convert", "merge", "speed",
         "mute", "dubbing", "softmux", "hardmux", "softremux", "watermark",
@@ -604,32 +581,18 @@ async def route_commands(callback: CallbackQuery):
         "leech", "mirror", "addgameplay", "addsfx", "deletegameplay", "recap", "clip",
         "ytupload"
     }
-    
+
     if cmd in admin_cmds and not is_admin(user_id) and cmd not in ["status", "verify", "myvip"]:
         return await callback.answer("⛔ Akses admin only", show_alert=True)
-    
+
     try:
-        import bot.admin_handlers as adm
-        import bot.media_handlers as med
-        import bot.advanced_media_handlers as adv
-        import bot.vip_handlers as vip
-        import bot.subtitle_handlers as sub
-        import bot.subtitle_editor as subed
-        import bot.MovieRecap as recap
-        import bot.Gameplay as gp
-        import bot.AutoClip as autoclip   # ← Ditambahkan agar autoclip_handler bisa diakses
-        import bot.YTUpload as yt
-        
         handler = handlers.get(cmd)
         if not handler:
             return await callback.answer(f"Module {cmd} belum tersedia.", show_alert=True)
 
-        # ─── JIKA MENU MEMBUTUHKAN INPUT FILE ───
         if cmd in media_cmds:
-            # [FIX HIGH] Cegah TelegramBadRequest Timeout 
-            await callback.answer() 
-            
-            # --- CUSTOM PROMPT MESSAGE BERDASARKAN KATEGORI ---
+            await callback.answer()
+
             if cmd == "autosub":
                 media_type = "Video atau Audio"
             elif cmd in ["autotranslate", "subedit"]:
@@ -646,33 +609,28 @@ async def route_commands(callback: CallbackQuery):
                 f"<i>(Waktu tunggu 120 detik)</i>",
                 parse_mode="HTML"
             )
-            
+
             from bot.shared import wait_for_message
             try:
-                # Waktu tunggu diset ke 120 detik
                 response_msg = await wait_for_message(callback.message.chat.id, user_id, timeout=120)
             except asyncio.TimeoutError:
                 response_msg = None
-            
+
             if not response_msg:
                 return await prompt.edit_text(
                     "❌ <b>Dibatalkan:</b> Waktu habis (120 detik) atau input tidak valid.\n"
                     "Silakan buka menu kembali.", 
                     parse_mode="HTML"
                 )
-            
-            await prompt.delete() # Hapus pesan prompt
-            
-            # MEMBUAT FAKE MESSAGE
-            # Seolah-olah user mereply file tersebut dengan perintah /cmd
+
+            await prompt.delete()
+
             fake_msg = response_msg.model_copy(update={
                 "text": f"/{cmd}",
-                "reply_to_message": response_msg 
+                "reply_to_message": response_msg
             })
-            
             return await handler(fake_msg)
 
-        # ─── JIKA MENU INSTAN (TIDAK BUTUH FILE) ───
         else:
             await callback.answer(f"⚡ Memuat {cmd}...")
             fake_msg = callback.message.model_copy(update={
@@ -681,13 +639,13 @@ async def route_commands(callback: CallbackQuery):
                 "text": f"/{cmd}"
             })
             return await handler(fake_msg)
-            
+
     except Exception as e:
         print(f"[UI ROUTER ERROR] {e}")
         try:
             await callback.answer("Terjadi kesalahan sistem UI.", show_alert=True)
         except TelegramBadRequest:
-            pass # Abaikan error jika callback sudah expired
+            pass
 
 # ==========================================
 # 8. GLOBAL ACTIONS
@@ -695,8 +653,10 @@ async def route_commands(callback: CallbackQuery):
 
 @ui_router.callback_query(F.data == "action_close")
 async def action_close(callback: CallbackQuery):
-    try: await callback.message.delete()
-    except: pass
+    try:
+        await callback.message.delete()
+    except:
+        pass
     await callback.answer("Dashboard ditutup")
 
 @ui_router.message(Command("start"))
@@ -713,7 +673,7 @@ async def cmd_dashboard(message: Message):
     stats = get_system_stats()
     vip_badge = get_vip_badge(message.from_user.id)
     queue_count = get_queue_count()
-    
+
     text = MAIN_DASHBOARD.format(
         name=message.from_user.first_name,
         vip_badge=vip_badge,
