@@ -1,9 +1,9 @@
 """
 ╔══════════════════════════════════════════════════════════════════════╗
 ║            bot_helper/Database/DB_Handler.py                         ║
-║            Encoder1 Bot — v3.1                                       ║
+║            Encoder1 Bot — v4.2 (Trinity & SubEdit Update)            ║
 ╠══════════════════════════════════════════════════════════════════════╣
-║  CHANGELOG dari versi lama:                                          ║
+║  CHANGELOG v4.2:                                                     ║
 ║  [SECURITY] eval(data_from_db) → json.loads()                        ║
 ║  [SECURITY] str(dict) serialize → json.dumps()                       ║
 ║  [FIX HIGH] Connection leak → Singleton pattern                      ║
@@ -15,7 +15,7 @@
 ║  [FIX]      Index 'id' dibuat saat connect                           ║
 ║  [IMPROVE]  Date disimpan sebagai datetime object bukan string       ║
 ║  [IMPROVE]  Retry logic untuk transient network errors               ║
-║  [IMPROVE]  collection_name validation                               ║
+║  [IMPROVE]  Ekspos properti `self.db` untuk custom collection        ║
 ╚══════════════════════════════════════════════════════════════════════╝
 """
 
