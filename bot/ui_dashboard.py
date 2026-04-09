@@ -1,7 +1,7 @@
 """
 UI Dashboard Template for STUDIO KHOIRUL (Aiogram 3.x)
-Versi: PROFESSIONAL v5.4 - Click & Send (Global Waiter)
-Update: Integrasi Menu AI, Subtitle Editor + Fix Alur Reply Tombol
+Versi: PROFESSIONAL v5.5 - Custom Media Prompt & 120s Timeout Fix
+Update: Integrasi Menu AI, Subtitle Editor, Global Waiter
 """
 
 import asyncio
@@ -590,21 +590,37 @@ async def route_commands(callback: CallbackQuery):
 
         # ─── JIKA MENU MEMBUTUHKAN INPUT FILE ───
         if cmd in media_cmds:
-            await callback.answer() # Hilangkan loading
+            # [FIX HIGH] Cegah TelegramBadRequest Timeout 
+            await callback.answer() 
+            
+            # --- CUSTOM PROMPT MESSAGE BERDASARKAN KATEGORI ---
+            if cmd == "autosub":
+                media_type = "Video atau Audio"
+            elif cmd in ["autotranslate", "subedit"]:
+                media_type = "File Subtitle (.srt / .ass)"
+            elif cmd in ["savethumb", "savewatermark"]:
+                media_type = "Gambar / Foto"
+            else:
+                media_type = "Media (Video/Audio/Srt/Gambar)"
+
             prompt = await callback.message.answer(
                 f"📥 <b>MODE {cmd.upper()} AKTIF</b>\n"
                 f"────────────────────\n"
-                f"Silakan kirim file (Video/Srt/Audio) Anda ke chat ini sekarang...\n\n"
-                f"<i>(Waktu tunggu 60 detik. Bot akan otomatis memproses setelah file diterima)</i>",
+                f"Silakan kirim <b>{media_type}</b> Anda ke chat ini sekarang...\n\n"
+                f"<i>(Waktu tunggu 120 detik)</i>",
                 parse_mode="HTML"
             )
             
             from bot.shared import wait_for_message
-            response_msg = await wait_for_message(callback.message.chat.id, user_id, timeout=60)
+            try:
+                # Waktu tunggu diset ke 120 detik
+                response_msg = await wait_for_message(callback.message.chat.id, user_id, timeout=120)
+            except asyncio.TimeoutError:
+                response_msg = None
             
             if not response_msg:
                 return await prompt.edit_text(
-                    "❌ <b>Dibatalkan:</b> Waktu habis atau input tidak valid.\n"
+                    "❌ <b>Dibatalkan:</b> Waktu habis (120 detik) atau input tidak valid.\n"
                     "Silakan buka menu kembali.", 
                     parse_mode="HTML"
                 )
@@ -632,7 +648,10 @@ async def route_commands(callback: CallbackQuery):
             
     except Exception as e:
         print(f"[UI ROUTER ERROR] {e}")
-        await callback.answer("Terjadi kesalahan sistem UI.", show_alert=True)
+        try:
+            await callback.answer("Terjadi kesalahan sistem UI.", show_alert=True)
+        except TelegramBadRequest:
+            pass # Abaikan error jika callback sudah expired
 
 # ==========================================
 # 8. GLOBAL ACTIONS
