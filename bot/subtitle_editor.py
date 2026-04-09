@@ -1,14 +1,14 @@
 """
 ╔══════════════════════════════════════════════════════════════════════╗
-║                bot/subtitle_editor.py — v1.1 (PREMIUM)               ║
+║                bot/subtitle_editor.py — v1.2 (PREMIUM)               ║
 ║      Subtitle Editor: Resync, Edit, & Translate (Studio Khoirul)     ║
 ╠══════════════════════════════════════════════════════════════════════╣
-║  CHANGELOG v1.1:                                                     ║
+║  CHANGELOG v1.2:                                                     ║
+║  [FIX HIGH] NameError 'Telegram' saat proses download file SRT.      ║
 ║  [UX PREMIUM] Implementasi API Warna Tombol Native Telegram 9.4+     ║
 ║  [UX PREMIUM] Fitur Resync (+/- 0.5s) per baris langsung ke DB.      ║
 ║  [UX PREMIUM] Fitur Translate per baris via Google Translate.        ║
 ║  [UX PREMIUM] Fitur Edit Teks Manual via Global Message Catcher.     ║
-║  [FIX HIGH] Penanganan error parsing stempel waktu (SubRipTime).     ║
 ╚══════════════════════════════════════════════════════════════════════╝
 """
 
@@ -101,8 +101,11 @@ async def subedit_start(message: Message):
     status_msg = await message.reply("⏳ 📝 **Menganalisis Subtitle...**\n_Mohon tunggu sebentar._")
     
     try:
+        os.makedirs("./temp", exist_ok=True)
         srt_path = f"./temp/sub_{user_id}.srt"
-        await Telegram.AIOGRAM_BOT.download(message.reply_to_message.document, destination=srt_path)
+        
+        # [FIX] Menggunakan message.bot.download untuk menghindari NameError
+        await message.bot.download(message.reply_to_message.document, destination=srt_path)
         
         total_lines = await parse_srt_to_db(user_id, srt_path)
         lines = await get_subtitle_page(user_id, page=1, limit=5)
@@ -118,7 +121,7 @@ async def subedit_start(message: Message):
         await status_msg.edit_text(text, reply_markup=get_editor_kb(lines, 1, total_pages, user_id), parse_mode="HTML")
         if os.path.exists(srt_path): os.remove(srt_path)
     except Exception as e:
-        LOGGER.error(f"SubEdit Error: {e}")
+        LOGGER.error(f"SubEdit Error: {e}", exc_info=True)
         await status_msg.edit_text(f"❌ **Error:** {e}")
 
 # ═══════════════════════════════════════════════════════════════════════
@@ -130,7 +133,6 @@ async def handle_pagination(call: CallbackQuery):
     parts = call.data.split("_")
     user_id = int(parts[2])
     
-    # Logic untuk tombol "Kembali" dari menu Fokus
     page = 1 if parts[3] == "back" else int(parts[3])
     
     if call.from_user.id != user_id: return await call.answer("Bukan milikmu!", show_alert=True)
@@ -209,8 +211,12 @@ async def handle_edit_text_prompt(call: CallbackQuery):
     if call.from_user.id != user_id: return await call.answer("Bukan milikmu!", show_alert=True)
     
     prompt = await call.message.answer(f"📝 **Kirimkan teks baru untuk baris #{line_idx}:**\n_Ketik 'batal' untuk mengabaikan._")
-    response = await wait_for_message(call.message.chat.id, user_id, 60)
     
+    try:
+        response = await wait_for_message(call.message.chat.id, user_id, 60)
+    except asyncio.TimeoutError:
+        response = None
+        
     if not response or response.text.lower() == "batal":
         if prompt: await prompt.delete()
         return await call.answer("Batal mengedit.")
