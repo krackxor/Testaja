@@ -1,12 +1,12 @@
 """
 ╔══════════════════════════════════════════════════════════════════════╗
-║            bot_helper/Others/Names.py — v4.1                         ║
+║            bot_helper/Others/Names.py — v4.2                         ║
 ║                    Konstanta Nama Proses Bot                         ║
 ╠══════════════════════════════════════════════════════════════════════╣
-║  CHANGELOG v4.1:                                                     ║
-║  [NEW]  autosub, autotranslate (Integrasi Whisper AI & Deep Trans)   ║
-║  [NEW]  Mendaftarkan proses baru ke sistem pelacakan antrean.        ║
-║  [FIX]  Standardisasi emoji pada label status UI (UX Premium).       ║
+║  CHANGELOG v4.2:                                                     ║
+║  [NEW]  subedit (Integrasi Manual Subtitle Editor)                   ║
+║  [NEW]  autosub, autotranslate (Whisper AI & Deep Trans)             ║
+║  [FIX]  Sinkronisasi label status UI untuk semua fitur baru.         ║
 ║  [FIX]  Konsistensi string agar dikenali oleh FFMPEG Commands        ║
 ╚══════════════════════════════════════════════════════════════════════╝
 """
@@ -38,9 +38,10 @@ class Names:
     changeMetadata = "ChangeMetadata"
     changeindex    = "ChangeIndex"
 
-    # ── Proses AI & Text (BARU) ──────────────────────────────────────
+    # ── Proses AI & Subtitle Editor (BARU) ───────────────────────────
     autosub        = "AutoSubtitle"
     autotranslate  = "AutoTranslate"
+    subedit        = "SubEdit"       # [NEW] Manual Subtitle Editor
 
     # ── Proses Sistem ─────────────────────────────────────────────────
     pre_download   = "PreDownload"
@@ -92,9 +93,10 @@ class Names:
         changeMetadata: "🪀 Ubah Metadata",
         changeindex:    "🎨 Ubah Index",
 
-        # AI Processes (NEW)
+        # AI & Editor Processes (NEW)
         autosub:        "🧠 AI Transcribing",
         autotranslate:  "🌐 AI Translating",
+        subedit:        "📝 Editing Subtitle", # [NEW]
         
         # Video production processes
         "YouTubeUpload": "⬆️ Mengunggah YouTube",
