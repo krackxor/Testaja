@@ -1,7 +1,7 @@
 """
 UI Dashboard Template for STUDIO KHOIRUL (Aiogram 3.x)
-Versi: PROFESSIONAL v5.2 - AI Subtitles & Native Color Buttons
-Update: Integrasi Menu AI & Text (Whisper AI) + Style Danger/Success/Primary
+Versi: PROFESSIONAL v5.3 - SubEdit Integration & Native Color Buttons
+Update: Integrasi Menu AI, Whisper AI, Subtitle Editor + Style Danger/Success/Primary
 """
 
 import asyncio
@@ -163,10 +163,11 @@ def kb_main_menu(is_admin_user: bool = False) -> InlineKeyboardMarkup:
 def kb_ai() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=[
         [
-            InlineKeyboardButton(text="🧠 Auto Subtitle (Whisper AI)", callback_data="cmd_autosub", style="primary")
+            InlineKeyboardButton(text="🧠 Auto Subtitle (AI)", callback_data="cmd_autosub", style="primary")
         ],
         [
-            InlineKeyboardButton(text="🌐 Auto Translate Subtitle", callback_data="cmd_autotranslate", style="primary")
+            InlineKeyboardButton(text="🌐 Auto Translate", callback_data="cmd_autotranslate", style="primary"),
+            InlineKeyboardButton(text="📝 Editor Subtitle", callback_data="cmd_subedit", style="primary") # [NEW] SubEdit
         ],
         [
             InlineKeyboardButton(text="↩️ Kembali", callback_data="menu_main", style="danger")
@@ -407,7 +408,7 @@ async def nav_studio(callback: CallbackQuery):
 
 @ui_router.callback_query(F.data == "menu_ai")
 async def nav_ai(callback: CallbackQuery):
-    text = create_section_header("🤖", "AI & Subtitle", "Generate subtitle otomatis (Speech-to-Text) dan terjemahkan file subtitle menggunakan AI Whisper.")
+    text = create_section_header("🤖", "AI & Subtitle", "Generate subtitle otomatis (Speech-to-Text), terjemahkan file subtitle menggunakan AI Whisper, atau edit subtitle secara manual.")
     await safe_edit(callback.message, text, kb_ai())
     await callback.answer()
 
@@ -529,6 +530,7 @@ async def route_commands(callback: CallbackQuery):
         import bot.advanced_media_handlers as adv
         import bot.vip_handlers as vip
         import bot.subtitle_handlers as sub
+        import bot.subtitle_editor as subed # [NEW] Import Subtitle Editor
         
         handlers = {
             "speedtest": getattr(adm, "_speed_test", None), "time": getattr(adm, "_timecmd", None),
@@ -573,7 +575,8 @@ async def route_commands(callback: CallbackQuery):
             "view_vip": getattr(vip, "_view_vip_list", None),
 
             "autosub": getattr(sub, "autosub_handler", None),
-            "autotranslate": getattr(sub, "autotranslate_handler", None)
+            "autotranslate": getattr(sub, "autotranslate_handler", None),
+            "subedit": getattr(subed, "subedit_start", None) # [NEW] SubEdit handler mapping
         }
         
         handler = handlers.get(cmd)
@@ -598,7 +601,8 @@ async def route_commands(callback: CallbackQuery):
         "savewatermark": "©️ Kirim gambar ke chat ini untuk dijadikan <b>watermark default</b>.",
         "savethumb": "🖼️ Kirim gambar ke chat ini untuk dijadikan <b>thumbnail default</b>.",
         "autosub": "🧠 Balas video/audio lalu ketik <code>/autosub</code>",
-        "autotranslate": "🌐 Balas file .srt lalu ketik <code>/autotranslate</code>"
+        "autotranslate": "🌐 Balas file .srt lalu ketik <code>/autotranslate</code>",
+        "subedit": "📝 Balas file <b>.srt</b> Anda lalu ketik <code>/subedit</code>" # [NEW] SubEdit instruction
     }
     
     instruction = instructions.get(cmd, "Modul memerlukan input.\n<i>Kirim file/media/link ke chat ini</i>")
