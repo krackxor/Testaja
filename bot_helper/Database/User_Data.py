@@ -472,20 +472,54 @@ async def get_all_user_ids() -> list[int]:
     return [uid for uid in DATA.keys() if uid not in exclude and isinstance(uid, int)]
 
 
-async def get_subtitle_page(user_id: int, page: int, limit: int = 5):
-    """Mengambil data subtitle dengan sistem pagination."""
+# ═══════════════════════════════════════════════════════════════════════
+#  SUBTITLE EDITOR HELPERS (NEW v4.1)
+# ═══════════════════════════════════════════════════════════════════════
+
+async def get_subtitle_page(user_id: int, page: int, limit: int = 5) -> List[Dict]:
+    """
+    [NEW] Mengambil baris subtitle dari MongoDB dengan pagination.
+    Data diambil dari koleksi 'subtitle_temp'.
+    """
+    db = get_db()
+    if db is None: return []
+    
     skip = (page - 1) * limit
-    cursor = DATA.subtitle_temp.find({"user_id": user_id}).sort("index", 1).skip(skip).limit(limit)
-    return await cursor.to_list(length=limit)
+    try:
+        # Mengakses koleksi subtitle_temp melalui Motor (Async Driver)
+        cursor = db.db["subtitle_temp"].find({"user_id": user_id}).sort("index", 1).skip(skip).limit(limit)
+        return await cursor.to_list(length=limit)
+    except Exception as e:
+        LOGGER.error(f"❌ Error get_subtitle_page (User: {user_id}): {e}")
+        return []
 
-async def get_total_sub_lines(user_id: int):
-    """Menghitung total baris subtitle user."""
-    return await DATA.subtitle_temp.count_documents({"user_id": user_id})
+async def get_total_sub_lines(user_id: int) -> int:
+    """[NEW] Menghitung total baris subtitle yang tersimpan di DB untuk user."""
+    db = get_db()
+    if db is None: return 0
+    try:
+        return await db.db["subtitle_temp"].count_documents({"user_id": user_id})
+    except Exception as e:
+        LOGGER.error(f"❌ Error get_total_sub_lines (User: {user_id}): {e}")
+        return 0
 
-async def get_single_sub_line(user_id: int, index: int):
-    """Mengambil satu baris spesifik untuk diedit."""
-    return await DATA.subtitle_temp.find_one({"user_id": user_id, "index": index})
+async def get_single_sub_line(user_id: int, index: int) -> Optional[Dict]:
+    """[NEW] Mengambil satu baris spesifik berdasarkan index untuk diedit."""
+    db = get_db()
+    if db is None: return None
+    try:
+        return await db.db["subtitle_temp"].find_one({"user_id": user_id, "index": index})
+    except Exception as e:
+        LOGGER.error(f"❌ Error get_single_sub_line (User: {user_id}, Index: {index}): {e}")
+        return None
 
-async def clear_subtitle_temp(user_id: int):
-    """Menghapus sesi edit subtitle."""
-    await DATA.subtitle_temp.delete_many({"user_id": user_id})
+async def clear_subtitle_temp(user_id: int) -> bool:
+    """[NEW] Menghapus data sementara subtitle user saat sesi editor berakhir."""
+    db = get_db()
+    if db is None: return False
+    try:
+        await db.db["subtitle_temp"].delete_many({"user_id": user_id})
+        return True
+    except Exception as e:
+        LOGGER.error(f"❌ Error clear_subtitle_temp (User: {user_id}): {e}")
+        return False
