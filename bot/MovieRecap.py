@@ -1,16 +1,18 @@
 """
 ╔══════════════════════════════════════════════════════════════════════╗
-║                    bot/MovieRecap.py — v3.2                          ║
+║                    bot/MovieRecap.py — v3.3                          ║
 ║        Movie Recap: Rangkuman Film Otomatis dengan Voiceover AI      ║
 ╠══════════════════════════════════════════════════════════════════════╣
 ║  CHANGELOG:                                                          ║
+║  [UX PREMIUM] Standardisasi Hierarki Emoji (❌ Error, ⏳ Proses).      ║
+║  [UX PREMIUM] Mengganti "❌ Skip" menjadi "⏭️ Skip" agar jelas.      ║
 ║  [UX PREMIUM] Migrasi Total Dashboard Inline menjadi Interactive     ║
-║               Wizard (Step-by-step) dengan Reply Keyboard Singkat!   ║
+║                Wizard (Step-by-step) dengan Reply Keyboard Singkat!  ║
 ║  [UX PREMIUM] Opsi "Kustom" ditambahkan pada pemilihan Durasi.       ║
 ║  [UX PREMIUM] Auto-Delete disematkan di semua langkah setup produksi ║
-║               agar obrolan tidak dipenuhi pesan sampah.              ║
+║                agar obrolan tidak dipenuhi pesan sampah.             ║
 ║  [UX PREMIUM] Kotak Konfirmasi (Summary Box) diseragamkan dengan     ║
-║               desain modul admin dan advanced_media_handlers.        ║
+║                desain modul admin dan advanced_media_handlers.       ║
 ║  [FIX HIGH] Implementasi CMD_SUFFIX pada semua Command filter        ║
 ╚══════════════════════════════════════════════════════════════════════╝
 """
@@ -251,7 +253,7 @@ async def _merge_chapters_ffmpeg(chapter_files: list[str], out_path: str, qualit
 
 async def _auto_recap(movie_path: str, target_min: float, quality: str, out_path: str, process_status: ProcessStatus, status_msg: Message) -> float:
     target_sec, seg_dur, div_gap = target_min * 60.0, max(8.0, min(20.0, target_min * 60.0 / 40)), 45.0
-    process_status.update_process_message(f"🤖 **AI Vision menganalisis film...**\nTarget: `{target_min:.0f} menit`\nAnalisis `{seg_dur:.0f}s`\n`/cancel{CMD_SUFFIX} process {process_status.process_id}`")
+    process_status.update_process_message(f"⏳ 🤖 **AI Vision menganalisis film...**\nTarget: `{target_min:.0f} menit`\nAnalisis `{seg_dur:.0f}s`\n`/cancel{CMD_SUFFIX} process {process_status.process_id}`")
     await _safe_edit(status_msg, process_status.status_message)
     process_status.ping = time.time()
 
@@ -259,7 +261,7 @@ async def _auto_recap(movie_path: str, target_min: float, quality: str, out_path
     if not segments: raise RuntimeError("AI Vision tidak menemukan segmen yang cukup baik.")
     n_segs, tot_time = len(segments), sum(e - s for s, e in segments)
 
-    process_status.update_process_message(f"✂️ **Memotong & menggabungkan {n_segs} momen...**\nTotal: `{get_readable_time(tot_time)}`\n`/cancel{CMD_SUFFIX} process {process_status.process_id}`")
+    process_status.update_process_message(f"⏳ ✂️ **Memotong & menggabungkan {n_segs} momen...**\nTotal: `{get_readable_time(tot_time)}`\n`/cancel{CMD_SUFFIX} process {process_status.process_id}`")
     await _safe_edit(status_msg, process_status.status_message)
 
     def _build():
@@ -298,7 +300,7 @@ async def _recap_worker(process_status: ProcessStatus, original_message: Message
         probe = VideoFileClip(movie_path); film_dur = probe.duration; film_res = f"{probe.w}×{probe.h}"; probe.close()
         
         if mode == "auto":
-            process_status.update_process_message(f"🤖 **Mode AUTO — AI Vision**\n🎬 Film: `{movie_title}`\n`/cancel{CMD_SUFFIX} process {process_status.process_id}`")
+            process_status.update_process_message(f"⏳ 🤖 **Mode AUTO — AI Vision**\n🎬 Film: `{movie_title}`\n`/cancel{CMD_SUFFIX} process {process_status.process_id}`")
             await _safe_edit(status_msg, process_status.status_message)
             out_file = _tmp(f"recap_auto_{process_status.process_id}.mp4")
             vid_dur  = await _auto_recap(movie_path, target_min, quality, out_file, process_status, status_msg)
@@ -309,7 +311,7 @@ async def _recap_worker(process_status: ProcessStatus, original_message: Message
         if mode == "chapter":
             if not reply_msg or not reply_msg.document: raise RuntimeError("Mode CHAPTER butuh file .txt")
             txt_path = _tmp(f"recap_{process_status.process_id}.txt")
-            process_status.update_process_message(f"📥 **Mengunduh naskah chapter...**\n🎬 `{movie_title}`")
+            process_status.update_process_message(f"⏳ 📥 **Mengunduh naskah chapter...**\n🎬 `{movie_title}`")
             await _safe_edit(status_msg, process_status.status_message)
             await Telegram.AIOGRAM_BOT.download(reply_msg.document, destination=txt_path)
             if not os.path.exists(txt_path): raise RuntimeError("Gagal download file .txt")
@@ -319,14 +321,14 @@ async def _recap_worker(process_status: ProcessStatus, original_message: Message
                 if not check_running_process(process_status.process_id): raise asyncio.CancelledError("Dibatalkan")
                 start_t = scene["start"]; narr = scene["narration"]; out_ch = _tmp(f"ch_{process_status.process_id}_{idx:03d}.mp4")
                 elapsed = time.time() - render_start; eta_secs = (elapsed / idx * (total - idx + 1)) if idx > 1 else 0
-                process_status.update_process_message(f"🎙️ **Merender Chapter [{idx}/{total}]**\n`{narr[:50]}...`\n{get_progress_bar_string(idx-1, total)} {(idx-1)*100//total}%\nETA: `{get_readable_time(eta_secs)}`")
+                process_status.update_process_message(f"⏳ 🎙️ **Merender Chapter [{idx}/{total}]**\n`{narr[:50]}...`\n{get_progress_bar_string(idx-1, total)} {(idx-1)*100//total}%\nETA: `{get_readable_time(eta_secs)}`")
                 await _safe_edit(status_msg, process_status.status_message)
                 process_status.ping = time.time()
                 ok = await _render_chapter(movie_path, start_t, narr, out_ch, quality, idx, total, process_status)
                 if ok and os.path.exists(out_ch): chapter_files.append(out_ch)
 
             if not chapter_files: raise RuntimeError("Semua chapter gagal.")
-            process_status.update_process_message(f"🔄 **Menggabungkan {len(chapter_files)} chapter...**\n`/cancel{CMD_SUFFIX} process {process_status.process_id}`")
+            process_status.update_process_message(f"⏳ 🔄 **Menggabungkan {len(chapter_files)} chapter...**\n`/cancel{CMD_SUFFIX} process {process_status.process_id}`")
             await _safe_edit(status_msg, process_status.status_message)
             merged_path = _tmp(f"recap_merged_{process_status.process_id}.mp4")
             vid_dur = await _merge_chapters_ffmpeg(chapter_files, merged_path, quality)
@@ -354,7 +356,7 @@ async def _finish_and_send(process_status, original_message, movie_title, out_fi
         try: vc = VideoFileClip(out_file); vdur = int(vc.duration); vw, vh = vc.size; vc.close()
         except Exception: vdur, vw, vh = int(vid_dur), TARGET_W, TARGET_H
         caption = f"🎬 **MOVIE RECAP — {movie_title.upper()}**\n**Mode:** `{mode_icon}`\n**Durasi:** `{get_readable_time(vid_dur)}`\n**Quality:** `{QUALITY_PRESETS[quality]['label']}`\n**Render:** `{get_readable_time(elapsed)}`"
-        process_status.update_process_message(f"⬆️ **Mengirim ke Telegram...**\n`{movie_title}` · `{get_human_size(file_size)}`")
+        process_status.update_process_message(f"⏳ ⬆️ **Mengirim ke Telegram...**\n`{movie_title}` · `{get_human_size(file_size)}`")
         await _safe_edit(status_msg, process_status.status_message)
         yt_buttons = None
         if YOUTUBE_ENABLED and _HAS_YTUPLOAD:
@@ -366,7 +368,7 @@ async def _finish_and_send(process_status, original_message, movie_title, out_fi
         
         if yt_enabled and YOUTUBE_ENABLED and _HAS_YTUPLOAD:
             yt_title = f"Movie Recap — {movie_title}"; yt_desc  = f"Rangkuman film: {movie_title}\nMode: {mode_icon}\nDibuat oleh Studio Khoirul Bot"
-            process_status.update_process_message(f"⬆️ **Upload ke YouTube...**\n`{yt_title}`\n🔒 `{yt_privacy}`")
+            process_status.update_process_message(f"⏳ ⬆️ **Upload ke YouTube...**\n`{yt_title}`\n🔒 `{yt_privacy}`")
             await _safe_edit(status_msg, process_status.status_message)
             try:
                 yt_link = await upload_to_youtube(out_file, yt_title, yt_desc, yt_privacy, process_status, status_msg)
@@ -494,7 +496,7 @@ async def recap_handler(message: Message, command: CommandObject) -> None:
     # ── WIZARD STEP 5: YOUTUBE ──
     yt_enabled, yt_privacy = False, "private"
     if YOUTUBE_ENABLED and _HAS_YTUPLOAD:
-        kb_yt = _make_reply_kb(["❌ Skip", "🌍 Public", "🔗 Unlisted", "🔒 Private", "❌ Batal"], 3)
+        kb_yt = _make_reply_kb(["⏭️ Skip", "🌍 Public", "🔗 Unlisted", "🔒 Private", "❌ Batal"], 3)
         msg_yt = await message.reply("📺 **Upload ke YouTube Otomatis?**", reply_markup=kb_yt)
         resp_yt = await wait_for_message(chat_id, user_id, 60)
         await _clean_msgs(msg_yt, resp_yt)
@@ -515,7 +517,7 @@ async def recap_handler(message: Message, command: CommandObject) -> None:
         f"⏱️ **Durasi:** `{int(target_min)} menit`\n"
         f"⚙️ **Quality:** `{QUALITY_PRESETS[quality]['label']}`\n"
         f"🎙️ **Narasi:** `{'Aktif' if narasi_on else 'Nonaktif'}`\n"
-        f"📺 **YouTube:** `{'✅ Upload ('+yt_privacy.capitalize()+')' if yt_enabled else '❌ Skip'}`\n\n"
+        f"📺 **YouTube:** `{'✅ Upload ('+yt_privacy.capitalize()+')' if yt_enabled else '⏭️ Skip'}`\n\n"
         "Lanjutkan?"
     )
     msg_conf = await message.reply(conf_txt, reply_markup=kb_conf)
@@ -525,7 +527,7 @@ async def recap_handler(message: Message, command: CommandObject) -> None:
     if not resp_conf or "batal" in (resp_conf.text or "").lower():
         return await message.answer("❌ Dibatalkan.", reply_markup=ReplyKeyboardRemove())
         
-    await message.answer("✅ Menyiapkan Mesin Recap...", reply_markup=ReplyKeyboardRemove())
+    await message.answer("⏳ ✅ Menyiapkan Mesin Recap...", reply_markup=ReplyKeyboardRemove())
 
     user_name = message.from_user.username or ""
     user_first_name = message.from_user.first_name or str(user_id)
@@ -533,7 +535,7 @@ async def recap_handler(message: Message, command: CommandObject) -> None:
     ps.file_name = f"{movie_title}_recap"
     
     init_text  = f"🎬 **Movie Recap Dimulai**\n{'─'*32}\n  🎞️ Film      `{movie_title}`\n  🤖 Mode      `{'Auto AI Vision' if mode=='auto' else 'Chapter + Narasi'}`\n  ⏱️ Durasi    `{int(target_min)} menit`\n{'─'*32}\n**ID:** `{ps.process_id}`\n`/cancel{CMD_SUFFIX} process {ps.process_id}`"
-    cancel_btn = [[InlineKeyboardButton(text="❌ Batalkan", callback_data=f"rc_cancel_{user_id}_{ps.process_id}")]]
+    cancel_btn = [[InlineKeyboardButton(text="❌ Batal", callback_data=f"rc_cancel_{user_id}_{ps.process_id}")]]
     
     status_msg = await message.answer(init_text, reply_markup=InlineKeyboardMarkup(inline_keyboard=cancel_btn))
     
@@ -544,7 +546,7 @@ async def recap_handler(message: Message, command: CommandObject) -> None:
 
 @router.callback_query(F.data.startswith("rc_cancel_"))
 async def rc_cancel_cb(call: CallbackQuery):
-    await call.answer("🚫 Membatalkan...")
+    await call.answer("⏳ 🚫 Membatalkan...")
     parts = call.data.split("_")
     uid = int(parts[2])
     
