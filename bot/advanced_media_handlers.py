@@ -3,7 +3,9 @@
 ║    bot/advanced_media_handlers.py                                    ║
 ║    Advanced Media Handlers (Aiogram 3.x / Inline Waiter)             ║
 ╠══════════════════════════════════════════════════════════════════════╣
-║  CHANGELOG dari versi lama:                                          ║
+║  CHANGELOG v4.0:                                                     ║
+║  [UX PREMIUM] Standardisasi Hierarki Emoji (❌ Error, ⏳ Proses).      ║
+║  [UX PREMIUM] Penambahan Ikon Konteks pada perintah input file.      ║
 ║  [UX PREMIUM] Menambahkan Kotak Konfirmasi Detail di SEMUA perintah  ║
 ║  [UX PREMIUM] Menerapkan Auto-Delete agar chat tetap bersih & rapi.  ║
 ║  [UX PREMIUM] Menerapkan Reply Keyboard pendek yang konsisten.       ║
@@ -122,10 +124,10 @@ async def _trim_video(message: Message):
     link, custom_file_name = await get_link(message)
     video_event_for_task, orig_duration = None, 0
 
-    if link == "invalid": return await safe_reply(message, "❗ Tautan tidak valid.")
+    if link == "invalid": return await safe_reply(message, "❌ Tautan tidak valid.")
     if not link:
         try:
-            ask_msg = await message.reply("Kirim Video atau URL yang ingin di-trim.")
+            ask_msg = await message.reply("✂️ Kirim Video atau URL yang ingin di-trim.")
             resp = await wait_for_message(chat_id, user_id, 120)
             await _clean_msgs(ask_msg) 
             if resp.video or resp.document: link = resp
@@ -196,7 +198,7 @@ async def _trim_video(message: Message):
         if "batal" in (press.text or "").lower():
              return await message.answer("❌ Dibatalkan.", reply_markup=ReplyKeyboardRemove())
              
-        await message.answer("✅ Mempersiapkan proses...", reply_markup=ReplyKeyboardRemove())
+        await message.answer("⏳ ✅ Mempersiapkan proses trim...", reply_markup=ReplyKeyboardRemove())
         
     except asyncio.TimeoutError: return await message.answer("❌ Waktu habis. Dibatalkan.", reply_markup=ReplyKeyboardRemove())
     except Exception as e:
@@ -225,10 +227,10 @@ async def _split_video(message: Message):
     link, custom_file_name = await get_link(message)
     video_event_for_task, orig_duration = None, 0
 
-    if link == "invalid": return await safe_reply(message, "❗ Tautan tidak valid.")
+    if link == "invalid": return await safe_reply(message, "❌ Tautan tidak valid.")
     if not link:
         try:
-            ask_msg = await message.reply("Kirim Video atau URL yang ingin dibagi (split).")
+            ask_msg = await message.reply("🪓 Kirim Video atau URL yang ingin dibagi (split).")
             resp = await wait_for_message(chat_id, user_id, 120)
             await _clean_msgs(ask_msg) 
             if resp.video or resp.document: link = resp
@@ -292,7 +294,7 @@ async def _split_video(message: Message):
         if "batal" in (press2.text or "").lower():
             return await message.answer("❌ Dibatalkan.", reply_markup=ReplyKeyboardRemove())
             
-        await message.answer("✅ Mempersiapkan proses...", reply_markup=ReplyKeyboardRemove())
+        await message.answer("⏳ ✅ Mempersiapkan proses pembagian...", reply_markup=ReplyKeyboardRemove())
         
     except asyncio.TimeoutError: return await message.answer("❌ Waktu habis. Dibatalkan.", reply_markup=ReplyKeyboardRemove())
     except Exception as e:
@@ -321,10 +323,10 @@ async def _cut_video(message: Message):
     link, custom_file_name = await get_link(message)
     video_event_for_task, orig_duration = None, 0
 
-    if link == "invalid": return await safe_reply(message, "❗ Tautan tidak valid.")
+    if link == "invalid": return await safe_reply(message, "❌ Tautan tidak valid.")
     if not link:
         try:
-            ask_msg = await message.reply("Kirim Video atau URL yang bagiannya ingin dibuang.")
+            ask_msg = await message.reply("🔪 Kirim Video atau URL yang bagiannya ingin dibuang.")
             resp = await wait_for_message(chat_id, user_id, 120)
             await _clean_msgs(ask_msg) 
             if resp.video or resp.document: link = resp
@@ -381,7 +383,7 @@ async def _cut_video(message: Message):
                 if "batal" in (press2.text or "").lower():
                     return await message.answer("❌ Dibatalkan.", reply_markup=ReplyKeyboardRemove())
                     
-                await message.answer("✅ Mempersiapkan proses...", reply_markup=ReplyKeyboardRemove())
+                await message.answer("⏳ ✅ Mempersiapkan proses potong...", reply_markup=ReplyKeyboardRemove())
                 break
                 
             parsed = parse_single_cut_range(resp.text or "")
@@ -420,10 +422,10 @@ async def _rotate_video(message: Message):
     link, custom_file_name = await get_link(message)
     video_event_for_task   = None
 
-    if link == "invalid": return await safe_reply(message, "❗ Tautan tidak valid.")
+    if link == "invalid": return await safe_reply(message, "❌ Tautan tidak valid.")
     if not link:
         try:
-            ask_msg = await message.reply("Kirim Video atau URL yang ingin diputar/dibalik.")
+            ask_msg = await message.reply("🔃 Kirim Video atau URL yang ingin diputar/dibalik.")
             resp = await wait_for_message(chat_id, user_id, 120)
             await _clean_msgs(ask_msg) 
             if resp.video or resp.document: link = resp
@@ -458,7 +460,7 @@ async def _rotate_video(message: Message):
             
         kb_conf = _make_reply_kb(["✅ Putar", "❌ Batal"], 2)
         conf_txt = (
-            f"**🔄 KONFIRMASI ROTASI VIDEO**\n\n"
+            f"**🔃 KONFIRMASI ROTASI VIDEO**\n\n"
             f"🎬 File: `{fname}`\n"
             f"📐 Filter: `{rotate_option}`\n\n"
             "Lanjutkan?"
@@ -470,7 +472,7 @@ async def _rotate_video(message: Message):
         if "batal" in (press2.text or "").lower():
             return await message.answer("❌ Dibatalkan.", reply_markup=ReplyKeyboardRemove())
             
-        await message.answer(f"✅ Mempersiapkan proses...", reply_markup=ReplyKeyboardRemove())
+        await message.answer(f"⏳ ✅ Mempersiapkan rotasi video...", reply_markup=ReplyKeyboardRemove())
 
     except asyncio.TimeoutError: return await message.answer("❌ Waktu habis. Dibatalkan.", reply_markup=ReplyKeyboardRemove())
     except Exception as e:
@@ -499,10 +501,10 @@ async def _crop_video(message: Message):
     link, custom_file_name = await get_link(message)
     video_event_for_task, crop_params = None, None
 
-    if link == "invalid": return await safe_reply(message, "❗ Tautan tidak valid.")
+    if link == "invalid": return await safe_reply(message, "❌ Tautan tidak valid.")
     if not link:
         try:
-            ask_msg = await message.reply("Kirim Video atau URL yang ingin di-crop.")
+            ask_msg = await message.reply("📐 Kirim Video atau URL yang ingin di-crop.")
             resp = await wait_for_message(chat_id, user_id, 120)
             await _clean_msgs(ask_msg) 
             if resp.video or resp.document: link = resp
@@ -533,7 +535,7 @@ async def _crop_video(message: Message):
             
         kb_conf = _make_reply_kb(["✅ Crop", "❌ Batal"], 2)
         conf_txt = (
-            f"**✂️ KONFIRMASI CROP VIDEO**\n\n"
+            f"**📐 KONFIRMASI CROP VIDEO**\n\n"
             f"🎬 File: `{fname}`\n"
             f"📐 Parameter: `{crop_params}`\n\n"
             "Lanjutkan?"
@@ -545,7 +547,7 @@ async def _crop_video(message: Message):
         if "batal" in (press2.text or "").lower():
             return await message.answer("❌ Dibatalkan.", reply_markup=ReplyKeyboardRemove())
             
-        await message.answer(f"✅ Mempersiapkan proses...", reply_markup=ReplyKeyboardRemove())
+        await message.answer(f"⏳ ✅ Mempersiapkan proses crop...", reply_markup=ReplyKeyboardRemove())
         
     except asyncio.TimeoutError: return await message.answer("❌ Waktu habis. Dibatalkan.", reply_markup=ReplyKeyboardRemove())
     except Exception as e:
@@ -574,10 +576,10 @@ async def _autocrop_video(message: Message):
     link, custom_file_name = await get_link(message)
     video_event_for_task   = None
 
-    if link == "invalid": return await safe_reply(message, "❗ Tautan tidak valid.")
+    if link == "invalid": return await safe_reply(message, "❌ Tautan tidak valid.")
     if not link:
         try:
-            ask_msg = await message.reply("Kirim Video atau URL untuk autocrop.")
+            ask_msg = await message.reply("🎬 Kirim Video atau URL untuk autocrop.")
             resp = await wait_for_message(chat_id, user_id, 120)
             await _clean_msgs(ask_msg) 
             if resp.video or resp.document: link = resp
@@ -601,7 +603,7 @@ async def _autocrop_video(message: Message):
         await _clean_msgs(menu_msg, resp)
         
         if "batal" in (resp.text or "").lower(): return await message.answer("❌ Dibatalkan.", reply_markup=ReplyKeyboardRemove())
-        await message.answer("✅ Mempersiapkan proses...", reply_markup=ReplyKeyboardRemove())
+        await message.answer("⏳ ✅ Mempersiapkan autocrop...", reply_markup=ReplyKeyboardRemove())
         
     except asyncio.TimeoutError: return await message.answer("❌ Waktu habis. Dibatalkan.", reply_markup=ReplyKeyboardRemove())
     except Exception as e:
@@ -629,10 +631,10 @@ async def _extension_changer(message: Message):
     link, custom_file_name = await get_link(message)
     video_event_for_task, new_extension = None, None
 
-    if link == "invalid": return await safe_reply(message, "❗ Tautan tidak valid.")
+    if link == "invalid": return await safe_reply(message, "❌ Tautan tidak valid.")
     if not link:
         try:
-            ask_msg = await message.reply("Kirim file (video/audio/subtitle) yang ekstensinya ingin diubah.")
+            ask_msg = await message.reply("📁 Kirim file (video/audio/subtitle) yang ekstensinya ingin diubah.")
             resp = await wait_for_message(chat_id, user_id, 120)
             await _clean_msgs(ask_msg) 
             if resp.document or resp.video or resp.audio: link = resp
@@ -688,7 +690,7 @@ async def _extension_changer(message: Message):
         if "batal" in (press2.text or "").lower():
             return await message.answer("❌ Dibatalkan.", reply_markup=ReplyKeyboardRemove())
             
-        await message.answer(f"✅ Mempersiapkan konversi...", reply_markup=ReplyKeyboardRemove())
+        await message.answer(f"⏳ ✅ Mempersiapkan konversi ekstensi...", reply_markup=ReplyKeyboardRemove())
         
     except asyncio.TimeoutError: return await message.answer("❌ Waktu habis. Dibatalkan.", reply_markup=ReplyKeyboardRemove())
     except Exception as e:
@@ -717,10 +719,10 @@ async def _extract_streams(message: Message):
     link, custom_file_name = await get_link(message)
     video_event_for_task   = None
 
-    if link == "invalid": return await safe_reply(message, "❗ Tautan tidak valid.")
+    if link == "invalid": return await safe_reply(message, "❌ Tautan tidak valid.")
     if not link:
         try:
-            ask_msg = await message.reply("Kirim Video atau URL yang ingin diekstrak (Audio, Subtitle, Thumbnail, atau Frame).")
+            ask_msg = await message.reply("🗜️ Kirim Video atau URL yang ingin diekstrak (Audio, Subtitle, Thumbnail, atau Frame).")
             resp = await wait_for_message(chat_id, user_id, 120)
             await _clean_msgs(ask_msg)
             if resp.video or resp.document: link = resp
@@ -730,7 +732,7 @@ async def _extract_streams(message: Message):
 
     video_event_for_task = link
     fname = _get_fname(link, custom_file_name)
-    dling_msg = await message.reply("🔽 Mengunduh berkas untuk dianalisis...")
+    dling_msg = await message.reply("⏳ 🔽 Mengunduh berkas untuk dianalisis...")
 
     async def _download_temp():
         from bot_helper.Others.Names import Names as N_
@@ -748,7 +750,7 @@ async def _extract_streams(message: Message):
                     last_update[0] = now
                     pct = current / total
                     bar = "█" * int(pct * 10) + "░" * (10 - int(pct * 10))
-                    try: await dling_msg.edit_text(f"🔽 **Mengunduh untuk dianalisis...**\n\n[{bar}] {pct*100:.1f}%\n📥 `{get_human_size(current)} / {get_human_size(total)}`")
+                    try: await dling_msg.edit_text(f"⏳ 🔽 **Mengunduh untuk dianalisis...**\n\n[{bar}] {pct*100:.1f}%\n📥 `{get_human_size(current)} / {get_human_size(total)}`")
                     except Exception: pass
 
             pyro_client = Telegram.PYROGRAM_CLIENT
@@ -778,7 +780,7 @@ async def _extract_streams(message: Message):
             await asyncio.sleep(2)
             waited += 2
             if waited % 4 == 0:
-                try: await dling_msg.edit_text(temp_ps.status_message or "🔽 Mengunduh berkas dengan Aria2...")
+                try: await dling_msg.edit_text(temp_ps.status_message or "⏳ 🔽 Mengunduh berkas dengan Aria2...")
                 except: pass
         return (temp_ps.send_files[-1] if temp_ps.send_files else None), temp_ps
 
@@ -847,7 +849,7 @@ async def _extract_streams(message: Message):
     # BRANCH 1: EXTRACT THUMBNAIL
     # ==========================================
     if "thumbnail" in txt_main:
-        msg_run = await message.answer("🖼 Mengekstrak Thumbnail HD...", reply_markup=ReplyKeyboardRemove())
+        msg_run = await message.answer("⏳ 🖼️ Mengekstrak Thumbnail HD...", reply_markup=ReplyKeyboardRemove())
         out_file = f"{temp_ps.dir}/thumb_ext.jpg"
         
         cmd = f'ffmpeg -hide_banner -y -i "{input_file}" -ss 00:00:05 -vframes 1 -q:v 2 "{out_file}"'
@@ -875,7 +877,7 @@ async def _extract_streams(message: Message):
         interval = (res_int.text or "").strip()
         if not interval.isdigit(): interval = "5" # Default jika input ngawur
         
-        msg_run = await message.answer(f"🎞 Sedang mengekstrak frame (1 gambar per {interval} detik) dan membuat ZIP...\n_Mohon tunggu sebentar._")
+        msg_run = await message.answer(f"⏳ 🎞️ Sedang mengekstrak frame (1 gambar per {interval} detik) dan membuat ZIP...\n_Mohon tunggu sebentar._")
         
         out_dir = f"{temp_ps.dir}/frames"
         os.makedirs(out_dir, exist_ok=True)
@@ -997,7 +999,7 @@ async def _extract_streams(message: Message):
                 except: pass
                 return await message.answer("❌ Dibatalkan.", reply_markup=ReplyKeyboardRemove())
                 
-            await message.answer("✅ Mempersiapkan ekstraksi stream...", reply_markup=ReplyKeyboardRemove())
+            await message.answer("⏳ ✅ Mempersiapkan ekstraksi stream...", reply_markup=ReplyKeyboardRemove())
             
         except asyncio.TimeoutError: 
             try: await asyncio.to_thread(shutil.rmtree, temp_ps.dir, ignore_errors=True)
@@ -1036,10 +1038,10 @@ async def _media_info(message: Message):
     link, _ = await get_link(message)
     video_event_for_task = None
 
-    if link == "invalid": return await safe_reply(message, "❗ Tautan tidak valid.")
+    if link == "invalid": return await safe_reply(message, "❌ Tautan tidak valid.")
     if not link:
         try:
-            ask_msg = await message.reply("Kirim berkas media atau URL untuk analisis.")
+            ask_msg = await message.reply("ℹ️ Kirim berkas media atau URL untuk analisis.")
             resp = await wait_for_message(chat_id, user_id, 120)
             await _clean_msgs(ask_msg) 
             if resp.video or resp.document or resp.audio: link = resp
@@ -1048,7 +1050,7 @@ async def _media_info(message: Message):
         except asyncio.TimeoutError: return await safe_reply(message, "❌ Waktu habis. Dibatalkan.")
 
     video_event_for_task = link
-    dling_msg = await message.reply("🔽 Mengunduh berkas...")
+    dling_msg = await message.reply("⏳ 🔽 Mengunduh berkas...")
 
     async def _download_temp():
         from bot_helper.Others.Names import Names as N_
@@ -1066,7 +1068,7 @@ async def _media_info(message: Message):
                     last_update[0] = now
                     pct = current / total
                     bar = "█" * int(pct * 10) + "░" * (10 - int(pct * 10))
-                    try: await dling_msg.edit_text(f"🔽 **Mengunduh untuk dianalisis...**\n\n[{bar}] {pct*100:.1f}%\n📥 `{get_human_size(current)} / {get_human_size(total)}`")
+                    try: await dling_msg.edit_text(f"⏳ 🔽 **Mengunduh untuk dianalisis...**\n\n[{bar}] {pct*100:.1f}%\n📥 `{get_human_size(current)} / {get_human_size(total)}`")
                     except Exception: pass
 
             pyro_client = Telegram.PYROGRAM_CLIENT
@@ -1096,7 +1098,7 @@ async def _media_info(message: Message):
             await asyncio.sleep(2)
             waited += 2
             if waited % 4 == 0:
-                try: await dling_msg.edit_text(temp_ps.status_message or "🔽 Mengunduh berkas dengan Aria2...")
+                try: await dling_msg.edit_text(temp_ps.status_message or "⏳ 🔽 Mengunduh berkas dengan Aria2...")
                 except: pass
         return (temp_ps.send_files[-1] if temp_ps.send_files else None), temp_ps.dir
 
@@ -1110,7 +1112,7 @@ async def _media_info(message: Message):
                 pass
         return
 
-    await dling_msg.edit_text("🔍 Menganalisis berkas...")
+    await dling_msg.edit_text("⏳ 🔍 Menganalisis berkas...")
 
     try:
         proc = await create_subprocess_exec(
