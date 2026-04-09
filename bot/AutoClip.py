@@ -1,15 +1,17 @@
 """
 ╔══════════════════════════════════════════════════════════════════════╗
-║                    bot/AutoClip.py — v3.2                            ║
+║                    bot/AutoClip.py — v3.3                            ║
 ║        Auto Clip: Potong video panjang → Shorts/Reels terpisah       ║
 ╠══════════════════════════════════════════════════════════════════════╣
 ║  CHANGELOG:                                                          ║
+║  [UX PREMIUM] Standardisasi Hierarki Emoji (❌ Error, ⏳ Proses).      ║
+║  [UX PREMIUM] Mengganti "❌ Skip" menjadi "⏭️ Skip" agar aman.       ║
 ║  [UX PREMIUM] Migrasi Total Dashboard Inline menjadi Interactive     ║
-║               Wizard (Step-by-step) dengan Reply Keyboard Singkat!   ║
+║                Wizard (Step-by-step) dengan Reply Keyboard Singkat!  ║
 ║  [UX PREMIUM] Auto-Delete disematkan di semua langkah setup produksi ║
-║               agar obrolan tidak dipenuhi pesan sampah.              ║
+║                agar obrolan tidak dipenuhi pesan sampah.             ║
 ║  [UX PREMIUM] Kotak Konfirmasi (Summary Box) diseragamkan dengan     ║
-║               desain modul lain.                                     ║
+║                desain modul lain.                                    ║
 ║  [FIX HIGH] Implementasi CMD_SUFFIX pada command filter /clip        ║
 ║  [FIX] Syntax error pada pesan help /clip diperbaiki                 ║
 ╚══════════════════════════════════════════════════════════════════════╝
@@ -262,7 +264,7 @@ def _generate_clip_thumbnail(source_path: str, scene: dict, output_path: str, mo
 async def _autoclip_worker(process_status: ProcessStatus, original_event: Message, reply_msg: Message, topic: str, mode: str, quality: str, yt_enabled: bool, yt_privacy: str, status_msg: Message) -> None:
     txt_path, render_start = _tmp(f"clip_{process_status.process_id}.txt"), time.time()
     try:
-        process_status.update_process_message(f"📥 **Mengunduh naskah waktu cut...**\n\n**Sumber:** `{topic}`\n**Mode:** `{mode.upper()}`\n**Quality:** `{QUALITY_PRESETS[quality]['label']}`\n**ID:** `{process_status.process_id}`\n`/cancel{CMD_SUFFIX} process {process_status.process_id}`")
+        process_status.update_process_message(f"⏳ 📥 **Mengunduh naskah waktu cut...**\n\n**Sumber:** `{topic}`\n**Mode:** `{mode.upper()}`\n**Quality:** `{QUALITY_PRESETS[quality]['label']}`\n**ID:** `{process_status.process_id}`\n`/cancel{CMD_SUFFIX} process {process_status.process_id}`")
         await _safe_edit(status_msg, process_status.status_message)
         await Telegram.AIOGRAM_BOT.download(reply_msg.document, destination=txt_path)
         if not os.path.exists(txt_path): raise RuntimeError("Gagal download file .txt")
@@ -282,7 +284,7 @@ async def _autoclip_worker(process_status: ProcessStatus, original_event: Messag
             seg_title, seg_dur, out_file, thumb_file = scene["segment"], scene["duration"], _tmp(f"clip_{process_status.process_id}_{idx:02d}.mp4"), _tmp(f"thumb_{process_status.process_id}_{idx:02d}.jpg")
             elapsed, eta_secs = time.time() - render_start, ((time.time() - render_start) / idx * (total - idx + 1)) if idx > 1 else 0
             
-            process_status.update_process_message(f"✂️ **Merender Clip [{idx}/{total}]**\n\n`{seg_title}`\n{get_progress_bar_string(idx - 1, total)} {((idx-1)*100//total)}%\n**Waktu:** `{scene['start']:.1f}s` → `{scene['end']:.1f}s` ({seg_dur:.0f}s)\n**Sumber:** `{topic}`\n**Mode:** `{mode.upper()}` | **Quality:** `{QUALITY_PRESETS[quality]['label']}`\n**W.Proses:** `{get_readable_time(elapsed)}` | **ETA:** `{get_readable_time(eta_secs)}`\n**Ditambahkan Oleh:** {process_status.added_by}\n`/cancel{CMD_SUFFIX} process {process_status.process_id}`")
+            process_status.update_process_message(f"⏳ ✂️ **Merender Clip [{idx}/{total}]**\n\n`{seg_title}`\n{get_progress_bar_string(idx - 1, total)} {((idx-1)*100//total)}%\n**Waktu:** `{scene['start']:.1f}s` → `{scene['end']:.1f}s` ({seg_dur:.0f}s)\n**Sumber:** `{topic}`\n**Mode:** `{mode.upper()}` | **Quality:** `{QUALITY_PRESETS[quality]['label']}`\n**W.Proses:** `{get_readable_time(elapsed)}` | **ETA:** `{get_readable_time(eta_secs)}`\n**Ditambahkan Oleh:** {process_status.added_by}\n`/cancel{CMD_SUFFIX} process {process_status.process_id}`")
             await _safe_edit(status_msg, process_status.status_message)
             process_status.ping = time.time()
 
@@ -310,7 +312,7 @@ async def _autoclip_worker(process_status: ProcessStatus, original_event: Messag
 
             if yt_enabled and YOUTUBE_ENABLED and _HAS_YTUPLOAD:
                 yt_title_clip, yt_desc_clip = f"{topic} — {seg_title}", f"Clip dari: {topic}\nSegmen: {seg_title}\nDurasi: {seg_dur:.0f} detik\n" + (scene["desc"] if scene.get("desc") else "")
-                process_status.update_process_message(f"⬆️ **Upload YouTube Clip [{idx}/{total}]**\n\n`{yt_title_clip}`\n**Ditambahkan Oleh:** {process_status.added_by}\n`/cancel{CMD_SUFFIX} process {process_status.process_id}`")
+                process_status.update_process_message(f"⏳ ⬆️ **Upload YouTube Clip [{idx}/{total}]**\n\n`{yt_title_clip}`\n**Ditambahkan Oleh:** {process_status.added_by}\n`/cancel{CMD_SUFFIX} process {process_status.process_id}`")
                 await _safe_edit(status_msg, process_status.status_message)
                 try:
                     yt_link = await upload_to_youtube(out_file, yt_title_clip, yt_desc_clip, yt_privacy, process_status, status_msg)
@@ -327,7 +329,7 @@ async def _autoclip_worker(process_status: ProcessStatus, original_event: Messag
         if success_count < total: final_text += f"\n\n⚠️ {total - success_count} clip gagal (lihat log di atas)"
         await _safe_edit(status_msg, final_text)
 
-    except asyncio.CancelledError: await _safe_edit(status_msg, "🚫 **Auto Clip Dibatalkan.**")
+    except asyncio.CancelledError: await _safe_edit(status_msg, "❌ **Auto Clip Dibatalkan.**")
     except Exception as e:
         LOGGER.error(f"❌ AutoClip worker error: {e}", exc_info=True)
         await _safe_edit(status_msg, f"❌ **Error AutoClip:**\n\n`{str(e)[:400]}`")
@@ -419,7 +421,7 @@ async def autoclip_handler(message: Message, command: CommandObject) -> None:
     # WIZARD STEP 3: YOUTUBE
     yt_enabled, yt_privacy = False, "private"
     if YOUTUBE_ENABLED and _HAS_YTUPLOAD:
-        kb_yt = _make_reply_kb(["❌ Skip", "🌍 Public", "🔗 Unlisted", "🔒 Private", "❌ Batal"], 3)
+        kb_yt = _make_reply_kb(["⏭️ Skip", "🌍 Public", "🔗 Unlisted", "🔒 Private", "❌ Batal"], 3)
         msg_yt = await message.reply("📺 **Upload ke YouTube Otomatis?**", reply_markup=kb_yt)
         resp_yt = await wait_for_message(chat_id, user_id, 60)
         await _clean_msgs(msg_yt, resp_yt)
@@ -439,7 +441,7 @@ async def autoclip_handler(message: Message, command: CommandObject) -> None:
         f"🎬 **Sumber:** `{topic}`\n"
         f"📐 **Mode:** `{mode.upper()}`\n"
         f"⚙️ **Quality:** `{QUALITY_PRESETS[quality]['label']}`\n"
-        f"📺 **YouTube:** `{'✅ Upload ('+yt_privacy.capitalize()+')' if yt_enabled else '❌ Skip'}`\n\n"
+        f"📺 **YouTube:** `{'✅ Upload ('+yt_privacy.capitalize()+')' if yt_enabled else '⏭️ Skip'}`\n\n"
         "Lanjutkan?"
     )
     msg_conf = await message.reply(conf_txt, reply_markup=kb_conf)
@@ -449,14 +451,14 @@ async def autoclip_handler(message: Message, command: CommandObject) -> None:
     if not resp_conf or "batal" in (resp_conf.text or "").lower():
         return await message.answer("❌ Dibatalkan.", reply_markup=ReplyKeyboardRemove())
 
-    await message.answer("✅ Menyiapkan Proses Auto Clip...", reply_markup=ReplyKeyboardRemove())
+    await message.answer("⏳ ✅ Menyiapkan Proses Auto Clip...", reply_markup=ReplyKeyboardRemove())
 
     # INITIALIZE PROCESS
     sender_name = message.from_user.first_name or str(user_id)
     ps = ProcessStatus(user_id, chat_id, message.from_user.username or "", sender_name, message, getattr(Names, "autoclip", "AutoClip"), "Telegram")
     
-    init_text = f"✂️ **Memulai Auto Clip...**\n**Sumber:** `{topic}`\n**ID:** `{ps.process_id}`\n`/cancel{CMD_SUFFIX} process {ps.process_id}`"
-    kb_action = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="❌ Batalkan", callback_data=f"ac_cancel_{user_id}_{ps.process_id}")]])
+    init_text = f"⏳ ✂️ **Memulai Auto Clip...**\n**Sumber:** `{topic}`\n**ID:** `{ps.process_id}`\n`/cancel{CMD_SUFFIX} process {ps.process_id}`"
+    kb_action = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="❌ Batal", callback_data=f"ac_cancel_{user_id}_{ps.process_id}")]])
     
     status_msg = await message.answer(init_text, reply_markup=kb_action)
     
@@ -467,7 +469,7 @@ async def autoclip_handler(message: Message, command: CommandObject) -> None:
 
 @router.callback_query(F.data.startswith("ac_cancel_"))
 async def cb_ac_cancel(call: CallbackQuery):
-    await call.answer("🚫 Membatalkan...")
+    await call.answer("⏳ ❌ Membatalkan...", show_alert=False)
     parts = call.data.split("_")
     uid = int(parts[2])
     
