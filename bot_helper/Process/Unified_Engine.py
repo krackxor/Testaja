@@ -52,7 +52,7 @@ def TimeFormatter(milliseconds: int) -> str:
 
 def get_progress_bar(current: float, max_val: float, width: int = 10) -> str:
     """Style Progress Bar bawaan Process_Status.py [████░░░░]"""
-    if max_val == 0: return f"[{'░' * width}]"
+    if max_val <= 0: return f"[{'░' * width}]"
     filled = int((current / max_val) * width)
     empty = width - filled
     return f"[{'█' * filled}{'░' * empty}]"
