@@ -505,6 +505,24 @@ Kontrol penuh parameter encoding
 async def route_commands(callback: CallbackQuery):
     cmd = callback.data.split("_", 1)[1]
     user_id = callback.from_user.id
+
+  # --- TAMBAHKAN BARIS INI ---
+        "recap": getattr(recap, "recap_handler", None),
+        "clip": getattr(clip, "autoclip_handler", None),
+        "addgameplay": getattr(gp, "add_gameplay_handler", None),
+        "addsfx": getattr(gp, "addsfx_handler", None),
+        "listgameplay": getattr(gp, "list_gameplay_handler", None),
+        "deletegameplay": getattr(gp, "delete_gameplay_handler", None),
+        "ytupload": getattr(yt, "ytupload_handler", None),
+            
+  # Handler untuk menu Studio (Verdict, Lore, dll)
+        "verdict": getattr(gp, "master_studio_handler", None),
+        "toptier": getattr(gp, "master_studio_handler", None),
+        "archives": getattr(gp, "master_studio_handler", None),
+        "lore": getattr(gp, "master_studio_handler", None),
+        "radar": getattr(gp, "master_studio_handler", None),
+        "patch": getattr(gp, "master_studio_handler", None),
+        }
     
     # Perintah yang langsung dieksekusi tanpa butuh input file
     admin_cmds = {
@@ -536,6 +554,10 @@ async def route_commands(callback: CallbackQuery):
         import bot.vip_handlers as vip
         import bot.subtitle_handlers as sub
         import bot.subtitle_editor as subed
+        import bot.MovieRecap as recap
+        import bot.Gameplay as gp
+        import bot.AutoClip as autoclip
+        import bot.YTUpload as yt
         
         handlers = {
             "speedtest": getattr(adm, "_speed_test", None), "time": getattr(adm, "_timecmd", None),
@@ -548,7 +570,14 @@ async def route_commands(callback: CallbackQuery):
             
             "saveconfig": getattr(adm, "_saverclone", None), 
             "savewatermark": getattr(adm, "_savewatermark", None),
-            "savethumb": getattr(adm, "_savethumb", None),
+            "savethumb": getattr(adm, "_savethumb", None)
+           
+            "listgameplay": getattr(gp, "list_gameplay_handler", None), "deletegameplay": getattr(gp, "delete_gameplay_handler", None),
+            "recap": getattr(recap, "recap_handler", None), "clip": getattr(autoclip, "autoclip_handler", None), "ytupload": getattr(yt, "ytupload_handler", None),
+            "addgameplay": getattr(gp, "add_gameplay_handler", None), "addsfx": getattr(gp, "addsfx_handler", None),
+            "verdict": getattr(gp, "master_studio_handler", None), "toptier": getattr(gp, "master_studio_handler", None),
+            "archives": getattr(gp, "master_studio_handler", None), "lore": getattr(gp, "master_studio_handler", None),
+            "radar": getattr(gp, "master_studio_handler", None), "patch": getattr(gp, "master_studio_handler", None),
             
             "encode": getattr(med, "_encode_video", None), "customencode": getattr(med, "_custom_encode_video", None),
             "compress": getattr(med, "_compress_video", None), "convert": getattr(med, "_convert_video", None),
