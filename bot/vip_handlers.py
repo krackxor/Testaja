@@ -1,18 +1,18 @@
 """
 ╔══════════════════════════════════════════════════════════════════════╗
-║    bot_helper/Handlers/vip_handlers.py — v3.2                        ║
+║    bot_helper/Handlers/vip_handlers.py — v3.3                        ║
 ║    VIP Management & Trakteer Payment Verification (Aiogram)          ║
 ╠══════════════════════════════════════════════════════════════════════╣
 ║  Commands: /verify /myvip /add_vip /delete_vip /view_vip             ║
 ╠══════════════════════════════════════════════════════════════════════╣
 ║  CHANGELOG dari versi lama:                                          ║
+║  [UX PREMIUM] Penyelarasan Hierarki Warna & Emoji (Hijau/Merah/Biru).║
 ║  [UX PREMIUM] Menerapkan Auto-Delete agar chat tetap bersih.         ║
 ║  [UX PREMIUM] Menerapkan Reply Keyboard "❌ Batal" yang konsisten.   ║
 ║  [UX PREMIUM] Penataan pesan info dengan Box Konfirmasi yang rapi.   ║
 ║  [FIX HIGH] Menambahkan import 'exists' yang hilang.                 ║
 ║  [FIX HIGH] Implementasi CMD_SUFFIX pada semua Command filter        ║
 ║  [NEW] Migrasi total ke Aiogram Router & Message objects             ║
-║  [UPDATE] Konsistensi UI, Ikon, Timeout, dan Batal selaras 100%.     ║
 ╚══════════════════════════════════════════════════════════════════════╝
 """
 
@@ -120,7 +120,7 @@ async def _verify_payment(message: Message):
     await ensure_user_data_structure(user_id)
 
     kb = _make_reply_kb(["❌ Batal"], 1)
-    ask_txt = "🎁 **VERIFIKASI TRAKTEER**\n\nSetelah berdonasi di Trakteer, silakan kirimkan (Ketik) **Order ID** Anda di sini:"
+    ask_txt = "💳 **VERIFIKASI TRAKTEER**\n\nSetelah berdonasi di Trakteer, silakan kirimkan (Ketik) **Order ID** Anda di sini:"
     ask_msg = await message.reply(ask_txt, reply_markup=kb)
     
     resp = await wait_for_message(chat_id, user_id, 120)
@@ -143,7 +143,7 @@ async def _verify_payment(message: Message):
     if order_id in claimed_ids:
         return await message.answer("❌ Order ID ini sudah pernah diklaim sebelumnya.", reply_markup=ReplyKeyboardRemove())
 
-    verif_msg = await message.answer("🔎 Sedang memverifikasi Order ID ke Trakteer...", reply_markup=ReplyKeyboardRemove())
+    verif_msg = await message.answer("⏳ Sedang memverifikasi Order ID ke Trakteer...", reply_markup=ReplyKeyboardRemove())
     try:
         resp = await asyncio.to_thread(
             requests.get,
@@ -211,7 +211,7 @@ async def _verify_payment(message: Message):
 
     expiry_fmt = new_expiry.strftime("%d %B %Y, %H:%M WIB")
     box_txt = (
-        f"✅ **VERIFIKASI BERHASIL!**\n\n"
+        f"✅ 👑 **VERIFIKASI BERHASIL!**\n\n"
         f"🎉 Terima kasih atas dukungan Anda!\n"
         f"├ Tambahan Waktu: **{months} Bulan** (`{duration_days} Hari`)\n"
         f"└ Berakhir Pada: **{expiry_fmt}**"
@@ -247,7 +247,7 @@ async def _my_vip_status(message: Message):
         await message.reply(
             "╭─── • **Kartu Anggota VIP** • ───╮\n"
             "│\n"
-            f"├  **Status:** `Premium (VIP) ✅`\n"
+            f"├  **Status:** `Premium (VIP) 🟢`\n"
             f"├  **Aktif Hingga:** `{expiry.strftime('%d %B %Y, %H:%M WIB')}`\n"
             f"├  **Sisa Waktu:** `{days} hari, {hours} jam`\n"
             "│\n"
@@ -257,7 +257,7 @@ async def _my_vip_status(message: Message):
         await message.reply(
             "╭─── • **Status Keanggotaan** • ───╮\n"
             "│\n"
-            "├  **Status:** `Pengguna Reguler`\n"
+            "├  **Status:** `Pengguna Reguler ⚪`\n"
             "│\n"
             "├  Ingin akses penuh? Lakukan donasi\n"
             f"│  dan gunakan `/verify{CMD_SUFFIX}` untuk upgrade VIP!\n"
@@ -305,7 +305,7 @@ async def _add_vip_manual(message: Message):
         await saveoptions(target_uid, "total_vip_duration",  total_duration,         SAVE_TO_DATABASE)
 
         await safe_reply(message,
-            f"✅ **VIP MANUAL BERHASIL DITAMBAHKAN**\n\n"
+            f"✅ 👑 **VIP MANUAL BERHASIL DITAMBAHKAN**\n\n"
             f"├ User ID: `{target_uid}`\n"
             f"├ Durasi Baru: **{duration_days} hari**\n"
             f"└ Aktif Hingga: **{new_expiry.strftime('%d %B %Y, %H:%M WIB')}**"
@@ -339,7 +339,7 @@ async def _delete_vip_manual(message: Message):
 
         await saveoptions(target_uid, "premium_expiry_date", None, SAVE_TO_DATABASE)
         await saveoptions(target_uid, "total_vip_duration",  0,    SAVE_TO_DATABASE)
-        await safe_reply(message, f"✅ VIP user `{target_uid}` berhasil dihapus paksa.")
+        await safe_reply(message, f"🗑️ ✅ VIP user `{target_uid}` berhasil dihapus paksa.")
 
     except Exception as e:
         LOGGER.error(f"/delete_vip error: {e}", exc_info=True)
@@ -379,7 +379,7 @@ async def _view_vip_list(message: Message):
 
         vip_list.sort(key=lambda x: x[1])   # sort by expiry (terdekat dulu)
 
-        lines = ["**📋 Daftar Pengguna VIP Aktif**\n"]
+        lines = ["**👑 Daftar Pengguna VIP Aktif**\n"]
         for i, (uid, expiry, total_dur) in enumerate(vip_list, 1):
             days_left  = (expiry - now).days
             expiry_fmt = expiry.strftime("%d %b %Y")
