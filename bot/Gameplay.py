@@ -1,9 +1,11 @@
 """
 ╔══════════════════════════════════════════════════════════════════════╗
-║    bot/Gameplay.py — v4.6 (NETFLIX LORE EDITION - INTERNATIONAL)     ║
+║    bot/Gameplay.py — v4.7 (NETFLIX LORE EDITION - INTERNATIONAL)     ║
 ║    Studio Khoirul: Core Engine Video Production Bot (Aiogram 3.x)    ║
 ╠══════════════════════════════════════════════════════════════════════╣
-║  CHANGELOG v4.6:                                                     ║
+║  CHANGELOG v4.7:                                                     ║
+║  [UX PREMIUM] Implementasi API Warna Tombol Native Telegram 9.4+     ║
+║                (Primary, Success, Danger) pada Reply & Inline KB.    ║
 ║  [UX PREMIUM] Standardisasi Hierarki Emoji (❌ Error, ⏳ Proses).      ║
 ║  [UX PREMIUM] Mengganti "❌ Skip" menjadi "⏭️ Skip" agar aman.       ║
 ║  [UX PREMIUM] Migrasi Total Dashboard Inline menjadi Interactive     ║
@@ -135,7 +137,7 @@ for _d in [GAMEPLAY_DIR, TEMP_DIR, THUMB_DIR, "./audio"]: os.makedirs(_d, exist_
 
 
 # ═══════════════════════════════════════════════════════════════════════
-#  UI & CLEANUP HELPERS
+#  UI & CLEANUP HELPERS (COLOR BUTTONS ENABLED)
 # ═══════════════════════════════════════════════════════════════════════
 
 async def _clean_msgs(*msgs):
@@ -146,11 +148,20 @@ async def _clean_msgs(*msgs):
             except Exception: pass
 
 def _make_reply_kb(options: list, row_width: int = 2) -> ReplyKeyboardMarkup:
-    """Membuat Reply Keyboard dengan mudah."""
+    """Membuat Reply Keyboard dengan mudah dan warna otomatis (Native Telegram)."""
     kb = []
     row = []
     for opt in options:
-        row.append(KeyboardButton(text=opt))
+        # Auto-Color Logic
+        if "Batal" in opt or "❌" in opt:
+            btn_style = "danger"
+        elif "Ya" in opt or "✅" in opt:
+            btn_style = "success"
+        else:
+            btn_style = "primary"
+            
+        row.append(KeyboardButton(text=opt, style=btn_style))
+        
         if len(row) == row_width:
             kb.append(row)
             row = []
@@ -895,7 +906,7 @@ async def _worker_studio_production(process_status: ProcessStatus, message: Mess
                 await _safe_edit(status_msg, _st(f"Mengunggah [{res_mode}] ke YouTube..."))
                 try:
                     yt_link = await upload_to_youtube(merged_path, st["title"] + (" #Shorts" if is_portrait else ""), st["description"], st["yt_privacy"], process_status, status_msg)
-                    btn = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="📺 Buka YouTube", url=yt_link)]])
+                    btn = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="📺 Buka YouTube", url=yt_link, style="success")]])
                     await message.answer(f"📺 **Berhasil Upload YouTube!** [{res_mode}]\n[Tonton Video ↗]({yt_link})", reply_markup=btn)
                 except Exception as e: await message.answer(f"❌ YouTube upload gagal [{res_mode}]: `{e}`")
             
@@ -1057,7 +1068,7 @@ async def master_studio_handler(message: Message) -> None:
             return await message.answer(f"❌ Gameplay untuk `{st['title']}` tidak ditemukan di server!\nGunakan `/addgameplay{CMD_SUFFIX}`.")
             
     init_text = f"🎬 **Produksi Dimulai: {st['segment_name']}**\n`{st['title']}` · `{len(st['scenes'])} scene`\n**ID:** `{ps.process_id}`\n`/cancel{CMD_SUFFIX} process {ps.process_id}`"
-    kb_action = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="❌ Batal", callback_data=f"prod_cancel_{user_id}_{ps.process_id}")]])
+    kb_action = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="❌ Batal", callback_data=f"prod_cancel_{user_id}_{ps.process_id}", style="danger")]])
     status_msg = await message.answer(init_text, reply_markup=kb_action)
     
     asyncio.create_task(_queue_and_run(ps, _worker_studio_production(ps, message, st, gp_path, status_msg), status_msg, f"⏳ **Antrian Produksi**\n🎬 `{st['segment_name']} - {st['title']}`"))
@@ -1149,12 +1160,12 @@ def _get_gameplay_list_text(videos):
 @router.message(Command(f"listgameplay{CMD_SUFFIX}"))
 async def list_gameplay_handler(message: Message) -> None:
     videos = sorted(list_gameplay_videos())
-    if not videos: return await message.answer(f"📁 Belum ada gameplay.\n\nUpload: Balas video → `/addgameplay{CMD_SUFFIX} Nama Game`")
+    if not videos: return await message.answer(f"❌ Belum ada gameplay.\n\nUpload: Balas video → `/addgameplay{CMD_SUFFIX} Nama Game`")
     
     status_msg = await message.answer("⏳ Membaca data durasi video...")
     lines, tot = await asyncio.to_thread(_get_gameplay_list_text, videos)
     
-    await _safe_edit(status_msg, _dash("🎮", f"Gameplay — {len(videos)} video · {tot:.0f}s total", lines), buttons=[[InlineKeyboardButton(text="🗑️ Hapus gameplay", callback_data="gp_delete_prompt")]])
+    await _safe_edit(status_msg, _dash("🎮", f"Gameplay — {len(videos)} video · {tot:.0f}s total", lines), buttons=[[InlineKeyboardButton(text="🗑️ Hapus gameplay", callback_data="gp_delete_prompt", style="danger")]])
 
 @router.callback_query(F.data == "gp_delete_prompt")
 async def gp_delete_prompt_cb(call: CallbackQuery) -> None: 
@@ -1171,8 +1182,8 @@ async def delete_gameplay_handler(message: Message, command: CommandObject) -> N
 @router.message(Command(f"help{CMD_SUFFIX}"))
 async def help_handler(message: Message) -> None:
     btns = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="🎮 Gameplay", callback_data="help_gameplay"), InlineKeyboardButton(text="🎬 Produksi", callback_data="help_produksi")], 
-        [InlineKeyboardButton(text="🛠 Tools", callback_data="help_tools"), InlineKeyboardButton(text="⚙️ Settings", callback_data="help_settings")]
+        [InlineKeyboardButton(text="🎮 Gameplay", callback_data="help_gameplay", style="primary"), InlineKeyboardButton(text="🎬 Produksi", callback_data="help_produksi", style="primary")], 
+        [InlineKeyboardButton(text="🛠 Tools", callback_data="help_tools", style="primary"), InlineKeyboardButton(text="⚙️ Settings", callback_data="help_settings", style="primary")]
     ])
     await message.answer(_dash("📖","STUDIO KHOIRUL — Panduan",[("","─── 🎮 MEDIA ───"),(f"/addgameplay{CMD_SUFFIX}", "Balas video → simpan gameplay"),(f"/addsfx{CMD_SUFFIX}", "Balas MP3 → simpan SFX"),(f"/listgameplay{CMD_SUFFIX}","Lihat semua gameplay"),("","─── 🎬 PRODUKSI UNIVERSAL ───"),(f"/verdict{CMD_SUFFIX}",  "Ulasan (Cinematic Red)"),(f"/toptier{CMD_SUFFIX}",  "Peringkat (Arcade Gold)"),(f"/archives{CMD_SUFFIX}", "Sejarah (Retro Amber)"),(f"/lore{CMD_SUFFIX}",      "Teori & Fakta (Netflix Red)"),(f"/radar{CMD_SUFFIX}",    "Game Baru (Cyber Cyan)"),(f"/patch{CMD_SUFFIX}",    "Berita Kilat (News Red)"),("","─── ⚙️ LAINNYA ───"),(f"/settings{CMD_SUFFIX}","Konfigurasi bot"),(f"/help{CMD_SUFFIX}",   "Panduan ini")]), reply_markup=btns)
 
@@ -1202,8 +1213,8 @@ async def settings_handler(message: Message) -> None:
 
 async def _send_settings(message: Message) -> None: 
     btns = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="🎮 Gameplay", callback_data="set_gameplay"), InlineKeyboardButton(text="📺 YouTube", callback_data="set_yt")], 
-        [InlineKeyboardButton(text="📖 Help", callback_data="help_tools")]
+        [InlineKeyboardButton(text="🎮 Gameplay", callback_data="set_gameplay", style="primary"), InlineKeyboardButton(text="📺 YouTube", callback_data="set_yt", style="primary")], 
+        [InlineKeyboardButton(text="📖 Help", callback_data="help_tools", style="primary")]
     ])
     await message.answer(_dash("⚙️","Studio Khoirul — Konfigurasi",[("","─── Resolusi ───"),("Landscape", f"{TARGET_W}×{TARGET_H} · {TARGET_FPS}fps"),("Portrait",  f"{SHORT_W}×{SHORT_H} · {TARGET_FPS}fps"),("","─── Encode ───"),("Bitrate",  f"{BITRATE} video · {AUDIO_BR} audio"),("Preset",  PRESET),("TTS Voice",VOICE),("","─── Status ───"),("Gameplay",  f"{len(list_gameplay_videos())} video"),("YouTube", "✅ Aktif" if YOUTUBE_ENABLED else "❌ Nonaktif"),("yt-dlp", "✅ Aktif" if YTDLP_ENABLED else "❌ Nonaktif")]), reply_markup=btns)
 
