@@ -1,5 +1,5 @@
 # ╔══════════════════════════════════════════════════════════════════════╗
-# ║            REQUIREMENTS.TXT — Encoder Bot (Trinity Version)          ║
+# ║            REQUIREMENTS.TXT — Encoder Bot (Trinity v4.1)             ║
 # ║            Last updated: 2026 — Python 3.11+                         ║
 # ╚══════════════════════════════════════════════════════════════════════╝
 #
@@ -31,6 +31,7 @@ pyrogram==2.0.106
 # TgCrypto: crypto backend untuk Pyrogram (Fast Download)
 TgCrypto==1.2.5
 
+
 # ── DATABASE ──────────────────────────────────────────────────────────
 # Motor: async MongoDB driver — upgrade 3.1.1 → 3.5.1
 motor==3.5.1
@@ -40,6 +41,7 @@ pymongo==4.8.0
 
 # DNS untuk MongoDB SRV connection string (mongodb+srv://)
 dnspython==2.6.1
+
 
 # ── HTTP, ASYNC & CORE ACCELERATOR ────────────────────────────────────
 # Ultra-fast asyncio event loop pengganti bawaan Python (HANYA UNTUK LINUX/VPS)
@@ -58,12 +60,14 @@ requests==2.32.3
 # Modern async HTTP client (pengganti requests di beberapa module & SpeedTest.py)
 httpx==0.27.2
 
+
 # ── ENVIRONMENT & CONFIG ──────────────────────────────────────────────
 # python-dotenv: upgrade 0.21.0 → 1.0.1
 python-dotenv==1.0.1
 
 # Timezone — upgrade 2022.7 → 2024.1
 pytz==2024.1
+
 
 # ── SISTEM & MONITORING ───────────────────────────────────────────────
 # psutil: upgrade 5.9.4 → 6.0.0
@@ -72,12 +76,14 @@ psutil==6.0.0
 # File type detection (butuh: apt install libmagic1 di server)
 python-magic==0.4.27
 
+
 # ── DOWNLOAD ENGINE ───────────────────────────────────────────────────
 # Aria2 Python wrapper (sudah latest, Aria2 sendiri stabil)
 aria2p==0.11.3
 
 # yt-dlp: tidak di-pin karena YouTube update tiap minggu
 yt-dlp>=2024.1.0
+
 
 # ── VIDEO PROCESSING ──────────────────────────────────────────────────
 # MoviePy: di-pin ke 2.0.0 (API 2.x BERBEDA TOTAL dari 1.x)
@@ -100,9 +106,20 @@ numpy==1.26.4
 # Image processing
 Pillow==10.4.0
 
-# ── TEXT TO SPEECH ────────────────────────────────────────────────────
-# edge-tts: di-pin (API Microsoft TTS bisa berubah)
+
+# ── TEXT TO SPEECH & AI SUBTITLES ─────────────────────────────────────
+# edge-tts: API Microsoft TTS
 edge-tts
+
+# faster-whisper: AI Speech-to-Text (Jauh lebih ringan & cepat dari openai-whisper)
+faster-whisper>=1.0.0
+
+# pysrt: Parser dan generator untuk format subtitle (.srt / .ass)
+pysrt>=1.1.2
+
+# deep-translator: API Google Translate gratis (tanpa limit/key)
+deep-translator>=1.11.4
+
 
 # ── YOUTUBE API ───────────────────────────────────────────────────────
 # Google API client
@@ -111,6 +128,7 @@ google-api-python-client==2.143.0
 # OAuth2 — PERHATIAN: run_local_server() tidak bisa di VPS headless!
 google-auth-oauthlib==1.2.1
 google-auth-httplib2==0.2.0
+
 
 # ── WEB SERVER (untuk webhook / health check) ─────────────────────────
 # Flask: di-pin (3.x breaking change dari 2.x)
