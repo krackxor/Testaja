@@ -1,9 +1,11 @@
 """
 ╔══════════════════════════════════════════════════════════════════════╗
-║                    bot/AutoClip.py — v3.3                            ║
+║                    bot/AutoClip.py — v4.1                            ║
 ║        Auto Clip: Potong video panjang → Shorts/Reels terpisah       ║
 ╠══════════════════════════════════════════════════════════════════════╣
-║  CHANGELOG:                                                          ║
+║  CHANGELOG v4.1:                                                     ║
+║  [UX PREMIUM] Implementasi API Warna Tombol Native Telegram 9.4+     ║
+║                (Primary, Success, Danger) pada Reply Keyboard.       ║
 ║  [UX PREMIUM] Standardisasi Hierarki Emoji (❌ Error, ⏳ Proses).      ║
 ║  [UX PREMIUM] Mengganti "❌ Skip" menjadi "⏭️ Skip" agar aman.       ║
 ║  [UX PREMIUM] Migrasi Total Dashboard Inline menjadi Interactive     ║
@@ -73,7 +75,7 @@ os.makedirs(TEMP_DIR, exist_ok=True)
 
 
 # ═══════════════════════════════════════════════════════════════════════
-#  HELPERS & UI
+#  HELPERS & UI (COLOR BUTTONS ENABLED)
 # ═══════════════════════════════════════════════════════════════════════
 
 async def _clean_msgs(*msgs):
@@ -84,11 +86,20 @@ async def _clean_msgs(*msgs):
             except Exception: pass
 
 def _make_reply_kb(options: list, row_width: int = 2) -> ReplyKeyboardMarkup:
-    """Membuat Reply Keyboard dengan mudah."""
+    """Membuat Reply Keyboard dengan mudah dan warna otomatis (Native Telegram)."""
     kb = []
     row = []
     for opt in options:
-        row.append(KeyboardButton(text=opt))
+        # Auto-Color Logic
+        if "Batal" in opt or "❌" in opt:
+            btn_style = "danger"
+        elif "Ya" in opt or "✅" in opt:
+            btn_style = "success"
+        else:
+            btn_style = "primary"
+            
+        row.append(KeyboardButton(text=opt, style=btn_style))
+        
         if len(row) == row_width:
             kb.append(row)
             row = []
@@ -458,7 +469,7 @@ async def autoclip_handler(message: Message, command: CommandObject) -> None:
     ps = ProcessStatus(user_id, chat_id, message.from_user.username or "", sender_name, message, getattr(Names, "autoclip", "AutoClip"), "Telegram")
     
     init_text = f"⏳ ✂️ **Memulai Auto Clip...**\n**Sumber:** `{topic}`\n**ID:** `{ps.process_id}`\n`/cancel{CMD_SUFFIX} process {ps.process_id}`"
-    kb_action = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="❌ Batal", callback_data=f"ac_cancel_{user_id}_{ps.process_id}")]])
+    kb_action = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="❌ Batal", callback_data=f"ac_cancel_{user_id}_{ps.process_id}", style="danger")]])
     
     status_msg = await message.answer(init_text, reply_markup=kb_action)
     
