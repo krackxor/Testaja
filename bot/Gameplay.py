@@ -1,22 +1,12 @@
 """
 ╔══════════════════════════════════════════════════════════════════════╗
-║    bot/Gameplay.py — v4.7 (NETFLIX LORE EDITION - INTERNATIONAL)     ║
+║    bot/Gameplay.py — v5.0 (NETFLIX LORE EDITION - INTERNATIONAL)     ║
 ║    Studio Khoirul: Core Engine Video Production Bot (Aiogram 3.x)    ║
 ╠══════════════════════════════════════════════════════════════════════╣
-║  CHANGELOG v4.7:                                                     ║
-║  [UX PREMIUM] Implementasi API Warna Tombol Native Telegram 9.4+     ║
-║                (Primary, Success, Danger) pada Reply & Inline KB.    ║
-║  [UX PREMIUM] Standardisasi Hierarki Emoji (❌ Error, ⏳ Proses).      ║
-║  [UX PREMIUM] Mengganti "❌ Skip" menjadi "⏭️ Skip" agar aman.       ║
-║  [UX PREMIUM] Migrasi Total Dashboard Inline menjadi Interactive     ║
-║                Wizard (Step-by-step) dengan Reply Keyboard Singkat!  ║
-║  [UX PREMIUM] Auto-Delete disematkan di semua langkah setup produksi ║
-║                agar obrolan tidak dipenuhi pesan sampah.             ║
-║  [UX PREMIUM] Kotak Konfirmasi (Summary Box) diseragamkan dengan     ║
-║                desain modul admin dan media_handlers.                ║
-║  [FIX HIGH] Perbaikan logika _try_txt untuk cegah AttributeError.    ║
-║  [FIX HIGH] Threading untuk operasi MoviePy & I/O                    ║
-║  [UPDATE] Konsistensi UI, Ikon, Timeout, dan Batal selaras 100%.     ║
+║  CHANGELOG v5.0:                                                     ║
+║  [INTEGRATION] Migrasi total ke bot_helper.Process.Unified_Engine    ║
+║  [CLEANUP] Menghapus sistem semaphore dan QueueStats manual          ║
+║  [UX PREMIUM] Progress Bar real-time di-handle oleh Unified UI       ║
 ╚══════════════════════════════════════════════════════════════════════╝
 """
 
@@ -30,7 +20,7 @@ import subprocess
 import time
 import shutil
 import math
-import psutil  # CRITICAL: Untuk Smart RAM Adaptor
+import psutil 
 from datetime import datetime
 from typing import Optional
 
@@ -57,23 +47,16 @@ from moviepy.video.fx import FadeIn, FadeOut, Loop
 from moviepy.audio.fx import AudioLoop, MultiplyVolume
 
 # ── Internal ──────────────────────────────────────────────────────────
-from bot_helper.Database.User_Data import get_data, ensure_user_data_structure, get_task_limit
+from bot_helper.Database.User_Data import get_data, ensure_user_data_structure
 from bot_helper.Others.Helper_Functions import get_human_size, get_readable_time
 from bot_helper.Others.Names import Names
-from bot_helper.Process.Process_Status import ProcessStatus, get_progress_bar_string
-from bot_helper.Process.Running_Process import (
-    append_running_process, check_running_process, remove_running_process,
-)
-from bot_helper.Process.Running_Tasks import (
-    working_task, working_task_lock, queued_task, queued_task_lock,
-)
+from bot_helper.Process.Unified_Engine import execute_unified_task
 from bot_helper.Telegram.Telegram_Client import Telegram
 from config.config import Config
-
 from bot.shared import wait_for_message, CMD_SUFFIX
 
 try:
-    from bot.YTUpload import upload_to_youtube, YOUTUBE_ENABLED, _is_vip as _yt_is_vip
+    from bot.YTUpload import _core_ytupload_logic, YOUTUBE_ENABLED, _is_vip as _yt_is_vip
     _HAS_YTUPLOAD = True
 except ImportError:
     YOUTUBE_ENABLED = False
@@ -118,7 +101,6 @@ FFMPEG_PARAMS = [
 FFMPEG_SHORT  = FFMPEG_PARAMS
 
 THUMB_W, THUMB_H, THUMB_SHORT_W, THUMB_SHORT_H = 1920, 1080, 1080, 1920
-QUEUE_TIMEOUT = 7200   
 
 VERDICT_MAP = {
     10: ("MASTERPIECE", (255, 215,   0)), 9: ("MUST PLAY",   (255, 200,   0)),
@@ -137,91 +119,39 @@ for _d in [GAMEPLAY_DIR, TEMP_DIR, THUMB_DIR, "./audio"]: os.makedirs(_d, exist_
 
 
 # ═══════════════════════════════════════════════════════════════════════
-#  UI & CLEANUP HELPERS (COLOR BUTTONS ENABLED)
+#  UI & CLEANUP HELPERS
 # ═══════════════════════════════════════════════════════════════════════
 
 async def _clean_msgs(*msgs):
-    """Menghapus pesan untuk menjaga chat tetap rapi."""
     for m in msgs:
         if m:
             try: await m.delete()
             except Exception: pass
 
 def _make_reply_kb(options: list, row_width: int = 2) -> ReplyKeyboardMarkup:
-    """Membuat Reply Keyboard dengan mudah dan warna otomatis (Native Telegram)."""
     kb = []
     row = []
     for opt in options:
-        # Auto-Color Logic
-        if "Batal" in opt or "❌" in opt:
-            btn_style = "danger"
-        elif "Ya" in opt or "✅" in opt:
-            btn_style = "success"
-        else:
-            btn_style = "primary"
-            
+        if "Batal" in opt or "❌" in opt: btn_style = "danger"
+        elif "Ya" in opt or "✅" in opt: btn_style = "success"
+        else: btn_style = "primary"
         row.append(KeyboardButton(text=opt, style=btn_style))
-        
-        if len(row) == row_width:
-            kb.append(row)
-            row = []
-    if row:
-        kb.append(row)
+        if len(row) == row_width: kb.append(row); row = []
+    if row: kb.append(row)
     return ReplyKeyboardMarkup(keyboard=kb, resize_keyboard=True, one_time_keyboard=True)
 
 def get_dynamic_semaphore():
-    """Smart RAM Adaptor: Menyesuaikan jumlah paralel otomatis berdasar sisa RAM"""
     try:
         mem = psutil.virtual_memory()
-        if mem.percent > 85: return 1  # RAM Kritis -> Serial
-        elif mem.percent > 70: return 2 # RAM Sedang -> Paralel 2
-        else: return 3                  # RAM Lega -> Paralel 3
+        if mem.percent > 85: return 1  
+        elif mem.percent > 70: return 2 
+        else: return 3                
     except:
         return 2
-
-
-# ═══════════════════════════════════════════════════════════════════════
-#  AUTO-CLEANER TASK
-# ═══════════════════════════════════════════════════════════════════════
-
-async def auto_clean_temp_dir(temp_dir=TEMP_DIR, max_age_hours=24):
-    while True:
-        try:
-            now = time.time(); deleted_count = 0; freed_space = 0
-            if os.path.exists(temp_dir):
-                for filename in os.listdir(temp_dir):
-                    filepath = os.path.join(temp_dir, filename)
-                    if os.path.isfile(filepath):
-                        if now - os.path.getmtime(filepath) > (max_age_hours * 3600):
-                            try:
-                                size = os.path.getsize(filepath); os.remove(filepath)
-                                freed_space += size; deleted_count += 1
-                            except OSError: pass
-        except Exception as e: pass
-        await asyncio.sleep(6 * 3600)
-
 
 # ═══════════════════════════════════════════════════════════════════════
 #  CORE UTILS & NOTIFIERS
 # ═══════════════════════════════════════════════════════════════════════
-
-async def _send_thumb_and_video(message, title, scenes, video_path, gameplay_path, segment_name, res_label, is_portrait, mode, status_msg):
-    try:
-        await _safe_edit(status_msg, _st("Menyiapkan Thumbnail..."))
-        score = next((int(s["narration"]) for s in scenes if s["type"] == "RATING" and str(s["narration"]).isdigit()), None)
-        thumb_path = await asyncio.to_thread(generate_thumbnail, title, score, gameplay_path, None, is_portrait, mode)
-        await _safe_edit(status_msg, _st("Mengirim Video ke Telegram..."))
-        
-        await Telegram.AIOGRAM_BOT.send_video(
-            chat_id=message.chat.id,
-            video=FSInputFile(video_path),
-            thumbnail=FSInputFile(thumb_path),
-            caption=f"🎬 **{segment_name} - {title}**\n📐 {res_label}\n✅ Berhasil Dirender!",
-            supports_streaming=True,
-            width=SHORT_W if is_portrait else TARGET_W,
-            height=SHORT_H if is_portrait else TARGET_H
-        )
-    except Exception as e: await _safe_edit(status_msg, _er(f"Gagal mengirim video: {e}"))
 
 def _is_vip(user_id: int) -> bool:
     if user_id == Config.OWNER_ID or user_id in Config.SUDO_USERS: return True
@@ -240,10 +170,8 @@ def _is_video_msg(msg: Message) -> bool: return bool(msg and (msg.video or (msg.
 
 async def _safe_edit(msg: Message, text: str, buttons=None):
     try: 
-        if buttons:
-            await msg.edit_text(text, reply_markup=InlineKeyboardMarkup(inline_keyboard=buttons))
-        else:
-            await msg.edit_text(text)
+        if buttons: await msg.edit_text(text, reply_markup=InlineKeyboardMarkup(inline_keyboard=buttons))
+        else: await msg.edit_text(text)
     except TelegramBadRequest: pass
     except Exception: pass
 
@@ -257,52 +185,6 @@ def cleanup_temp(files: list):
 def safe_filename(name: str, ext: str = ".mp4") -> str:
     clean = re.sub(r'[^\w\-_. ]', '_', name).strip()
     return clean if clean.lower().endswith(ext) else clean + ext
-
-async def download_with_progress(message: Message, reply_msg: Message, save_path: str, label: str = "video", status_msg: Message=None) -> Optional[str]:
-    last_update = [0.0]; temp_dl = tmp(f"dl_{int(time.time()*1000)}.mp4")
-    try:
-        pyro_client = Telegram.PYROGRAM_CLIENT
-        async def _progress(current: int, total: int):
-            now = time.time()
-            if now - last_update[0] >= 2.0 and total:
-                last_update[0] = now; pct = current / total; bar = "█" * int(pct * 10) + "░" * (10 - int(pct * 10))
-                if status_msg: await _safe_edit(status_msg, f"⏳ ⚡ **PYROGRAM SPEED: {label}...**\n\n[{bar}] {pct*100:.1f}%\n📥 `{get_human_size(current)} / {get_human_size(total)}`")
-        
-        for _ in range(3):
-            try: pyro_msg = await pyro_client.get_messages(reply_msg.chat.id, reply_msg.message_id); break
-            except: await asyncio.sleep(2)
-        
-        if not pyro_msg or not pyro_msg.media: return None
-        dl_file = await pyro_client.download_media(message=pyro_msg, file_name=temp_dl, progress=_progress)
-        if dl_file and os.path.exists(dl_file): shutil.move(dl_file, save_path); return save_path
-    except Exception as e: LOGGER.error(f"Pyrogram Error: {e}")
-    cleanup_temp([temp_dl]); return None
-
-async def _queue_and_run(process_status: ProcessStatus, worker_coro, status_msg: Message, queue_text: str) -> None:
-    task_wrapper = {"process_status": process_status, "functions": [], "_gameplay": True}; queued = False
-    async with working_task_lock:
-        if len(working_task) < get_task_limit(): working_task.append(task_wrapper); await append_running_process(process_status.process_id)
-        else: queued = True
-    if queued:
-        async with queued_task_lock: queued_task.append(task_wrapper); pos = len(queued_task)
-        await _safe_edit(status_msg, f"⏳ {queue_text}\n\n📋 **Posisi antrian:** `{pos}`\n`/cancel{CMD_SUFFIX} process {process_status.process_id}`")
-        for _ in range(QUEUE_TIMEOUT // 5):
-            await asyncio.sleep(5)
-            async with queued_task_lock:
-                if task_wrapper not in queued_task: break
-        else:
-            async with queued_task_lock:
-                if task_wrapper in queued_task: queued_task.remove(task_wrapper)
-            return await _safe_edit(status_msg, "❌ **Timeout antrian (1 jam).** Coba lagi.")
-        if not check_running_process(process_status.process_id): return
-    try: await worker_coro
-    finally:
-        await remove_running_process(process_status.process_id)
-        async with working_task_lock:
-            for task in list(working_task):
-                if task.get("process_status") and task["process_status"].process_id == process_status.process_id:
-                    working_task.remove(task); break
-        gc.collect()
 
 
 # ═══════════════════════════════════════════════════════════════════════
@@ -820,14 +702,17 @@ async def render_studio_clip(scene_dict, segment_name, output_name, game_title, 
 
 
 # ═══════════════════════════════════════════════════════════════════════
-#  WORKER STUDIO (INCREMENTAL CHUNKING + SMART RAM)
+#  WORKER STUDIO (INTEGRATED WITH UNIFIED_ENGINE)
 # ═══════════════════════════════════════════════════════════════════════
 
-async def _worker_studio_production(process_status: ProcessStatus, message: Message, st: dict, gameplay_path: str, status_msg: Message) -> None:
+async def _core_studio_logic(message: Message, ui, st: dict, gameplay_path: str) -> None:
     scenes, total, t0 = st["scenes"], len(st["scenes"]), time.time()
+    
     for res_mode in [r for r in ["16:9", "9:16"] if st["resolution"] in [r, "both"]]:
-        is_portrait = (res_mode == "9:16"); res_label = f"{SHORT_W}×{SHORT_H} (Shorts)" if is_portrait else f"{TARGET_W}×{TARGET_H} (Landscape)"
-        windows = await asyncio.to_thread(split_gameplay, gameplay_path, scenes); safe_title = re.sub(r'[^\w]', '_', st["title"])
+        is_portrait = (res_mode == "9:16")
+        res_label = f"{SHORT_W}×{SHORT_H} (Shorts)" if is_portrait else f"{TARGET_W}×{TARGET_H} (Landscape)"
+        windows = await asyncio.to_thread(split_gameplay, gameplay_path, scenes)
+        safe_title = re.sub(r'[^\w]', '_', st["title"])
         
         CHUNK_SIZE = 15 
         part_files = []
@@ -845,9 +730,8 @@ async def _worker_studio_production(process_status: ProcessStatus, message: Mess
             async def process_single_scene(local_idx, global_idx, scene, window, prev_seg_local):
                 nonlocal completed_count
                 async with semaphore:
-                    if not check_running_process(process_status.process_id): return
-                    process_status.ping = time.time(); current_segment = scene["segment"]
-                    out_name = tmp(f"cache_{process_status.user_id}_{safe_title}_{res_mode.replace(':','')}_{global_idx:02d}.mp4")
+                    current_segment = scene["segment"]
+                    out_name = tmp(f"cache_{message.from_user.id}_{safe_title}_{res_mode.replace(':','')}_{global_idx:02d}.mp4")
                     
                     if os.path.exists(out_name) and os.path.getsize(out_name) > 10000:
                         LOGGER.info(f"[CACHE HIT] Scene {global_idx} already rendered.")
@@ -875,9 +759,13 @@ async def _worker_studio_production(process_status: ProcessStatus, message: Mess
                     completed_count += 1
                     
                     if completed_count % 2 == 0 or completed_count == total:
-                        elapsed = time.time() - t0
-                        process_status.update_process_message(f"⏳ 🎬 **Merender [{res_mode}] (Paralel {concurrency}x)**\n\nSelesai: `{completed_count}/{total}` klip\n{get_progress_bar_string(completed_count, total)} {(completed_count*100//total)}%\n**W.Proses:** `{get_readable_time(elapsed)}` | **ETA:** `{get_readable_time((elapsed / max(1, completed_count)) * (total - completed_count))}`\n`/cancel{CMD_SUFFIX} process {process_status.process_id}`")
-                        await _safe_edit(status_msg, process_status.status_message)
+                        # REPORT PROGRESS TO UNIFIED_ENGINE UI
+                        asyncio.create_task(ui.update(
+                            status=f"🎬 Merender [{res_mode}] (Paralel {concurrency}x)",
+                            current=completed_count,
+                            total=total,
+                            details=f"Scene {global_idx}: {current_segment[:20]}"
+                        ))
                     gc.collect()
 
             for i, (sc, win) in enumerate(zip(chunk_scenes, chunk_windows)):
@@ -896,29 +784,75 @@ async def _worker_studio_production(process_status: ProcessStatus, message: Mess
 
         # ─── THE FINAL MERGE ───
         if len(part_files) > 0:
-            await _safe_edit(status_msg, _st(f"⚡ Final Merging {len(part_files)} Parts [{res_mode}] - ULTRAFAST MODE..."))
+            await ui.update(f"⚡ Final Merging [{res_mode}]", details="Menggabungkan semua part video (Ultrafast Mode)...")
             merged_path = tmp(f"FINAL_{st['segment_name'].replace(' ','')}_{res_mode.replace(':','')}_{safe_title}.mp4")
             
             await asyncio.to_thread(merge_short_clips if is_portrait else merge_clips, part_files, merged_path, True)
-            await _send_thumb_and_video(message, st["title"], scenes, merged_path, gameplay_path, st["segment_name"], res_label, is_portrait, "short" if is_portrait else "review", status_msg)
             
+            # Buat Thumbnail & Upload Telegram
+            await ui.update(f"📤 Mengunggah ke Telegram [{res_mode}]", details="Menyiapkan thumbnail HD...")
+            score = next((int(s["narration"]) for s in scenes if s["type"] == "RATING" and str(s["narration"]).isdigit()), None)
+            thumb_path = await asyncio.to_thread(generate_thumbnail, st["title"], score, gameplay_path, None, is_portrait, "short" if is_portrait else "review")
+            
+            await Telegram.AIOGRAM_BOT.send_video(
+                chat_id=message.chat.id,
+                video=FSInputFile(merged_path),
+                thumbnail=FSInputFile(thumb_path),
+                caption=f"🎬 **{st['segment_name']} - {st['title']}**\n📐 {res_label}\n✅ Berhasil Dirender!",
+                supports_streaming=True,
+                width=SHORT_W if is_portrait else TARGET_W,
+                height=SHORT_H if is_portrait else TARGET_H
+            )
+            
+            # YouTube Upload (Jika aktif)
             if st["yt_enabled"] and YOUTUBE_ENABLED and _HAS_YTUPLOAD and os.path.exists(merged_path):
-                await _safe_edit(status_msg, _st(f"Mengunggah [{res_mode}] ke YouTube..."))
+                await ui.update(f"🌐 Mengunggah [{res_mode}] ke YouTube...", details=f"Privasi: {st['yt_privacy'].capitalize()}")
                 try:
-                    yt_link = await upload_to_youtube(merged_path, st["title"] + (" #Shorts" if is_portrait else ""), st["description"], st["yt_privacy"], process_status, status_msg)
+                    # Kita panggil API YouTube secara manual (mirip dengan Recap)
+                    from googleapiclient.http import MediaFileUpload
+                    from bot.YTUpload import _get_youtube_client, YT_CHUNK_SIZE, YT_CATEGORY_ID, YT_TAGS
+                    youtube = _get_youtube_client()
+                    media = MediaFileUpload(merged_path, chunksize=YT_CHUNK_SIZE, resumable=True)
+                    request = youtube.videos().insert(
+                        part="snippet,status",
+                        body={
+                            "snippet": {
+                                "categoryId": YT_CATEGORY_ID, "description": st["description"], 
+                                "title": st["title"] + (" #Shorts" if is_portrait else ""), "tags": YT_TAGS,
+                            },
+                            "status": {"privacyStatus": st["yt_privacy"]},
+                        },
+                        media_body=media,
+                    )
+                    response = None
+                    last_up_edit = 0.0
+                    fsize = os.path.getsize(merged_path)
+                    while response is None:
+                        chunk_status, response = await asyncio.to_thread(request.next_chunk)
+                        if chunk_status:
+                            current = chunk_status.resumable_progress
+                            now = time.time()
+                            if now - last_up_edit >= 2.0:
+                                await ui.update(f"🚀 Upload YouTube [{res_mode}]", current=current, total=fsize, details=f"Judul: {st['title']}")
+                                last_up_edit = now
+
+                    yt_link = f"https://youtu.be/{response.get('id', '')}"
                     btn = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="📺 Buka YouTube", url=yt_link, style="success")]])
                     await message.answer(f"📺 **Berhasil Upload YouTube!** [{res_mode}]\n[Tonton Video ↗]({yt_link})", reply_markup=btn)
-                except Exception as e: await message.answer(f"❌ YouTube upload gagal [{res_mode}]: `{e}`")
+                except Exception as e: 
+                    await message.answer(f"❌ YouTube upload gagal [{res_mode}]: `{e}`")
             
             cleanup_temp(part_files)
             cleanup_temp([merged_path])
             
     try: subprocess.run(["pkill", "-f", "ffmpeg"], check=False)
     except: pass
+    
     elapsed = time.time() - t0
-    await _safe_edit(status_msg, _ok(f"✅ Produksi Selesai!\n{st['segment_name']} - {st['title']}", f"Total Waktu: {int(elapsed//60)}m {int(elapsed%60)}s"))
     txt_path = st.get("txt_path", "")
     cleanup_temp([txt_path] if txt_path else [])
+    
+    await ui.finish(f"✅ <b>Produksi Selesai!</b>\n{st['segment_name']} - {st['title']}")
 
 
 # ═══════════════════════════════════════════════════════════════════════
@@ -1051,9 +985,6 @@ async def master_studio_handler(message: Message) -> None:
         
     await message.answer("⏳ ✅ Menyiapkan Mesin Produksi...", reply_markup=ReplyKeyboardRemove())
     
-    sender_name = message.from_user.first_name or str(user_id)
-    ps = ProcessStatus(user_id, chat_id, message.from_user.username or "", sender_name, message, getattr(Names,"studio_prod","Studio"), "Telegram")
-    
     if gameplay_reply:
         gp_path = tmp(f"studio_gp_{int(time.time())}.mp4")
         status_tmp = await message.answer("⏳ Mengunduh video gameplay...")
@@ -1066,25 +997,9 @@ async def master_studio_handler(message: Message) -> None:
         if not gp_path: 
             cleanup_temp([txt_path])
             return await message.answer(f"❌ Gameplay untuk `{st['title']}` tidak ditemukan di server!\nGunakan `/addgameplay{CMD_SUFFIX}`.")
-            
-    init_text = f"🎬 **Produksi Dimulai: {st['segment_name']}**\n`{st['title']}` · `{len(st['scenes'])} scene`\n**ID:** `{ps.process_id}`\n`/cancel{CMD_SUFFIX} process {ps.process_id}`"
-    kb_action = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="❌ Batal", callback_data=f"prod_cancel_{user_id}_{ps.process_id}", style="danger")]])
-    status_msg = await message.answer(init_text, reply_markup=kb_action)
-    
-    asyncio.create_task(_queue_and_run(ps, _worker_studio_production(ps, message, st, gp_path, status_msg), status_msg, f"⏳ **Antrian Produksi**\n🎬 `{st['segment_name']} - {st['title']}`"))
 
-
-@router.callback_query(F.data.startswith("prod_cancel_"))
-async def cb_prod_cancel(call: CallbackQuery):
-    await call.answer("⏳ ❌ Membatalkan...", show_alert=False)
-    parts = call.data.split("_")
-    user_id = int(parts[2])
-    if call.from_user.id != user_id: return await call.answer("❌ Ini bukan milikmu!", show_alert=True)
-    
-    if len(parts) >= 4:
-        process_id = parts[3]
-        await remove_running_process(process_id)
-        await _safe_edit(call.message, "❌ **Proses Produksi Dibatalkan.**")
+    # 🚀 JALANKAN VIA UNIFIED ENGINE
+    await execute_unified_task(message, f"PRODUKSI STUDIO ({segment_name})", _core_studio_logic, st, gp_path)
 
 
 # ═══════════════════════════════════════════════════════════════════════
