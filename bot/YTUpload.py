@@ -1,9 +1,11 @@
 """
 ╔══════════════════════════════════════════════════════════════════════╗
-║                    bot/YTUpload.py                                   ║
+║                    bot/YTUpload.py — v4.1                            ║
 ║        YouTube Upload — Terintegrasi Penuh dengan Bot System         ║
 ╠══════════════════════════════════════════════════════════════════════╣
-║  CHANGELOG v4.0:                                                     ║
+║  CHANGELOG v4.1:                                                     ║
+║  [UX PREMIUM] Implementasi API Warna Tombol Native Telegram 9.4+     ║
+║                (Primary, Success, Danger) pada Reply & Inline KB.    ║
 ║  [UX PREMIUM] Standardisasi Hierarki Emoji (❌ Error, ⏳ Proses).      ║
 ║  [UX PREMIUM] Menerapkan Auto-Delete agar chat tetap bersih & rapi.  ║
 ║  [UX PREMIUM] Menyelaraskan desain Kotak Konfirmasi (Summary Box).   ║
@@ -79,7 +81,7 @@ os.makedirs(TEMP_DIR, exist_ok=True)
 _yt_state: dict = {}
 
 # ═══════════════════════════════════════════════════════════════════════
-#  UI & CLEANUP HELPERS
+#  UI & CLEANUP HELPERS (COLOR BUTTONS ENABLED)
 # ═══════════════════════════════════════════════════════════════════════
 
 async def _clean_msgs(*msgs):
@@ -90,11 +92,20 @@ async def _clean_msgs(*msgs):
             except Exception: pass
 
 def _make_reply_kb(options: list, row_width: int = 2) -> ReplyKeyboardMarkup:
-    """Membuat Reply Keyboard dengan mudah."""
+    """Membuat Reply Keyboard dengan mudah dan warna otomatis (Native Telegram)."""
     kb = []
     row = []
     for opt in options:
-        row.append(KeyboardButton(text=opt))
+        # Auto-Color Logic
+        if "Batal" in opt or "❌" in opt:
+            btn_style = "danger"
+        elif "Ya" in opt or "✅" in opt:
+            btn_style = "success"
+        else:
+            btn_style = "primary"
+            
+        row.append(KeyboardButton(text=opt, style=btn_style))
+        
         if len(row) == row_width:
             kb.append(row)
             row = []
@@ -383,7 +394,7 @@ async def _ytupload_worker(
             f"⏱️ **Waktu:** `{elapsed}`\n"
             f"🔗 **Link:** {yt_link}"
         )
-        buttons = [[InlineKeyboardButton(text="📺 Buka di YouTube", url=yt_link)]]
+        buttons = [[InlineKeyboardButton(text="📺 Buka di YouTube", url=yt_link, style="success")]]
 
         try:
             await status_msg.edit_text(success_text, reply_markup=InlineKeyboardMarkup(inline_keyboard=buttons))
@@ -501,12 +512,12 @@ def _build_dashboard(user_id: int, yt_title: str, privacy: str) -> tuple[str, li
 
     def _prv_btn(label: str, val: str):
         icon  = "✅ " if val == privacy else ""
-        return InlineKeyboardButton(text=f"{icon}{label}", callback_data=f"yt_prv_{user_id}_{val}")
+        return InlineKeyboardButton(text=f"{icon}{label}", callback_data=f"yt_prv_{user_id}_{val}", style="success" if val == privacy else "primary")
 
     buttons = [
         [_prv_btn("🔒 Private", "private"), _prv_btn("🔗 Unlisted", "unlisted"), _prv_btn("🌍 Public", "public")],
-        [InlineKeyboardButton(text="✅ Upload", callback_data=f"yt_go_{user_id}"),
-         InlineKeyboardButton(text="❌ Batal", callback_data=f"yt_cancel_{user_id}")],
+        [InlineKeyboardButton(text="✅ Upload", callback_data=f"yt_go_{user_id}", style="success"),
+         InlineKeyboardButton(text="❌ Batal", callback_data=f"yt_cancel_{user_id}", style="danger")],
     ]
 
     return dash_text, buttons
@@ -531,7 +542,7 @@ async def ytupload_handler(message: Message, command: CommandObject) -> None:
             "👑 **Fitur Eksklusif VIP**\n\n"
             "Upload langsung ke YouTube hanya tersedia untuk member **VIP/Premium**.\n\n"
             "Hubungi admin untuk informasi berlangganan VIP.",
-            reply_markup=InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="💬 Hubungi Admin", url=f"https://t.me/{Config.BOT_USERNAME}")]])
+            reply_markup=InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="💬 Hubungi Admin", url=f"https://t.me/{Config.BOT_USERNAME}", style="primary")]])
         )
 
     if not os.path.exists(TOKEN_FILE):
@@ -665,8 +676,8 @@ async def yt_go_cb(call: CallbackQuery) -> None:
     )
 
     action_buttons = [
-        [InlineKeyboardButton(text="❌ Batal", callback_data=f"yt_cancel_{user_id}_{process_status.process_id}"),
-         InlineKeyboardButton(text="📋 Cek Status", callback_data=f"yt_status_{process_status.process_id}")],
+        [InlineKeyboardButton(text="❌ Batal", callback_data=f"yt_cancel_{user_id}_{process_status.process_id}", style="danger"),
+         InlineKeyboardButton(text="📋 Cek Status", callback_data=f"yt_status_{process_status.process_id}", style="primary")],
     ]
 
     try:
