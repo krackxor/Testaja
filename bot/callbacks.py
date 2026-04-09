@@ -4,6 +4,7 @@
 ║            Callback Query Handler (Aiogram 3.x)                      ║
 ╠══════════════════════════════════════════════════════════════════════╣
 ║  FIXES dari versi lama:                                              ║
+║  [UX PREMIUM] Standardisasi Hierarki Emoji (❌ Error, ⏳ Proses).      ║
 ║  [UX PREMIUM] Menerapkan Auto-Delete pada seluruh input manual dari  ║
 ║                menu Setting agar chat tidak dipenuhi pesan sampah.   ║
 ║  [UX PREMIUM] Menyelaraskan teks konfirmasi & menambahkan fitur batal║
@@ -17,7 +18,7 @@
 ║  [FIX] Menyelesaikan error Pydantic ValidationError (Frozen Object)  ║
 ║  [UPDATE] Konsistensi UI, Ikon, Timeout, dan Batal selaras 100%.     ║
 ║  [HOTFIX] Menambahkan Tombol Pengaturan Personal (Watermark, Thumb,  ║
-║           & Config Rclone) serta Tombol Navigasi ke Menu Utama.      ║
+║            & Config Rclone) serta Tombol Navigasi ke Menu Utama.     ║
 ╚══════════════════════════════════════════════════════════════════════╝
 """
 
@@ -514,7 +515,7 @@ async def progress_callback(call: CallbackQuery, txt: str, user_id: int) -> None
         KB.append([InlineKeyboardButton(text=f"{label} — {val} {status_icon}".strip(), callback_data="nik66bots")])
         KB.extend(gen_keyboard(opts, val, f"progress{key.replace('_','')}", items, False))
 
-    _row("📋 Pesan Detail",       "detailed_messages", True,  bool_list, 2)
+    _row("📋 Pesan Detail",        "detailed_messages", True,  bool_list, 2)
     _row("📊 Tampilkan Statistik","show_stats",          False, bool_list, 2)
     _row("📀 Ukuran Output FFMPEG","ffmpeg_size",        True,  bool_list, 2)
     _row("⏲ Waktu Proses",        "ffmpeg_ptime",        True,  bool_list, 2)
@@ -768,7 +769,7 @@ async def watermark_image_menu(call: CallbackQuery, txt: str, user_id: int, chat
     wm_path = f"./userdata/{user_id}_watermark.jpg"
 
     if txt == "watermark_image_upload":
-        try: await call.answer()
+        try: await call.answer("⏳ Menyiapkan untuk upload...")
         except: pass
         await call.message.delete()
         resp = await get_text_data(chat_id, user_id, call, 120, "Kirim gambar (JPG/PNG) untuk dijadikan watermark.")
@@ -785,7 +786,7 @@ async def watermark_image_menu(call: CallbackQuery, txt: str, user_id: int, chat
 
     elif txt == "watermark_image_view":
         if exists(wm_path):
-            try: await call.answer()
+            try: await call.answer("⏳ Mengambil gambar...")
             except: pass
             await call.message.delete()
             from aiogram.types import FSInputFile
@@ -904,7 +905,7 @@ async def watermark_text_menu(call: CallbackQuery, txt: str, user_id: int, chat_
         return
 
     elif txt == "watermark_text_upload_font":
-        try: await call.answer()
+        try: await call.answer("⏳ Menyiapkan untuk upload font...")
         except: pass
         await call.message.delete()
         resp = await get_text_data(chat_id, user_id, call, 120, "Kirim file font kustom berformat (`.ttf` atau `.otf`):")
