@@ -1,7 +1,7 @@
 """
 UI Dashboard Template for STUDIO KHOIRUL (Aiogram 3.x)
-Versi: PROFESSIONAL v5.0 - True Color Emoji & Backend Sync
-Fix: Penghapusan parameter 'style' yang usang, penerapan hierarki warna visual.
+Versi: PROFESSIONAL v5.2 - AI Subtitles & Native Color Buttons
+Update: Integrasi Menu AI & Text (Whisper AI) + Style Danger/Success/Primary
 """
 
 import asyncio
@@ -139,7 +139,8 @@ def kb_main_menu(is_admin_user: bool = False) -> InlineKeyboardMarkup:
             InlineKeyboardButton(text="🎞️ Encode", callback_data="menu_encode", style="primary")
         ],
         [
-            InlineKeyboardButton(text="✂️ Buka Editor Video", callback_data="menu_editor", style="primary")
+            InlineKeyboardButton(text="✂️ Editor Video", callback_data="menu_editor", style="primary"),
+            InlineKeyboardButton(text="🤖 AI & Subtitle", callback_data="menu_ai", style="primary")
         ],
         [
             InlineKeyboardButton(text="🎮 Aset", callback_data="menu_assets", style="primary"),
@@ -158,6 +159,19 @@ def kb_main_menu(is_admin_user: bool = False) -> InlineKeyboardMarkup:
         InlineKeyboardButton(text="❌ Tutup", callback_data="action_close", style="danger")
     ])
     return InlineKeyboardMarkup(inline_keyboard=buttons)
+
+def kb_ai() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [
+            InlineKeyboardButton(text="🧠 Auto Subtitle (Whisper AI)", callback_data="cmd_autosub", style="primary")
+        ],
+        [
+            InlineKeyboardButton(text="🌐 Auto Translate Subtitle", callback_data="cmd_autotranslate", style="primary")
+        ],
+        [
+            InlineKeyboardButton(text="↩️ Kembali", callback_data="menu_main", style="danger")
+        ]
+    ])
 
 def kb_studio() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=[
@@ -188,7 +202,7 @@ def kb_studio() -> InlineKeyboardMarkup:
 def kb_encode() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=[
         [
-            InlineKeyboardButton(text="🟢 Encode Cepat", callback_data="cmd_encode", style="success")
+            InlineKeyboardButton(text="🚀 Encode Cepat", callback_data="cmd_encode", style="success")
         ],
         [
             InlineKeyboardButton(text="🎛️ Encode Custom", callback_data="cmd_customencode", style="primary")
@@ -201,7 +215,6 @@ def kb_encode() -> InlineKeyboardMarkup:
 
 def kb_editor() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=[
-        # --- 📦 FORMAT & DASAR ---
         [
             InlineKeyboardButton(text="🗜️ Kompres", callback_data="cmd_compress", style="primary"),
             InlineKeyboardButton(text="🔄 Konversi", callback_data="cmd_convert", style="primary")
@@ -209,7 +222,6 @@ def kb_editor() -> InlineKeyboardMarkup:
         [
             InlineKeyboardButton(text="🔗 Gabung", callback_data="cmd_merge", style="primary")
         ],
-        # --- ⏱ TIMELINE & WAKTU ---
         [
             InlineKeyboardButton(text="✂️ Trim", callback_data="cmd_trim", style="primary"),
             InlineKeyboardButton(text="🔪 Potong", callback_data="cmd_cut", style="primary"),
@@ -219,7 +231,6 @@ def kb_editor() -> InlineKeyboardMarkup:
             InlineKeyboardButton(text="⚡ Kecepatan", callback_data="cmd_speed", style="primary"),
             InlineKeyboardButton(text="📁 Ekstensi", callback_data="cmd_extension", style="primary")
         ],
-        # --- 🖼️ VISUAL & BINGKAI ---
         [
             InlineKeyboardButton(text="📐 Crop", callback_data="cmd_crop", style="primary"),
             InlineKeyboardButton(text="🎬 Auto Crop", callback_data="cmd_autocrop", style="primary"),
@@ -228,7 +239,6 @@ def kb_editor() -> InlineKeyboardMarkup:
         [
             InlineKeyboardButton(text="©️ Watermark", callback_data="cmd_watermark", style="primary")
         ],
-        # --- 🎵 AUDIO & SUBTITLE ---
         [
             InlineKeyboardButton(text="🔇 Mute Audio", callback_data="cmd_mute", style="primary"),
             InlineKeyboardButton(text="🎙️ Dubbing", callback_data="cmd_dubbing", style="primary")
@@ -238,7 +248,6 @@ def kb_editor() -> InlineKeyboardMarkup:
             InlineKeyboardButton(text="📝 Softmux", callback_data="cmd_softmux", style="primary"),
             InlineKeyboardButton(text="♻️ Remux", callback_data="cmd_softremux", style="primary")
         ],
-        # --- ⚙️ SISTEM & UTILITAS ---
         [
             InlineKeyboardButton(text="🏷️ Metadata", callback_data="cmd_changemetadata", style="primary"),
             InlineKeyboardButton(text="🔀 Ubah Index", callback_data="cmd_changeindex", style="primary")
@@ -250,7 +259,6 @@ def kb_editor() -> InlineKeyboardMarkup:
             InlineKeyboardButton(text="📸 Screenshot", callback_data="cmd_genss", style="primary"),
             InlineKeyboardButton(text="🎞️ Sample", callback_data="cmd_gensample", style="primary")
         ],
-        # --- NAVIGASI ---
         [
             InlineKeyboardButton(text="ℹ️ Info Media", callback_data="cmd_mediainfo", style="primary"),
             InlineKeyboardButton(text="↩️ Kembali", callback_data="menu_main", style="danger")
@@ -397,6 +405,12 @@ async def nav_studio(callback: CallbackQuery):
     await safe_edit(callback.message, text, kb_studio())
     await callback.answer()
 
+@ui_router.callback_query(F.data == "menu_ai")
+async def nav_ai(callback: CallbackQuery):
+    text = create_section_header("🤖", "AI & Subtitle", "Generate subtitle otomatis (Speech-to-Text) dan terjemahkan file subtitle menggunakan AI Whisper.")
+    await safe_edit(callback.message, text, kb_ai())
+    await callback.answer()
+
 @ui_router.callback_query(F.data == "menu_encode")
 async def nav_encode(callback: CallbackQuery):
     text = create_section_header("🎞️", "Encode", "Encoding video dengan preset optimized atau custom parameters")
@@ -514,6 +528,7 @@ async def route_commands(callback: CallbackQuery):
         import bot.media_handlers as med
         import bot.advanced_media_handlers as adv
         import bot.vip_handlers as vip
+        import bot.subtitle_handlers as sub
         
         handlers = {
             "speedtest": getattr(adm, "_speed_test", None), "time": getattr(adm, "_timecmd", None),
@@ -555,7 +570,10 @@ async def route_commands(callback: CallbackQuery):
             
             "verify": getattr(vip, "_verify_payment", None), "myvip": getattr(vip, "_my_vip_status", None),
             "add_vip": getattr(vip, "_add_vip_manual", None), "delete_vip": getattr(vip, "_delete_vip_manual", None),
-            "view_vip": getattr(vip, "_view_vip_list", None)
+            "view_vip": getattr(vip, "_view_vip_list", None),
+
+            "autosub": getattr(sub, "autosub_handler", None),
+            "autotranslate": getattr(sub, "autotranslate_handler", None)
         }
         
         handler = handlers.get(cmd)
@@ -579,6 +597,8 @@ async def route_commands(callback: CallbackQuery):
         "saveconfig": "💾 Kirim file <b>rclone.conf</b> Anda ke chat ini.",
         "savewatermark": "©️ Kirim gambar ke chat ini untuk dijadikan <b>watermark default</b>.",
         "savethumb": "🖼️ Kirim gambar ke chat ini untuk dijadikan <b>thumbnail default</b>.",
+        "autosub": "🧠 Balas video/audio lalu ketik <code>/autosub</code>",
+        "autotranslate": "🌐 Balas file .srt lalu ketik <code>/autotranslate</code>"
     }
     
     instruction = instructions.get(cmd, "Modul memerlukan input.\n<i>Kirim file/media/link ke chat ini</i>")
