@@ -1,11 +1,12 @@
 """
 ╔══════════════════════════════════════════════════════════════════════╗
-║            bot_helper/Others/Names.py — v3.4                         ║
+║            bot_helper/Others/Names.py — v4.1                         ║
 ║                    Konstanta Nama Proses Bot                         ║
 ╠══════════════════════════════════════════════════════════════════════╣
-║  CHANGELOG v3.4:                                                     ║
-║  [NEW]  fast_trim, speed, mute, dubbing (Optimasi & Fitur Baru)      ║
-║  [NEW]  Mendaftarkan custom_encode (Raw FFmpeg Command by User)      ║
+║  CHANGELOG v4.1:                                                     ║
+║  [NEW]  autosub, autotranslate (Integrasi Whisper AI & Deep Trans)   ║
+║  [NEW]  Mendaftarkan proses baru ke sistem pelacakan antrean.        ║
+║  [FIX]  Standardisasi emoji pada label status UI (UX Premium).       ║
 ║  [FIX]  Konsistensi string agar dikenali oleh FFMPEG Commands        ║
 ╚══════════════════════════════════════════════════════════════════════╝
 """
@@ -19,7 +20,7 @@ class Names:
     softremux      = "SoftReMux"
     convert        = "Convert"
     encode         = "encode"       # Default handler untuk dubbing & hardmux
-    custom_encode  = "custom_encode"# [NEW] Fitur Bebas Encode (Raw FFmpeg Command)
+    custom_encode  = "custom_encode"# Fitur Bebas Encode (Raw FFmpeg Command)
     hardmux        = "Hardmux"
     trim           = "Trim"
     fast_trim      = "fast_trim"    # Cut tanpa re-encode
@@ -36,6 +37,10 @@ class Names:
     mediainfo      = "MediaInfo"
     changeMetadata = "ChangeMetadata"
     changeindex    = "ChangeIndex"
+
+    # ── Proses AI & Text (BARU) ──────────────────────────────────────
+    autosub        = "AutoSubtitle"
+    autotranslate  = "AutoTranslate"
 
     # ── Proses Sistem ─────────────────────────────────────────────────
     pre_download   = "PreDownload"
@@ -69,7 +74,7 @@ class Names:
         softremux:      "🛩 SoftReMux Subtitle",
         convert:        "🚜 Mengonversi Video",
         encode:         "⚙️ Meng-Encode Video",
-        custom_encode:  "🎛️ Custom Encoding",   # [NEW]
+        custom_encode:  "🎛️ Custom Encoding",
         hardmux:        "🚍 HardMux Subtitle",
         trim:           "✂️ Memotong Video",
         fast_trim:      "⚡ Memotong Cepat",    
@@ -86,6 +91,10 @@ class Names:
         mediainfo:      "🔍 Media Info",
         changeMetadata: "🪀 Ubah Metadata",
         changeindex:    "🎨 Ubah Index",
+
+        # AI Processes (NEW)
+        autosub:        "🧠 AI Transcribing",
+        autotranslate:  "🌐 AI Translating",
         
         # Video production processes
         "YouTubeUpload": "⬆️ Mengunggah YouTube",
@@ -105,7 +114,7 @@ class Names:
         softremux,
         convert,
         encode,         
-        custom_encode,  # [NEW]
+        custom_encode,
         hardmux,
         trim,
         fast_trim,      
@@ -115,7 +124,7 @@ class Names:
         autocrop,
         rotate,
         speed,          
-        mute,           
+        mute,            
         dubbing,        
         extension,
         extract,
