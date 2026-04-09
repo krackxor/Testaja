@@ -1,7 +1,7 @@
 """
 UI Dashboard Template for STUDIO KHOIRUL (Aiogram 3.x)
-Versi: PROFESSIONAL v5.3 - SubEdit Integration & Native Color Buttons
-Update: Integrasi Menu AI, Whisper AI, Subtitle Editor + Style Danger/Success/Primary
+Versi: PROFESSIONAL v5.4 - Click & Send (Global Waiter)
+Update: Integrasi Menu AI, Subtitle Editor + Fix Alur Reply Tombol
 """
 
 import asyncio
@@ -167,7 +167,7 @@ def kb_ai() -> InlineKeyboardMarkup:
         ],
         [
             InlineKeyboardButton(text="🌐 Auto Translate", callback_data="cmd_autotranslate", style="primary"),
-            InlineKeyboardButton(text="📝 Editor Subtitle", callback_data="cmd_subedit", style="primary") # [NEW] SubEdit
+            InlineKeyboardButton(text="📝 Editor Subtitle", callback_data="cmd_subedit", style="primary")
         ],
         [
             InlineKeyboardButton(text="↩️ Kembali", callback_data="menu_main", style="danger")
@@ -498,7 +498,7 @@ Kontrol penuh parameter encoding
     await callback.answer()
 
 # ==========================================
-# 7. COMMAND ROUTER
+# 7. COMMAND ROUTER (NEW CLICK & SEND LOGIC)
 # ==========================================
 
 @ui_router.callback_query(F.data.startswith("cmd_"))
@@ -506,23 +506,28 @@ async def route_commands(callback: CallbackQuery):
     cmd = callback.data.split("_", 1)[1]
     user_id = callback.from_user.id
     
+    # Perintah yang langsung dieksekusi tanpa butuh input file
     admin_cmds = {
         "speedtest", "restart", "renew", "log", "logs", "resetdb",
         "checksudo", "time", "stats", "add_vip", "delete_vip",
         "view_vip", "addsudo", "delsudo", "changeconfig", "clearconfigs",
-        "saveconfig", "savewatermark", "savethumb"
+        "saveconfig", "savewatermark", "savethumb", "status", "verify", "myvip",
+        "listgameplay"
     }
     
-    if cmd in admin_cmds and not is_admin(user_id):
+    # Perintah yang butuh user mengirimkan file (Video/Srt/Audio)
+    media_cmds = {
+        "encode", "customencode", "compress", "convert", "merge", "speed",
+        "mute", "dubbing", "softmux", "hardmux", "softremux", "watermark",
+        "extract", "extension", "changeindex", "changemetadata", "mediainfo",
+        "trim", "split", "cut", "rotate", "crop", "autocrop", "genss",
+        "gensample", "ext_thumb", "ext_frames", "autosub", "autotranslate", "subedit",
+        "leech", "mirror", "addgameplay", "addsfx", "deletegameplay", "recap", "clip",
+        "ytupload"
+    }
+    
+    if cmd in admin_cmds and not is_admin(user_id) and cmd not in ["status", "verify", "myvip"]:
         return await callback.answer("⛔ Akses admin only", show_alert=True)
-    
-    await callback.answer(f"⚡ Memuat {cmd}...")
-    
-    fake_msg = callback.message.model_copy(update={
-        "from_user": callback.from_user,
-        "chat": callback.message.chat,
-        "text": f"/{cmd}"
-    })
     
     try:
         import bot.admin_handlers as adm
@@ -530,7 +535,7 @@ async def route_commands(callback: CallbackQuery):
         import bot.advanced_media_handlers as adv
         import bot.vip_handlers as vip
         import bot.subtitle_handlers as sub
-        import bot.subtitle_editor as subed # [NEW] Import Subtitle Editor
+        import bot.subtitle_editor as subed
         
         handlers = {
             "speedtest": getattr(adm, "_speed_test", None), "time": getattr(adm, "_timecmd", None),
@@ -576,39 +581,58 @@ async def route_commands(callback: CallbackQuery):
 
             "autosub": getattr(sub, "autosub_handler", None),
             "autotranslate": getattr(sub, "autotranslate_handler", None),
-            "subedit": getattr(subed, "subedit_start", None) # [NEW] SubEdit handler mapping
+            "subedit": getattr(subed, "subedit_start", None)
         }
         
         handler = handlers.get(cmd)
-        if handler:
+        if not handler:
+            return await callback.answer(f"Module {cmd} belum tersedia.", show_alert=True)
+
+        # ─── JIKA MENU MEMBUTUHKAN INPUT FILE ───
+        if cmd in media_cmds:
+            await callback.answer() # Hilangkan loading
+            prompt = await callback.message.answer(
+                f"📥 <b>MODE {cmd.upper()} AKTIF</b>\n"
+                f"────────────────────\n"
+                f"Silakan kirim file (Video/Srt/Audio) Anda ke chat ini sekarang...\n\n"
+                f"<i>(Waktu tunggu 60 detik. Bot akan otomatis memproses setelah file diterima)</i>",
+                parse_mode="HTML"
+            )
+            
+            from bot.shared import wait_for_message
+            response_msg = await wait_for_message(callback.message.chat.id, user_id, timeout=60)
+            
+            if not response_msg:
+                return await prompt.edit_text(
+                    "❌ <b>Dibatalkan:</b> Waktu habis atau input tidak valid.\n"
+                    "Silakan buka menu kembali.", 
+                    parse_mode="HTML"
+                )
+            
+            await prompt.delete() # Hapus pesan prompt
+            
+            # MEMBUAT FAKE MESSAGE
+            # Seolah-olah user mereply file tersebut dengan perintah /cmd
+            fake_msg = response_msg.model_copy(update={
+                "text": f"/{cmd}",
+                "reply_to_message": response_msg 
+            })
+            
+            return await handler(fake_msg)
+
+        # ─── JIKA MENU INSTAN (TIDAK BUTUH FILE) ───
+        else:
+            await callback.answer(f"⚡ Memuat {cmd}...")
+            fake_msg = callback.message.model_copy(update={
+                "from_user": callback.from_user,
+                "chat": callback.message.chat,
+                "text": f"/{cmd}"
+            })
             return await handler(fake_msg)
             
     except Exception as e:
         print(f"[UI ROUTER ERROR] {e}")
-    
-    instructions = {
-        "addgameplay": "🎮 Kirim <b>video footage</b> atau <b>link</b> ke chat",
-        "deletegameplay": "🗑️ Cek daftar footage, lalu kirim <b>ID</b> yang akan dihapus",
-        "addsfx": "🔊 Kirim file <b>audio/SFX</b>",
-        "listgameplay": "📋 Loading...\nJika gagal ketik <code>/listgameplay</code>",
-        "recap": "🎬 Ketik <code>/recap</code> untuk memulai",
-        "clip": "🎥 Ketik <code>/clip</code> untuk memulai",
-        "add_vip": "👑 Format: <code>/add_vip [user_id] [durasi]</code>\nContoh: <code>/add_vip 123456789 30d</code>",
-        "delete_vip": "👑 Format: <code>/delete_vip [user_id]</code>",
-        "addsudo": "👮 Format: <code>/addsudo [user_id]</code>",
-        "delsudo": "👮 Format: <code>/delsudo [user_id]</code>",
-        "saveconfig": "💾 Kirim file <b>rclone.conf</b> Anda ke chat ini.",
-        "savewatermark": "©️ Kirim gambar ke chat ini untuk dijadikan <b>watermark default</b>.",
-        "savethumb": "🖼️ Kirim gambar ke chat ini untuk dijadikan <b>thumbnail default</b>.",
-        "autosub": "🧠 Balas video/audio lalu ketik <code>/autosub</code>",
-        "autotranslate": "🌐 Balas file .srt lalu ketik <code>/autotranslate</code>",
-        "subedit": "📝 Balas file <b>.srt</b> Anda lalu ketik <code>/subedit</code>" # [NEW] SubEdit instruction
-    }
-    
-    instruction = instructions.get(cmd, "Modul memerlukan input.\n<i>Kirim file/media/link ke chat ini</i>")
-    
-    text = f"<b>╭─ MODULE AKTIF ─╮</b>\n<code>/{cmd}</code>\n\n{instruction}\n\n<b>╰──────────────╯</b>"
-    await safe_edit(callback.message, text, get_back_cancel_kb())
+        await callback.answer("Terjadi kesalahan sistem UI.", show_alert=True)
 
 # ==========================================
 # 8. GLOBAL ACTIONS
