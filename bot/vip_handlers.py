@@ -1,14 +1,15 @@
 """
 ╔══════════════════════════════════════════════════════════════════════╗
-║    bot_helper/Handlers/vip_handlers.py — v3.3                        ║
+║    bot_helper/Handlers/vip_handlers.py — v4.1                        ║
 ║    VIP Management & Trakteer Payment Verification (Aiogram)          ║
 ╠══════════════════════════════════════════════════════════════════════╣
 ║  Commands: /verify /myvip /add_vip /delete_vip /view_vip             ║
 ╠══════════════════════════════════════════════════════════════════════╣
-║  CHANGELOG dari versi lama:                                          ║
-║  [UX PREMIUM] Penyelarasan Hierarki Warna & Emoji (Hijau/Merah/Biru).║
+║  CHANGELOG v4.1:                                                     ║
+║  [UX PREMIUM] Implementasi API Warna Tombol Native Telegram 9.4+     ║
+║                (Primary, Success, Danger) pada Reply Keyboard.       ║
+║  [UX PREMIUM] Standardisasi Hierarki Emoji (❌ Error, ⏳ Proses).      ║
 ║  [UX PREMIUM] Menerapkan Auto-Delete agar chat tetap bersih.         ║
-║  [UX PREMIUM] Menerapkan Reply Keyboard "❌ Batal" yang konsisten.   ║
 ║  [UX PREMIUM] Penataan pesan info dengan Box Konfirmasi yang rapi.   ║
 ║  [FIX HIGH] Menambahkan import 'exists' yang hilang.                 ║
 ║  [FIX HIGH] Implementasi CMD_SUFFIX pada semua Command filter        ║
@@ -54,7 +55,7 @@ ACTIVATION_WINDOW_HOURS  = 48        # Jam batas aktivasi setelah donasi
 
 
 # ═══════════════════════════════════════════════════════════════════════
-#  HELPERS & UI
+#  HELPERS & UI (COLOR BUTTONS ENABLED)
 # ═══════════════════════════════════════════════════════════════════════
 
 async def _clean_msgs(*msgs):
@@ -65,11 +66,20 @@ async def _clean_msgs(*msgs):
             except Exception: pass
 
 def _make_reply_kb(options: list, row_width: int = 2) -> ReplyKeyboardMarkup:
-    """Membuat Reply Keyboard dengan mudah."""
+    """Membuat Reply Keyboard dengan mudah dan warna otomatis (Native Telegram)."""
     kb = []
     row = []
     for opt in options:
-        row.append(KeyboardButton(text=opt))
+        # Auto-Color Logic berdasarkan teks/emoji tombol
+        if "Batal" in opt or "❌" in opt:
+            btn_style = "danger"
+        elif "Ya" in opt or "✅" in opt:
+            btn_style = "success"
+        else:
+            btn_style = "primary"
+            
+        row.append(KeyboardButton(text=opt, style=btn_style))
+        
         if len(row) == row_width:
             kb.append(row)
             row = []
@@ -143,7 +153,7 @@ async def _verify_payment(message: Message):
     if order_id in claimed_ids:
         return await message.answer("❌ Order ID ini sudah pernah diklaim sebelumnya.", reply_markup=ReplyKeyboardRemove())
 
-    verif_msg = await message.answer("⏳ Sedang memverifikasi Order ID ke Trakteer...", reply_markup=ReplyKeyboardRemove())
+    verif_msg = await message.answer("⏳ 🔎 Sedang memverifikasi Order ID ke Trakteer...", reply_markup=ReplyKeyboardRemove())
     try:
         resp = await asyncio.to_thread(
             requests.get,
@@ -305,7 +315,7 @@ async def _add_vip_manual(message: Message):
         await saveoptions(target_uid, "total_vip_duration",  total_duration,         SAVE_TO_DATABASE)
 
         await safe_reply(message,
-            f"✅ 👑 **VIP MANUAL BERHASIL DITAMBAHKAN**\n\n"
+            f"✅ ➕ 👑 **VIP MANUAL BERHASIL DITAMBAHKAN**\n\n"
             f"├ User ID: `{target_uid}`\n"
             f"├ Durasi Baru: **{duration_days} hari**\n"
             f"└ Aktif Hingga: **{new_expiry.strftime('%d %B %Y, %H:%M WIB')}**"
@@ -339,7 +349,7 @@ async def _delete_vip_manual(message: Message):
 
         await saveoptions(target_uid, "premium_expiry_date", None, SAVE_TO_DATABASE)
         await saveoptions(target_uid, "total_vip_duration",  0,    SAVE_TO_DATABASE)
-        await safe_reply(message, f"🗑️ ✅ VIP user `{target_uid}` berhasil dihapus paksa.")
+        await safe_reply(message, f"✅ ➖ VIP user `{target_uid}` berhasil dihapus paksa.")
 
     except Exception as e:
         LOGGER.error(f"/delete_vip error: {e}", exc_info=True)
