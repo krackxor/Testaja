@@ -1,21 +1,12 @@
 """
 ╔══════════════════════════════════════════════════════════════════════╗
-║                    bot/YTUpload.py — v4.1                            ║
-║        YouTube Upload — Terintegrasi Penuh dengan Bot System         ║
+║                    bot/YTUpload.py — v5.0                            ║
+║        YouTube Upload — Terintegrasi dengan Unified_Engine           ║
 ╠══════════════════════════════════════════════════════════════════════╣
-║  CHANGELOG v4.1:                                                     ║
-║  [UX PREMIUM] Implementasi API Warna Tombol Native Telegram 9.4+     ║
-║                (Primary, Success, Danger) pada Reply & Inline KB.    ║
-║  [UX PREMIUM] Standardisasi Hierarki Emoji (❌ Error, ⏳ Proses).      ║
-║  [UX PREMIUM] Menerapkan Auto-Delete agar chat tetap bersih & rapi.  ║
-║  [UX PREMIUM] Menyelaraskan desain Kotak Konfirmasi (Summary Box).   ║
-║  [UX PREMIUM] Menerapkan label tombol yang ringkas & estetik.        ║
-║  [FIX HIGH] Implementasi CMD_SUFFIX pada semua Command filter        ║
-║  [NEW] Migrasi total ke Aiogram Router & CallbackQuery               ║
-║  [NEW] Hybrid Downloader (Pyrogram dengan Progress Bar -> Aiogram)   ║
-║  [FIX] TelegramBadRequest untuk edit_text handling                   ║
-║  [FIX] Menutup kebuntuan memori pada antrean asyncio tasks           ║
-║  [UPDATE] Konsistensi UI, Ikon, Timeout, dan Batal selaras 100%.     ║
+║  CHANGELOG v5.0:                                                     ║
+║  [INTEGRATION] Migrasi total ke bot_helper.Process.Unified_Engine    ║
+║  [CLEANUP] Menghapus sistem antrean manual (Task/Process_Status lama)║
+║  [UX PREMIUM] Progress Bar tersentralisasi & real-time ETA.          ║
 ╚══════════════════════════════════════════════════════════════════════╝
 """
 
@@ -35,16 +26,9 @@ from aiogram.filters import Command, CommandObject
 from aiogram.exceptions import TelegramBadRequest
 
 # ── Internal ──────────────────────────────────────────────────────────
-from bot_helper.Database.User_Data import get_data, ensure_user_data_structure, get_task_limit
-from bot_helper.Others.Helper_Functions import get_human_size, get_readable_time
-from bot_helper.Others.Names import Names
-from bot_helper.Process.Process_Status import ProcessStatus
-from bot_helper.Process.Running_Process import (
-    append_running_process, check_running_process, remove_running_process,
-)
-from bot_helper.Process.Running_Tasks import (
-    add_task, working_task, working_task_lock, queued_task, queued_task_lock,
-)
+from bot_helper.Database.User_Data import get_data, ensure_user_data_structure
+from bot_helper.Others.Helper_Functions import get_human_size
+from bot_helper.Process.Unified_Engine import execute_unified_task
 from bot_helper.Telegram.Telegram_Client import Telegram
 from config.config import Config
 
@@ -73,7 +57,6 @@ YT_TAGS        = ["StudioKhoirul", "Gaming", "Upload"]
 TEMP_DIR       = "./temp/ytupload/"
 TOKEN_FILE     = "./token.json"
 SECRET_FILE    = "./client_secret.json"
-YT_QUEUE_TIMEOUT = 3600  # Max 1 jam tunggu antrian
 
 os.makedirs(TEMP_DIR, exist_ok=True)
 
@@ -81,7 +64,7 @@ os.makedirs(TEMP_DIR, exist_ok=True)
 _yt_state: dict = {}
 
 # ═══════════════════════════════════════════════════════════════════════
-#  UI & CLEANUP HELPERS (COLOR BUTTONS ENABLED)
+#  UI & CLEANUP HELPERS
 # ═══════════════════════════════════════════════════════════════════════
 
 async def _clean_msgs(*msgs):
@@ -93,37 +76,24 @@ async def _clean_msgs(*msgs):
 
 def _make_reply_kb(options: list, row_width: int = 2) -> ReplyKeyboardMarkup:
     """Membuat Reply Keyboard dengan mudah dan warna otomatis (Native Telegram)."""
-    kb = []
-    row = []
+    kb, row = [], []
     for opt in options:
-        # Auto-Color Logic
-        if "Batal" in opt or "❌" in opt:
-            btn_style = "danger"
-        elif "Ya" in opt or "✅" in opt:
-            btn_style = "success"
-        else:
-            btn_style = "primary"
-            
+        if "Batal" in opt or "❌" in opt: btn_style = "danger"
+        elif "Ya" in opt or "✅" in opt: btn_style = "success"
+        else: btn_style = "primary"
         row.append(KeyboardButton(text=opt, style=btn_style))
-        
         if len(row) == row_width:
-            kb.append(row)
-            row = []
-    if row:
-        kb.append(row)
+            kb.append(row); row = []
+    if row: kb.append(row)
     return ReplyKeyboardMarkup(keyboard=kb, resize_keyboard=True, one_time_keyboard=True)
 
 async def _safe_edit(msg: Message, text: str, buttons=None) -> None:
     """Helper edit pesan yang tidak crash jika gagal."""
     try:
-        if buttons:
-            await msg.edit_text(text, reply_markup=InlineKeyboardMarkup(inline_keyboard=buttons))
-        else:
-            await msg.edit_text(text)
-    except TelegramBadRequest:
-        pass
-    except Exception:
-        pass
+        if buttons: await msg.edit_text(text, reply_markup=InlineKeyboardMarkup(inline_keyboard=buttons))
+        else: await msg.edit_text(text)
+    except TelegramBadRequest: pass
+    except Exception: pass
 
 
 # ═══════════════════════════════════════════════════════════════════════
@@ -131,36 +101,24 @@ async def _safe_edit(msg: Message, text: str, buttons=None) -> None:
 # ═══════════════════════════════════════════════════════════════════════
 
 def _is_vip(user_id: int) -> bool:
-    if user_id == Config.OWNER_ID or user_id in Config.SUDO_USERS:
-        return True
-    user_data   = get_data().get(user_id, {})
-    expiry_str  = user_data.get("premium_expiry_date")
-    if not expiry_str:
-        return False
+    if user_id == Config.OWNER_ID or user_id in Config.SUDO_USERS: return True
+    expiry_str = get_data().get(user_id, {}).get("premium_expiry_date")
+    if not expiry_str: return False
     try:
         expiry = datetime.fromisoformat(str(expiry_str))
         return datetime.now(expiry.tzinfo) < expiry
-    except (ValueError, TypeError):
-        return False
-
+    except (ValueError, TypeError): return False
 
 def _vip_expiry_text(user_id: int) -> str:
-    if user_id == Config.OWNER_ID or user_id in Config.SUDO_USERS:
-        return "♾️ Unlimited (Owner/Sudo)"
-    user_data  = get_data().get(user_id, {})
-    expiry_str = user_data.get("premium_expiry_date")
-    if not expiry_str:
-        return "❌ Tidak aktif"
+    if user_id == Config.OWNER_ID or user_id in Config.SUDO_USERS: return "♾️ Unlimited (Owner/Sudo)"
+    expiry_str = get_data().get(user_id, {}).get("premium_expiry_date")
+    if not expiry_str: return "❌ Tidak aktif"
     try:
         expiry = datetime.fromisoformat(str(expiry_str))
         now    = datetime.now(expiry.tzinfo)
-        if now >= expiry:
-            return "❌ Sudah kadaluarsa"
-        sisa = expiry - now
-        days = sisa.days
-        return f"✅ Aktif — sisa {days} hari"
-    except Exception:
-        return "❓ Tidak diketahui"
+        if now >= expiry: return "❌ Sudah kadaluarsa"
+        return f"✅ Aktif — sisa {(expiry - now).days} hari"
+    except Exception: return "❓ Tidak diketahui"
 
 
 # ═══════════════════════════════════════════════════════════════════════
@@ -169,326 +127,143 @@ def _vip_expiry_text(user_id: int) -> str:
 
 def _get_youtube_client():
     if not YOUTUBE_ENABLED:
-        raise RuntimeError("Library Google API tidak terinstall. Jalankan: pip install google-api-python-client google-auth-oauthlib google-auth-httplib2")
+        raise RuntimeError("Library Google API tidak terinstall.")
 
     creds = None
     if os.path.exists(TOKEN_FILE):
-        try:
-            creds = Credentials.from_authorized_user_file(TOKEN_FILE, YT_SCOPES)
-        except Exception as e:
-            LOGGER.warning(f"⚠️  Gagal load token.json: {e}")
+        try: creds = Credentials.from_authorized_user_file(TOKEN_FILE, YT_SCOPES)
+        except Exception as e: LOGGER.warning(f"⚠️  Gagal load token.json: {e}")
 
     if creds and creds.expired and creds.refresh_token:
         try:
             creds.refresh(Request())
-            with open(TOKEN_FILE, "w") as f:
-                f.write(creds.to_json())
+            with open(TOKEN_FILE, "w") as f: f.write(creds.to_json())
             LOGGER.info("✅ YouTube token di-refresh")
         except Exception as e:
-            raise RuntimeError(
-                f"Token YouTube expired dan gagal di-refresh: {e}\n"
-                "Jalankan 'python3 get_token.py' di lokal untuk generate token baru."
-            )
+            raise RuntimeError(f"Token YouTube expired dan gagal di-refresh: {e}")
 
     if not creds or not creds.valid:
-        raise RuntimeError(
-            "❌ Token YouTube tidak ditemukan atau tidak valid!\n\n"
-            "📋 Langkah untuk generate token.json:\n"
-            "1. Download client_secret.json dari Google Cloud Console\n"
-            "2. Jalankan di komputer lokal: `python3 get_token.py`\n"
-            "3. Login di browser yang muncul\n"
-            "4. Copy token.json yang dihasilkan ke folder bot di VPS\n\n"
-            "Token hanya perlu di-generate sekali. Setelah itu refresh otomatis."
-        )
+        raise RuntimeError("❌ Token YouTube tidak ditemukan atau tidak valid!")
 
     return googleapiclient.discovery.build("youtube", "v3", credentials=creds)
 
 
 # ═══════════════════════════════════════════════════════════════════════
-#  CORE UPLOAD FUNCTION
+#  CORE UPLOAD LOGIC (UNIFIED ENGINE COMPATIBLE)
 # ═══════════════════════════════════════════════════════════════════════
 
-async def upload_to_youtube(
-    video_path: str,
-    title: str,
-    description: str,
-    privacy: str,
-    process_status: ProcessStatus,
-    status_msg: Message,
-) -> str:
-    youtube    = _get_youtube_client()
-    total_size = os.path.getsize(video_path)
-
-    media = MediaFileUpload(
-        video_path,
-        chunksize=YT_CHUNK_SIZE,
-        resumable=True,
-    )
-
-    request = youtube.videos().insert(
-        part="snippet,status",
-        body={
-            "snippet": {
-                "categoryId": YT_CATEGORY_ID,
-                "description": description,
-                "title": title,
-                "tags": YT_TAGS,
-            },
-            "status": {"privacyStatus": privacy},
-        },
-        media_body=media,
-    )
-
-    response       = None
-    start_time     = time.time()
-    last_edit_time = 0.0
-
-    _update_yt_status(
-        process_status, "⏳ ⬆️ Menghubungkan ke YouTube API...",
-        0, total_size, start_time,
-    )
-    try:
-        await status_msg.edit_text(process_status.status_message)
-    except Exception:
-        pass
-
-    while response is None:
-        if not check_running_process(process_status.process_id):
-            raise asyncio.CancelledError("Dibatalkan oleh pengguna")
-
-        process_status.ping = time.time()
-
-        chunk_status, response = await asyncio.to_thread(request.next_chunk)
-
-        if chunk_status:
-            current = chunk_status.resumable_progress
-            _update_yt_status(
-                process_status, "⏳ ⬆️ Mengunggah ke YouTube...",
-                current, total_size, start_time,
-            )
-            now = time.time()
-            if now - last_edit_time >= 2.0:
-                try:
-                    await status_msg.edit_text(process_status.status_message)
-                    last_edit_time = now
-                except Exception:
-                    pass
-
-    video_id = response.get("id", "")
-    if not video_id:
-        raise RuntimeError("YouTube tidak mengembalikan video ID")
-
-    return f"https://youtu.be/{video_id}"
-
-
-def _update_yt_status(
-    ps: ProcessStatus,
-    header: str,
-    current: int,
-    total: int,
-    start_time: float,
-) -> None:
-    from bot_helper.Process.Process_Status import get_progress_bar_string
-
-    elapsed = max(1, time.time() - start_time)
-    speed   = current / elapsed
-    pct     = f"{current * 100 / max(total, 1):.1f}%"
-    eta     = get_readable_time((total - current) / speed) if speed > 0 else "N/A"
-    bar     = get_progress_bar_string(current, total)
-
-    ps.status_message = (
-        f"{header}\n\n"
-        f"`{ps.file_name or 'video'}`\n"
-        f"{bar} {pct}\n\n"
-        f"**Ditambahkan Oleh**: {ps.added_by} | **ID**: `{ps.user_id}`\n"
-        f"**Mesin**: YouTube API\n"
-        f"**Diunggah**: {get_human_size(current)} dari {get_human_size(total)}\n"
-        f"**Kecepatan**: {get_human_size(int(speed))}ps | **ETA**: {eta}\n"
-        f"`/cancel{CMD_SUFFIX} process {ps.process_id}`"
-    )
-
-
-# ═══════════════════════════════════════════════════════════════════════
-#  TASK WORKER — TERINTEGRASI DENGAN START_TASK
-# ═══════════════════════════════════════════════════════════════════════
-
-async def _ytupload_worker(
-    process_status: ProcessStatus,
-    original_message: Message,
-    reply_msg: Message,
-    yt_title: str,
-    yt_desc: str,
-    yt_privacy: str,
-    status_msg: Message,
-) -> None:
-    final_path = os.path.join(TEMP_DIR, f"yt_{process_status.process_id}.mp4")
+async def _core_ytupload_logic(message: Message, ui, reply_msg: Message, yt_title: str, yt_desc: str, yt_privacy: str, fname: str) -> None:
+    """Fungsi inti Upload YouTube yang telah terintegrasi dengan ProgressUI"""
+    final_path = os.path.join(TEMP_DIR, f"yt_{message.message_id}_{int(time.time())}.mp4")
 
     try:
-        # ── STEP 1: Download ──────────────────────────────────────────
-        process_status.update_process_message(
-            f"⏳ 🔽 **Mengunduh Video...**\n\n"
-            f"`{process_status.file_name or 'video'}`\n"
-            f"**Ditambahkan Oleh**: {process_status.added_by} | **ID**: `{process_status.user_id}`\n"
-            f"`/cancel{CMD_SUFFIX} process {process_status.process_id}`"
-        )
-        try: await status_msg.edit_text(process_status.status_message)
-        except Exception: pass
-
-        download_start = time.time()
-        last_dl_edit   = 0.0
-
+        # ── STEP 1: Download dari Telegram ──────────────────────────
+        target_media = reply_msg.video or reply_msg.document
+        total_size = target_media.file_size
+        
+        await ui.update("📥 Mengunduh Video...", details="Menyimpan file dari Telegram...")
+        
+        last_dl_edit = 0.0
         async def _dl_progress(current: int, total: int):
             nonlocal last_dl_edit
-            if not check_running_process(process_status.process_id):
-                raise asyncio.CancelledError("Dibatalkan")
-            process_status.ping = time.time()
-            process_status.telegram_update_status(
-                current, total, "Diunduh", process_status.file_name or "video",
-                download_start, "Mengunduh untuk YouTube", "Pyrogram",
-            )
             now = time.time()
             if now - last_dl_edit >= 2.0:
+                asyncio.create_task(ui.update(
+                    status="📥 Mengunduh Video...",
+                    current=current,
+                    total=total,
+                    details=f"File: {fname}"
+                ))
                 last_dl_edit = now
-                asyncio.create_task(_safe_edit(status_msg, process_status.status_message))
 
-        # Menggunakan Hybrid Download (Pyrogram prioritas, lalu Aiogram)
+        # Hybrid Download (Pyrogram prioritas, Aiogram fallback)
         pyro_client = Telegram.PYROGRAM_CLIENT
         downloaded = False
         
         if pyro_client:
             try:
-                # Ambil objek pesan untuk Pyrogram dari Aiogram chat/msg ID
                 pyro_msg = await pyro_client.get_messages(reply_msg.chat.id, reply_msg.message_id)
                 dl_file = await pyro_client.download_media(message=pyro_msg, file_name=final_path, progress=_dl_progress)
                 if dl_file and os.path.exists(dl_file): downloaded = True
             except Exception as e:
                 LOGGER.error(f"Pyrogram DL error: {e}")
                 
-        # Aiogram Fallback
         if not downloaded:
-            target_media = reply_msg.video or reply_msg.document
             await Telegram.AIOGRAM_BOT.download(target_media, destination=final_path)
             if os.path.exists(final_path): downloaded = True
 
         if not downloaded or not os.path.exists(final_path):
-            raise RuntimeError("Download gagal — file tidak ditemukan setelah download.")
+            raise RuntimeError("Download dari Telegram gagal.")
 
-        if not check_running_process(process_status.process_id):
-            raise asyncio.CancelledError("Dibatalkan setelah download.")
+        file_size = os.path.getsize(final_path)
 
-        # ── STEP 2: Upload ke YouTube ─────────────────────────────────
-        yt_link = await upload_to_youtube(
-            final_path, yt_title, yt_desc, yt_privacy,
-            process_status, status_msg,
+        # ── STEP 2: Upload ke YouTube ───────────────────────────────
+        youtube = _get_youtube_client()
+        media = MediaFileUpload(final_path, chunksize=YT_CHUNK_SIZE, resumable=True)
+
+        request = youtube.videos().insert(
+            part="snippet,status",
+            body={
+                "snippet": {
+                    "categoryId": YT_CATEGORY_ID,
+                    "description": yt_desc,
+                    "title": yt_title,
+                    "tags": YT_TAGS,
+                },
+                "status": {"privacyStatus": yt_privacy},
+            },
+            media_body=media,
         )
 
-        # ── STEP 3: Sukses ────────────────────────────────────────────
-        file_size = os.path.getsize(final_path)
-        elapsed   = get_readable_time(time.time() - download_start)
+        await ui.update("🌐 Menginisiasi API YouTube...", details="Mengamankan koneksi ke Google Server...")
 
+        response = None
+        last_up_edit = 0.0
+
+        while response is None:
+            chunk_status, response = await asyncio.to_thread(request.next_chunk)
+            
+            if chunk_status:
+                current = chunk_status.resumable_progress
+                now = time.time()
+                if now - last_up_edit >= 2.0:
+                    await ui.update(
+                        status="🚀 Mengunggah ke YouTube...",
+                        current=current,
+                        total=file_size,
+                        details=f"Judul: {yt_title[:30]}\nPrivasi: {yt_privacy.capitalize()}"
+                    )
+                    last_up_edit = now
+
+        video_id = response.get("id", "")
+        if not video_id:
+            raise RuntimeError("YouTube tidak mengembalikan ID Video.")
+
+        yt_link = f"https://youtu.be/{video_id}"
+
+        # ── STEP 3: Selesai ─────────────────────────────────────────
         success_text = (
             f"✅ **Upload YouTube Berhasil!**\n\n"
             f"📺 **Judul:** `{yt_title}`\n"
             f"🔒 **Privasi:** `{yt_privacy.capitalize()}`\n"
             f"💽 **Ukuran:** `{get_human_size(file_size)}`\n"
-            f"⏱️ **Waktu:** `{elapsed}`\n"
             f"🔗 **Link:** {yt_link}"
         )
-        buttons = [[InlineKeyboardButton(text="📺 Buka di YouTube", url=yt_link, style="success")]]
-
-        try:
-            await status_msg.edit_text(success_text, reply_markup=InlineKeyboardMarkup(inline_keyboard=buttons))
-        except Exception:
-            await original_message.answer(success_text, reply_markup=InlineKeyboardMarkup(inline_keyboard=buttons))
-
-    except asyncio.CancelledError:
-        try: await status_msg.edit_text("❌ **Upload YouTube Dibatalkan.**")
-        except Exception: pass
-
-    except Exception as e:
-        LOGGER.error(f"❌ YTUpload worker error: {e}", exc_info=True)
-        err_text = f"❌ **Upload YouTube Gagal!**\n\n`{str(e)[:300]}`"
-        try: await status_msg.edit_text(err_text)
-        except Exception:
-            try: await original_message.answer(err_text)
-            except Exception: pass
+        
+        # Kirim pesan khusus dengan tombol URL
+        await Telegram.AIOGRAM_BOT.send_message(
+            chat_id=message.chat.id,
+            text=success_text,
+            reply_markup=InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="📺 Buka di YouTube", url=yt_link, style="success")]]),
+            reply_to_message_id=reply_msg.message_id
+        )
+        
+        await ui.finish(f"✅ <b>Upload Selesai!</b>\nVideo Anda sudah ter-publish.")
 
     finally:
         if os.path.exists(final_path):
             try: os.remove(final_path); LOGGER.info(f"✅ Temp file dihapus: {final_path}")
             except OSError as e: LOGGER.warning(f"⚠️  Gagal hapus temp file: {e}")
-
-        await remove_running_process(process_status.process_id)
-        async with working_task_lock:
-            for task in list(working_task):
-                if task.get("process_status") and task["process_status"].process_id == process_status.process_id:
-                    working_task.remove(task)
-                    break
-
-        _yt_state.pop(process_status.user_id, None)
-
-
-async def _start_ytupload_task(
-    process_status: ProcessStatus,
-    original_message: Message,
-    reply_msg: Message,
-    yt_title: str,
-    yt_desc: str,
-    yt_privacy: str,
-    status_msg: Message,
-) -> None:
-    # Membungkus eksekusi worker dalam satu Task yang utuh dan independen agar tidak deadlock
-    task_wrapper = {"process_status": process_status, "functions": [], "_yt_task": True}
-    queued = False
-
-    async with working_task_lock:
-        if len(working_task) < get_task_limit():
-            working_task.append(task_wrapper)
-            await append_running_process(process_status.process_id)
-        else:
-            queued = True
-
-    if queued:
-        async with queued_task_lock:
-            pos = len(queued_task) + 1
-            queued_task.append(task_wrapper)
-
-        queue_text = (
-            f"⏳ **Masuk Antrian YouTube Upload**\n\n"
-            f"📋 **Posisi:** `{pos}`\n"
-            f"📺 **Judul:** `{yt_title}`\n"
-            f"🔒 **Privasi:** `{yt_privacy.capitalize()}`\n"
-            f"**ID Proses:** `{process_status.process_id}`\n\n"
-            f"`/cancel{CMD_SUFFIX} process {process_status.process_id}`"
-        )
-        await _safe_edit(status_msg, queue_text)
-
-        waited = 0
-        while waited < YT_QUEUE_TIMEOUT:
-            await asyncio.sleep(5)
-            waited += 5
-            async with queued_task_lock:
-                if task_wrapper not in queued_task:
-                    break 
-        else:
-            async with queued_task_lock:
-                if task_wrapper in queued_task:
-                    queued_task.remove(task_wrapper)
-            await _safe_edit(status_msg, "❌ **Timeout antrian (1 jam).** Coba lagi.")
-            _yt_state.pop(process_status.user_id, None)
-            return
-
-        if not check_running_process(process_status.process_id):
-            _yt_state.pop(process_status.user_id, None)
-            return
-
-    # Memulai Worker tanpa await di event utama untuk mencegah memblokir command
-    asyncio.create_task(
-        _ytupload_worker(
-            process_status, original_message, reply_msg,
-            yt_title, yt_desc, yt_privacy, status_msg,
-        )
-    )
 
 
 # ═══════════════════════════════════════════════════════════════════════
@@ -532,39 +307,16 @@ async def ytupload_handler(message: Message, command: CommandObject) -> None:
     user_id = message.from_user.id
 
     if not YOUTUBE_ENABLED:
-        return await message.reply(
-            "❌ **Library Google API belum terinstall!**\n\n"
-            "Jalankan: `pip install google-api-python-client google-auth-oauthlib google-auth-httplib2`"
-        )
+        return await message.reply("❌ **Library Google API belum terinstall!**")
 
     if not _is_vip(user_id):
-        return await message.reply(
-            "👑 **Fitur Eksklusif VIP**\n\n"
-            "Upload langsung ke YouTube hanya tersedia untuk member **VIP/Premium**.\n\n"
-            "Hubungi admin untuk informasi berlangganan VIP.",
-            reply_markup=InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="💬 Hubungi Admin", url=f"https://t.me/{Config.BOT_USERNAME}", style="primary")]])
-        )
+        return await message.reply("👑 **Fitur Eksklusif VIP**\nUpload ke YouTube hanya tersedia untuk member **VIP**.")
 
     if not os.path.exists(TOKEN_FILE):
-        return await message.reply(
-            "❌ **Token YouTube Tidak Ditemukan!**\n\n"
-            "Token YouTube belum di-setup di server bot.\n\n"
-            "📋 **Langkah Setup:**\n"
-            "1. Download `client_secret.json` dari Google Cloud Console\n"
-            "2. Jalankan `python3 get_token.py` di komputer lokal\n"
-            "3. Login di browser yang muncul\n"
-            "4. Upload `token.json` yang dihasilkan ke sini.\n\n"
-            "_Token hanya perlu di-setup sekali._"
-        )
+        return await message.reply("❌ **Token YouTube Tidak Ditemukan!**\nAdmin harus mensetup `token.json` terlebih dahulu.")
 
     if not message.reply_to_message:
-        return await message.reply(
-            "❌ **Cara Pakai:**\n"
-            f"Balas sebuah video dengan perintah `/ytupload{CMD_SUFFIX} Judul Video`\n\n"
-            "**Contoh:**\n"
-            "1. Kirim atau forward video ke chat ini.\n"
-            f"2. Balas (reply) video tersebut dengan `/ytupload{CMD_SUFFIX} Gameplay RE4`"
-        )
+        return await message.reply("❌ **Cara Pakai:**\nBalas sebuah video dengan perintah `/ytupload Judul Video`")
 
     reply_msg = message.reply_to_message
     if not (reply_msg.video or reply_msg.document):
@@ -579,8 +331,7 @@ async def ytupload_handler(message: Message, command: CommandObject) -> None:
         try:
             target_media = reply_msg.video or reply_msg.document
             yt_title = target_media.file_name or "Video Upload"
-            if "." in yt_title:
-                yt_title = yt_title.rsplit(".", 1)[0]
+            if "." in yt_title: yt_title = yt_title.rsplit(".", 1)[0]
         except Exception:
             yt_title = "Video Upload"
 
@@ -611,7 +362,7 @@ async def yt_privacy_cb(call: CallbackQuery) -> None:
     if call.from_user.id != user_id:
         return await call.answer("❌ Menu ini bukan milik Anda!", show_alert=True)
     if user_id not in _yt_state:
-        return await call.answer("❌ Sesi berakhir. Silakan ulangi perintah /ytupload", show_alert=True)
+        return await call.answer("❌ Sesi berakhir. Silakan ulangi.", show_alert=True)
 
     _yt_state[user_id]["privacy"] = privacy
     yt_title = _yt_state[user_id]["title"]
@@ -621,7 +372,7 @@ async def yt_privacy_cb(call: CallbackQuery) -> None:
 
 @router.callback_query(F.data.startswith("yt_go_"))
 async def yt_go_cb(call: CallbackQuery) -> None:
-    try: await call.answer("⏳ Menambahkan ke daftar tugas...", show_alert=False)
+    try: await call.answer("✅ Mengantrekan...", show_alert=False)
     except: pass
     
     user_id = int(call.data.split("_")[2])
@@ -629,9 +380,9 @@ async def yt_go_cb(call: CallbackQuery) -> None:
     if call.from_user.id != user_id:
         return await call.answer("❌ Menu ini bukan milik Anda!", show_alert=True)
     if not _is_vip(user_id):
-        return await call.message.edit_text("❌ Akses VIP kamu sudah habis. Hubungi admin untuk perpanjang.")
+        return await call.message.edit_text("❌ Akses VIP kamu sudah habis.")
     if user_id not in _yt_state:
-        return await call.message.edit_text("❌ Sesi berakhir.\n" + f"Silakan ulangi perintah `/ytupload{CMD_SUFFIX}`")
+        return await call.message.edit_text("❌ Sesi berakhir.\nSilakan ulangi perintah `/ytupload`")
 
     state      = _yt_state[user_id]
     reply_msg  = state["reply_msg"]
@@ -639,70 +390,30 @@ async def yt_go_cb(call: CallbackQuery) -> None:
     yt_desc    = state["desc"]
     yt_privacy = state["privacy"]
 
-    user_name       = call.from_user.username or ""
-    user_first_name = call.from_user.first_name or str(user_id)
-
-    process_status = ProcessStatus(
-        user_id         = user_id,
-        chat_id         = call.message.chat.id,
-        user_name       = user_name,
-        user_first_name = user_first_name,
-        event           = call.message,
-        process_type    = getattr(Names, "ytupload", "YouTubeUpload"),
-        input_mode      = "Telegram",
-    )
-
     try:
         target_media = reply_msg.video or reply_msg.document
         fname = target_media.file_name or "video.mp4"
     except Exception:
         fname = "video.mp4"
-    process_status.file_name = fname
 
-    priv_icons = {"private": "🔒", "unlisted": "🔗", "public": "🌍"}
-    priv_icon  = priv_icons.get(yt_privacy, "🔒")
+    # Hapus pesan konfirmasi inline (digantikan oleh Unified_Engine nantinya)
+    await _clean_msgs(call.message)
+    _yt_state.pop(user_id, None)
 
-    clean_title = str(yt_title).replace("`", "").replace("*", "")
+    # 🚀 JALANKAN VIA UNIFIED ENGINE (Ini menyelesaikan segalanya!)
+    # Membuat fake_msg agar notifikasi progress mereply ke pesan video aslinya
+    fake_msg = call.message.model_copy(update={
+        "from_user": call.from_user,
+        "chat": call.message.chat,
+        "reply_to_message": reply_msg
+    })
     
-    init_text = (
-        f"📺 **Proses YouTube Upload**\n"
-        f"{'─' * 32}\n"
-        f"  📝 **Judul:** `{clean_title[:40]}`\n"
-        f"  {priv_icon} **Privasi:** `{yt_privacy.capitalize()}`\n"
-        f"  💽 **File:** `{fname}`\n"
-        f"{'─' * 32}\n"
-        f"**ID Proses:** `{process_status.process_id}`\n"
-        f"`/cancel{CMD_SUFFIX} process {process_status.process_id}`"
-    )
-
-    action_buttons = [
-        [InlineKeyboardButton(text="❌ Batal", callback_data=f"yt_cancel_{user_id}_{process_status.process_id}", style="danger"),
-         InlineKeyboardButton(text="📋 Cek Status", callback_data=f"yt_status_{process_status.process_id}", style="primary")],
-    ]
-
-    try:
-        status_msg = await call.message.edit_text(init_text, reply_markup=InlineKeyboardMarkup(inline_keyboard=action_buttons))
-    except Exception:
-        status_msg = await call.message.answer(init_text, reply_markup=InlineKeyboardMarkup(inline_keyboard=action_buttons))
-
-    # Kita harus mengirim inisiasi task ke event loop agar tak membuat tombol Telegram macet (deadlock).
-    # Di start_ytupload_task() nantinya worker akan dipanggil secara lepas.
-    asyncio.create_task(
-        _start_ytupload_task(
-            process_status,
-            call.message,
-            reply_msg,
-            yt_title,
-            yt_desc,
-            yt_privacy,
-            status_msg,
-        )
-    )
+    await execute_unified_task(fake_msg, "YOUTUBE UPLOAD", _core_ytupload_logic, reply_msg, yt_title, yt_desc, yt_privacy, fname)
 
 
 @router.callback_query(F.data.startswith("yt_cancel_"))
 async def yt_cancel_cb(call: CallbackQuery) -> None:
-    try: await call.answer("⏳ ❌ Mencoba membatalkan...", show_alert=False)
+    try: await call.answer("⏳ ❌ Membatalkan...", show_alert=False)
     except: pass
     
     parts   = call.data.split("_")
@@ -711,41 +422,9 @@ async def yt_cancel_cb(call: CallbackQuery) -> None:
     if call.from_user.id != user_id:
         return await call.answer("❌ Menu ini bukan milik Anda!", show_alert=True)
 
-    if len(parts) >= 4:
-        process_id = parts[3]
-        from bot_helper.Process.Running_Process import remove_running_process
-        await remove_running_process(process_id)
-        try: await call.message.edit_text("❌ **Proses upload dibatalkan oleh pengguna.**")
-        except Exception: pass
-    else:
-        _yt_state.pop(user_id, None)
-        try: await call.message.edit_text("❌ **Sesi Upload YouTube dibatalkan.**")
-        except Exception: pass
-
-
-@router.callback_query(F.data.startswith("yt_status_"))
-async def yt_status_cb(call: CallbackQuery) -> None:
-    try: await call.answer()
-    except: pass
-    
-    process_id = call.data.split("_")[2]
-
-    async with working_task_lock:
-        for task in list(working_task):
-            ps = task.get("process_status")
-            if ps and ps.process_id == process_id:
-                if call.from_user.id != ps.user_id:
-                    return await call.answer("❌ Proses ini bukan milik Anda!", show_alert=True)
-                try:
-                    await call.answer(
-                        ps.status_message[:200] if ps.status_message else "ℹ️ Tidak ada informasi status yang tersedia",
-                        show_alert=True,
-                    )
-                except Exception:
-                    pass
-                return
-
-    await call.answer("❌ Proses tidak ditemukan (mungkin sudah selesai atau dibatalkan)", show_alert=True)
+    _yt_state.pop(user_id, None)
+    try: await call.message.edit_text("❌ **Sesi Upload YouTube dibatalkan.**")
+    except Exception: pass
 
 
 # ═══════════════════════════════════════════════════════════════════════
@@ -775,10 +454,7 @@ async def yttoken_handler(message: Message) -> None:
         resp = await wait_for_message(message.chat.id, user_id, 120)
         await _clean_msgs(ask_msg, resp)
         
-        if not resp:
-            return await message.answer("❌ Waktu habis. Dibatalkan.", reply_markup=ReplyKeyboardRemove())
-            
-        if "batal" in (resp.text or "").lower():
+        if not resp or "batal" in (resp.text or "").lower():
             return await message.answer("❌ Dibatalkan.", reply_markup=ReplyKeyboardRemove())
             
         if not resp.document:
