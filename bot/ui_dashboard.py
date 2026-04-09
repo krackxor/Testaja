@@ -567,32 +567,32 @@ async def route_commands(callback: CallbackQuery):
             "resetdb": getattr(adm, "_resetdb", None), "addsudo": getattr(adm, "_addsudo", None),
             "delsudo": getattr(adm, "_delsudo", None), "changeconfig": getattr(adm, "_changeconfig", None),
             "clearconfigs": getattr(adm, "_clearconfig", None),
-            
+
             "saveconfig": getattr(adm, "_saverclone", None), 
             "savewatermark": getattr(adm, "_savewatermark", None),
-            "savethumb": getattr(adm, "_savethumb", None)
-           
+            "savethumb": getattr(adm, "_savethumb", None),
+
             "listgameplay": getattr(gp, "list_gameplay_handler", None), "deletegameplay": getattr(gp, "delete_gameplay_handler", None),
             "recap": getattr(recap, "recap_handler", None), "clip": getattr(autoclip, "autoclip_handler", None), "ytupload": getattr(yt, "ytupload_handler", None),
             "addgameplay": getattr(gp, "add_gameplay_handler", None), "addsfx": getattr(gp, "addsfx_handler", None),
             "verdict": getattr(gp, "master_studio_handler", None), "toptier": getattr(gp, "master_studio_handler", None),
             "archives": getattr(gp, "master_studio_handler", None), "lore": getattr(gp, "master_studio_handler", None),
             "radar": getattr(gp, "master_studio_handler", None), "patch": getattr(gp, "master_studio_handler", None),
-            
+
             "encode": getattr(med, "_encode_video", None), "customencode": getattr(med, "_custom_encode_video", None),
             "compress": getattr(med, "_compress_video", None), "convert": getattr(med, "_convert_video", None),
             "merge": getattr(med, "_merge_videos", None), "speed": getattr(med, "_speed_video", None),
             "mute": getattr(med, "_mute_video", None), "dubbing": getattr(med, "_dubbing_video", None),
             "softmux": getattr(med, "_softmux", None), "hardmux": getattr(med, "_hardmux", None),
             "softremux": getattr(med, "_softremux", None),
-            
+
             "watermark": getattr(med, "_add_watermark_interactive", None),
             "extract": getattr(med, "_extract_streams", None) or getattr(adv, "_extract_streams", None),
             "extension": getattr(med, "_extension_changer", None) or getattr(adv, "_extension_changer", None),
             "changeindex": getattr(med, "_change_index", None) or getattr(adv, "_change_index", None),
             "changemetadata": getattr(med, "_change_metadata", None) or getattr(adv, "_change_metadata", None),
             "mediainfo": getattr(med, "_media_info", None) or getattr(adv, "_media_info", None),
-            
+
             "trim": getattr(adv, "_trim_video", None), "split": getattr(adv, "_split_video", None),
             "cut": getattr(adv, "_cut_video", None), "rotate": getattr(adv, "_rotate_video", None),
             "crop": getattr(adv, "_crop_video", None), "autocrop": getattr(adv, "_autocrop_video", None),
@@ -600,10 +600,10 @@ async def route_commands(callback: CallbackQuery):
             "gensample": getattr(adv, "_gen_video_sample", None) or getattr(med, "_gen_video_sample", None),
             "ext_thumb": getattr(med, "_extract_thumbnail", None) or getattr(adv, "_extract_thumbnail", None),
             "ext_frames": getattr(med, "_extract_frames_zip", None) or getattr(adv, "_extract_frames_zip", None),
-            
+
             "leech": getattr(med, "_leech_file", None), "mirror": getattr(med, "_mirror_file", None),
             "status": getattr(med, "_status", None),
-            
+
             "verify": getattr(vip, "_verify_payment", None), "myvip": getattr(vip, "_my_vip_status", None),
             "add_vip": getattr(vip, "_add_vip_manual", None), "delete_vip": getattr(vip, "_delete_vip_manual", None),
             "view_vip": getattr(vip, "_view_vip_list", None),
