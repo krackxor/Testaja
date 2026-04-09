@@ -470,3 +470,22 @@ async def get_all_user_ids() -> list[int]:
     """
     exclude = {"restart", "claimed_order_ids"}
     return [uid for uid in DATA.keys() if uid not in exclude and isinstance(uid, int)]
+
+
+async def get_subtitle_page(user_id: int, page: int, limit: int = 5):
+    """Mengambil data subtitle dengan sistem pagination."""
+    skip = (page - 1) * limit
+    cursor = DATA.subtitle_temp.find({"user_id": user_id}).sort("index", 1).skip(skip).limit(limit)
+    return await cursor.to_list(length=limit)
+
+async def get_total_sub_lines(user_id: int):
+    """Menghitung total baris subtitle user."""
+    return await DATA.subtitle_temp.count_documents({"user_id": user_id})
+
+async def get_single_sub_line(user_id: int, index: int):
+    """Mengambil satu baris spesifik untuk diedit."""
+    return await DATA.subtitle_temp.find_one({"user_id": user_id, "index": index})
+
+async def clear_subtitle_temp(user_id: int):
+    """Menghapus sesi edit subtitle."""
+    await DATA.subtitle_temp.delete_many({"user_id": user_id})
