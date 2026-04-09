@@ -1,20 +1,14 @@
 """
 ╔══════════════════════════════════════════════════════════════════════╗
-║                    main.py                                           ║
-║            Encoder1 Bot — v3.3 (Subtitle Editor Update)              ║
+║                    main.py — v3.4 (Unified Engine Edition)           ║
+║         Encoder1 Bot — v3.4 (Studio Khoirul Premium Update)          ║
 ╠══════════════════════════════════════════════════════════════════════╣
-║  CHANGELOG dari versi lama:                                          ║
-║  [NEW]      Integrasi Subtitle Editor (/subedit)                     ║
-║  [NEW]      Menggunakan asyncio.run() native Python 3.11             ║
-║  [NEW]      Aiogram dp.start_polling() sebagai main loop             ║
-║  [NEW]      Global Message Catcher untuk fitur "Inline Waiter"       ║
-║  [FIX]      Setup Bot Commands dipindah dari Telethon ke Aiogram     ║
-║  [FIX]      Inisialisasi semua client (Telethon & Pyrogram) async    ║
-║  [FIX]      Jalur import shared.py disesuaikan ke folder bot/        ║
-║  [IMPROVE]  Auto-Loader Router untuk menghindari Unhandled Updates   ║
-║  [FIX]      Inisialisasi Aria2 Engine sebelum listener               ║
-║  [NEW]      Startup Cleanup otomatis membersihkan folder downloads/  ║
-║  [NEW]      Integrasi Premium UI Dashboard (STUDIO KHOIRUL)          ║
+║  CHANGELOG v3.4:                                                     ║
+║  [NEW] Integrasi bot_helper.Process.Unified_Engine                   ║
+║  [FIX] Inisialisasi antrean Semaphore global saat startup.           ║
+║  [FIX] Sinkronisasi data antrean Dashboard dengan Engine.            ║
+║  [IMPROVE] Middleware Waiter Catcher diprioritaskan paling awal.     ║
+║  [IMPROVE] Logika Auto-Router cerdas (Deteksi router & ui_router).   ║
 ╚══════════════════════════════════════════════════════════════════════╝
 """
 
@@ -34,6 +28,9 @@ from bot_helper.Aria2.Aria2_Engine import start_listener, Aria2
 from bot_helper.Telegram.Telegram_Client import Telegram
 from bot.shared import resolve_waiter
 
+# [CRITICAL] Import Unified Engine agar Semaphore diinisialisasi sejak awal
+import bot_helper.Process.Unified_Engine 
+
 # Import fungsi auto-cleaner
 from bot_helper.Process.Running_Tasks import clear_all_trash_on_startup
 
@@ -50,10 +47,8 @@ sudo_users = Config.SUDO_USERS
 LOGGER = Config.LOGGER
 
 ###############------Load_Plugins------###############
-# Baris ini memuat handler Telethon lama dari bot/start.py
+# Memuat semua modul bot untuk registrasi Router
 import bot.start
-
-# Import semua modul bot untuk pengecekan Router Aiogram
 import bot.admin_handlers
 import bot.vip_handlers
 import bot.media_handlers
@@ -64,9 +59,7 @@ import bot.AutoClip
 import bot.MovieRecap
 import bot.YTUpload
 import bot.subtitle_handlers
-import bot.subtitle_editor  # [TAMBAHAN BARU] Modul Editor Subtitle Premium
-
-# [TAMBAHAN BARU] Import UI Dashboard
+import bot.subtitle_editor 
 import bot.ui_dashboard 
 
 # Import task background
@@ -116,12 +109,12 @@ async def set_bot_commands(command_file):
 ###############------Check_Restart------###############
 async def check_restart(restart_file):
     try:
-        with open(restart_file, "r") as f:
-            content = f.read().split()
-            if len(content) >= 2:
-                chat, msg_id = map(int, content[:2])
-                await Telegram.TELETHON_CLIENT.edit_message(chat, msg_id, '✅ Restarted Successfully')
         if exists(restart_file):
+            with open(restart_file, "r") as f:
+                content = f.read().split()
+                if len(content) >= 2:
+                    chat, msg_id = map(int, content[:2])
+                    await Telegram.TELETHON_CLIENT.edit_message(chat, msg_id, '✅ Restarted Successfully')
             remove(restart_file)
     except Exception as e:
         LOGGER.info(f"🧩 Error While Updating Restart Message: {e}")
@@ -132,14 +125,13 @@ async def start_user_account():
     try:
         await Telegram.TELETHON_USER_CLIENT.start()
         user = await Telegram.TELETHON_USER_CLIENT.get_me()
-        first_name = user.first_name
         
         if not user.premium:
-            LOGGER.info(f"⛔ Account {first_name} No Premium, 2GB Limit active.")
+            LOGGER.info(f"⛔ Account {user.first_name} No Premium, 2GB Limit active.")
         else:
-            LOGGER.info(f"💎 Telegram Premium Found For User {first_name}")
+            LOGGER.info(f"💎 Telegram Premium Found For User {user.first_name}")
             
-        LOGGER.info(f'🔒 Session For {first_name} Started Successfully!')
+        LOGGER.info(f'🔒 Session For {user.first_name} Started Successfully!')
     except Exception as e:
         LOGGER.error(f"❗ Failed to start user session: {e}")
 
@@ -149,15 +141,14 @@ async def main():
 
     # ─── PEMBERSIHAN FILE SISA (STARTUP CLEANUP) ───
     await clear_all_trash_on_startup()
-    # ──────────────────────────────────────────────────────────
 
-    # Mendaftarkan Middleware Global
+    # Mendaftarkan Middleware Global (Urutan sangat krusial)
     Telegram.AIOGRAM_DP.message.outer_middleware(WaiterCatcherMiddleware())
 
     # ─── AUTO-LOADER ROUTERS ───
-    # Memasukkan semua Router Aiogram yang terdeteksi agar tidak ada 'Unhandled Update'
+    # Memasukkan semua Router Aiogram yang terdeteksi
     modules_to_include = [
-        bot.ui_dashboard,
+        bot.ui_dashboard,   # Dashboard didahulukan agar diprioritaskan
         bot.admin_handlers, bot.vip_handlers, bot.media_handlers,
         bot.advanced_media_handlers, bot.callbacks, bot.Gameplay,
         bot.AutoClip, bot.MovieRecap, bot.YTUpload, 
@@ -166,17 +157,13 @@ async def main():
     
     loaded_routers = 0
     for mod in modules_to_include:
-        if hasattr(mod, 'router'):
-            Telegram.AIOGRAM_DP.include_router(mod.router)
+        router_obj = getattr(mod, 'router', None) or getattr(mod, 'ui_router', None)
+        if router_obj:
+            Telegram.AIOGRAM_DP.include_router(router_obj)
             loaded_routers += 1
             LOGGER.info(f"✅ Router Attached: {mod.__name__}")
-        elif hasattr(mod, 'ui_router'):
-            Telegram.AIOGRAM_DP.include_router(mod.ui_router)
-            loaded_routers += 1
-            LOGGER.info(f"✅ UI Router Attached: {mod.__name__}")
     
     LOGGER.info(f"🔗 Total {loaded_routers} Aiogram Routers Successfully Linked!")
-    # ────────────────────────────
 
     # 1. Start Telethon Bot
     LOGGER.info("🔶 Starting Telethon Bot")
@@ -218,10 +205,9 @@ async def main():
         LOGGER.info("🧹 Starting Auto-Cleaner Background Task...")
         asyncio.create_task(auto_clean_temp_dir("./temp/", max_age_hours=24))
 
-    LOGGER.info("⚡ Bot Upgraded to Trinity Architecture (v3.3) ⚡")
+    LOGGER.info("🚀 UNIFIED ENGINE READY: System Production Online!")
 
     # 8. Start Aiogram Polling
-    LOGGER.info("🔶 Starting Aiogram Polling...")
     await Telegram.AIOGRAM_DP.start_polling(Telegram.AIOGRAM_BOT, drop_pending_updates=True)
 
 
