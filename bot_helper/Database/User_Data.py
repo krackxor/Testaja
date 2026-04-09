@@ -473,7 +473,7 @@ async def get_all_user_ids() -> list[int]:
 
 
 # ═══════════════════════════════════════════════════════════════════════
-#  SUBTITLE EDITOR HELPERS (NEW v4.1)
+#  SUBTITLE EDITOR HELPERS (NEW v4.2)
 # ═══════════════════════════════════════════════════════════════════════
 
 async def get_subtitle_page(user_id: int, page: int, limit: int = 5) -> List[Dict]:
