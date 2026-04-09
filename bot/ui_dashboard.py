@@ -1,7 +1,7 @@
 """
 UI Dashboard Template for STUDIO KHOIRUL (Aiogram 3.x)
-Versi: PROFESSIONAL v4.9 - Custom Dynamic Layout
-Fix: Sinkronisasi Penuh Menu Pengaturan dengan bot/callbacks.py
+Versi: PROFESSIONAL v5.0 - True Color Emoji & Backend Sync
+Fix: Penghapusan parameter 'style' yang usang, penerapan hierarki warna visual.
 """
 
 import asyncio
@@ -188,7 +188,7 @@ def kb_studio() -> InlineKeyboardMarkup:
 def kb_encode() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=[
         [
-            InlineKeyboardButton(text="🚀 Encode Cepat", callback_data="cmd_encode")
+            InlineKeyboardButton(text="🟢 Encode Cepat", callback_data="cmd_encode")
         ],
         [
             InlineKeyboardButton(text="🎛️ Encode Custom", callback_data="cmd_customencode")
@@ -284,12 +284,9 @@ def kb_download() -> InlineKeyboardMarkup:
     ])
 
 def kb_settings() -> InlineKeyboardMarkup:
-    """
-    Telah diupdate: Terhubung langsung ke callback_data di bot/callbacks.py
-    """
     return InlineKeyboardMarkup(inline_keyboard=[
         [
-            InlineKeyboardButton(text="💾 Rclone Config", callback_data="cmd_saveconfig"),
+            InlineKeyboardButton(text="💾 Set Rclone", callback_data="cmd_saveconfig"),
             InlineKeyboardButton(text="🖼️ Set Thumb", callback_data="cmd_savethumb")
         ],
         [
@@ -335,7 +332,7 @@ def kb_admin() -> InlineKeyboardMarkup:
         [
             InlineKeyboardButton(text="📊 Status", callback_data="cmd_status"),
             InlineKeyboardButton(text="⏱️ Uptime", callback_data="cmd_time"),
-            InlineKeyboardButton(text="🚀 Speed", callback_data="cmd_speedtest")
+            InlineKeyboardButton(text="⚡ Speedtest", callback_data="cmd_speedtest")
         ],
         [
             InlineKeyboardButton(text="📈 Stats", callback_data="cmd_stats"),
