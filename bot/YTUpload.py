@@ -3,7 +3,8 @@
 ║                    bot/YTUpload.py                                   ║
 ║        YouTube Upload — Terintegrasi Penuh dengan Bot System         ║
 ╠══════════════════════════════════════════════════════════════════════╣
-║  CHANGELOG dari versi lama:                                          ║
+║  CHANGELOG v4.0:                                                     ║
+║  [UX PREMIUM] Standardisasi Hierarki Emoji (❌ Error, ⏳ Proses).      ║
 ║  [UX PREMIUM] Menerapkan Auto-Delete agar chat tetap bersih & rapi.  ║
 ║  [UX PREMIUM] Menyelaraskan desain Kotak Konfirmasi (Summary Box).   ║
 ║  [UX PREMIUM] Menerapkan label tombol yang ringkas & estetik.        ║
@@ -232,7 +233,7 @@ async def upload_to_youtube(
     last_edit_time = 0.0
 
     _update_yt_status(
-        process_status, "⬆️ Menghubungkan ke YouTube API...",
+        process_status, "⏳ ⬆️ Menghubungkan ke YouTube API...",
         0, total_size, start_time,
     )
     try:
@@ -251,7 +252,7 @@ async def upload_to_youtube(
         if chunk_status:
             current = chunk_status.resumable_progress
             _update_yt_status(
-                process_status, "⬆️ Mengunggah ke YouTube...",
+                process_status, "⏳ ⬆️ Mengunggah ke YouTube...",
                 current, total_size, start_time,
             )
             now = time.time()
@@ -314,7 +315,7 @@ async def _ytupload_worker(
     try:
         # ── STEP 1: Download ──────────────────────────────────────────
         process_status.update_process_message(
-            f"🔽 **Mengunduh Video...**\n\n"
+            f"⏳ 🔽 **Mengunduh Video...**\n\n"
             f"`{process_status.file_name or 'video'}`\n"
             f"**Ditambahkan Oleh**: {process_status.added_by} | **ID**: `{process_status.user_id}`\n"
             f"`/cancel{CMD_SUFFIX} process {process_status.process_id}`"
@@ -664,7 +665,7 @@ async def yt_go_cb(call: CallbackQuery) -> None:
     )
 
     action_buttons = [
-        [InlineKeyboardButton(text="❌ Batalkan", callback_data=f"yt_cancel_{user_id}_{process_status.process_id}"),
+        [InlineKeyboardButton(text="❌ Batal", callback_data=f"yt_cancel_{user_id}_{process_status.process_id}"),
          InlineKeyboardButton(text="📋 Cek Status", callback_data=f"yt_status_{process_status.process_id}")],
     ]
 
@@ -690,7 +691,7 @@ async def yt_go_cb(call: CallbackQuery) -> None:
 
 @router.callback_query(F.data.startswith("yt_cancel_"))
 async def yt_cancel_cb(call: CallbackQuery) -> None:
-    try: await call.answer("❌ Mencoba membatalkan...", show_alert=False)
+    try: await call.answer("⏳ ❌ Mencoba membatalkan...", show_alert=False)
     except: pass
     
     parts   = call.data.split("_")
@@ -726,7 +727,7 @@ async def yt_status_cb(call: CallbackQuery) -> None:
                     return await call.answer("❌ Proses ini bukan milik Anda!", show_alert=True)
                 try:
                     await call.answer(
-                        ps.status_message[:200] if ps.status_message else "Tidak ada informasi status yang tersedia",
+                        ps.status_message[:200] if ps.status_message else "ℹ️ Tidak ada informasi status yang tersedia",
                         show_alert=True,
                     )
                 except Exception:
