@@ -7,6 +7,7 @@
 ║  • /autosub : Transkripsi Audio/Video menjadi file .srt              ║
 ║  • /autotranslate : Terjemahkan file .srt ke bahasa apapun           ║
 ║                                                                      ║
+║  CHANGELOG v1.0:                                                     ║
 ║  [UX PREMIUM] Implementasi API Warna Tombol Native Telegram 9.4+     ║
 ║  [UX PREMIUM] Progress Bar Real-Time saat AI sedang mengetik.        ║
 ║  [UX PREMIUM] Interactive Wizard & Kotak Konfirmasi (Summary Box).   ║
@@ -68,12 +69,17 @@ async def _clean_msgs(*msgs):
             except Exception: pass
 
 def _make_reply_kb(options: list, row_width: int = 2) -> ReplyKeyboardMarkup:
+    """Membuat Reply Keyboard dengan mudah dan warna otomatis (Native Telegram)."""
     kb = []
     row = []
     for opt in options:
-        if "Batal" in opt or "❌" in opt: btn_style = "danger"
-        elif "Ya" in opt or "✅" in opt: btn_style = "success"
-        else: btn_style = "primary"
+        # Auto-Color Logic
+        if "Batal" in opt or "❌" in opt:
+            btn_style = "danger"
+        elif "Ya" in opt or "✅" in opt or "Mulai" in opt:
+            btn_style = "success"
+        else:
+            btn_style = "primary"
             
         row.append(KeyboardButton(text=opt, style=btn_style))
         if len(row) == row_width:
@@ -127,7 +133,7 @@ async def _autosub_worker(process_status: ProcessStatus, original_message: Messa
         await _safe_edit(status_msg, process_status.status_message)
         
         def run_whisper():
-            # Menggunakan model 'base' agar aman untuk CPU server
+            # Menggunakan model 'base' agar aman untuk CPU server. Bisa diganti 'small' jika RAM > 4GB.
             model = WhisperModel("base", device="cpu", compute_type="int8")
             target_lang = None if lang_code == "auto" else lang_code
             segments, info = model.transcribe(media_path, language=target_lang, beam_size=5)
