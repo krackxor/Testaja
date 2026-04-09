@@ -1,6 +1,6 @@
 """
 ╔══════════════════════════════════════════════════════════════════════╗
-║       bot/admin_handlers.py — v4.0                                   ║
+║       bot/admin_handlers.py — v4.1                                   ║
 ║       Admin & System Command Handlers (Aiogram 3.x)                  ║
 ╠══════════════════════════════════════════════════════════════════════╣
 ║  Commands: /start /time /restart /herokurestart /log /logs           ║
@@ -9,7 +9,9 @@
 ║            /clearconfigs /checksudo /addsudo /delsudo /renew         ║
 ║            /resetdb /changeconfig /settings                          ║
 ╠══════════════════════════════════════════════════════════════════════╣
-║  CHANGELOG v4.0:                                                     ║
+║  CHANGELOG v4.1:                                                     ║
+║  [UX PREMIUM] Implementasi API Warna Tombol Native Telegram 9.4+     ║
+║                (Primary, Success, Danger) pada Reply & Inline KB.    ║
 ║  [UX PREMIUM] Standardisasi Hierarki Emoji (❌ Error, ⏳ Proses).      ║
 ║  [UX PREMIUM] Menerapkan Reply Keyboard Singkat ("✅ Ya", "❌ Batal")  ║
 ║  [UX PREMIUM] Menerapkan Auto-Delete agar chat tetap bersih & rapi.  ║
@@ -75,7 +77,7 @@ except ImportError:
 router = Router()
 
 # ═══════════════════════════════════════════════════════════════════════
-#  UI & CLEANUP HELPERS
+#  UI & CLEANUP HELPERS (COLOR BUTTONS ENABLED)
 # ═══════════════════════════════════════════════════════════════════════
 
 async def _clean_msgs(*msgs):
@@ -86,11 +88,20 @@ async def _clean_msgs(*msgs):
             except Exception: pass
 
 def _make_reply_kb(options: list, row_width: int = 2) -> ReplyKeyboardMarkup:
-    """Membuat Reply Keyboard dengan mudah."""
+    """Membuat Reply Keyboard dengan mudah dan warna otomatis (Native Telegram)."""
     kb = []
     row = []
     for opt in options:
-        row.append(KeyboardButton(text=opt))
+        # Auto-Color Logic
+        if "Batal" in opt or "❌" in opt:
+            btn_style = "danger"
+        elif "Ya" in opt or "✅" in opt:
+            btn_style = "success"
+        else:
+            btn_style = "primary"
+            
+        row.append(KeyboardButton(text=opt, style=btn_style))
+        
         if len(row) == row_width:
             kb.append(row)
             row = []
@@ -112,8 +123,8 @@ async def get_sudo_user_id(message: Message) -> int | bool:
 async def _startmsg(message: Message):
     text = f"Hai {get_mention(message)}, Saya Aktif! 🎬"
     kb = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="📢 Channel Resmi", url="https://t.me/nik66x")],
-        [InlineKeyboardButton(text="👨‍💻 Developer", url="https://t.me/nik66")],
+        [InlineKeyboardButton(text="📢 Channel Resmi", url="https://t.me/nik66x", style="primary")],
+        [InlineKeyboardButton(text="👨‍💻 Developer", url="https://t.me/nik66", style="primary")],
     ])
     await message.reply(text, reply_markup=kb)
 
@@ -375,12 +386,12 @@ async def _changeconfig(message: Message):
         
     kb_layout, row = [], []
     for k in keys:
-        row.append(InlineKeyboardButton(text=k, callback_data=f"env_{k}"))
+        row.append(InlineKeyboardButton(text=k, callback_data=f"env_{k}", style="primary"))
         if len(row) == 2:
             kb_layout.append(row)
             row = []
     if row: kb_layout.append(row)
-    kb_layout.append([InlineKeyboardButton(text="⭕ Tutup", callback_data="close_settings")])
+    kb_layout.append([InlineKeyboardButton(text="⭕ Tutup", callback_data="close_settings", style="danger")])
     
     kb = InlineKeyboardMarkup(inline_keyboard=kb_layout)
     await message.reply("🔄 Pilih Variabel untuk Diubah", reply_markup=kb)
@@ -540,9 +551,9 @@ async def _settings(message: Message):
     if user_id not in get_data(): await new_user(user_id, SAVE_TO_DATABASE)
         
     kb = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="👤 Profil", callback_data="profile_main")],
-        [InlineKeyboardButton(text="🎬 Encode",   callback_data="settings_media")],
-        [InlineKeyboardButton(text="🤖 Umum & Tampilan", callback_data="settings_bot")],
-        [InlineKeyboardButton(text="⭕ Tutup", callback_data="close_settings")],
+        [InlineKeyboardButton(text="👤 Profil", callback_data="profile_main", style="primary")],
+        [InlineKeyboardButton(text="🎬 Encode",   callback_data="settings_media", style="primary")],
+        [InlineKeyboardButton(text="🤖 Umum & Tampilan", callback_data="settings_bot", style="primary")],
+        [InlineKeyboardButton(text="⭕ Tutup", callback_data="close_settings", style="danger")],
     ])
     await message.reply(f"⚙️ Hai {get_mention(message)} — Pilih Pengaturan Anda", reply_markup=kb)
