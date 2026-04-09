@@ -1,9 +1,11 @@
 """
 ╔══════════════════════════════════════════════════════════════════════╗
-║       bot_helper/Handlers/media_handlers.py — v4.0                   ║
+║       bot_helper/Handlers/media_handlers.py — v4.1                   ║
 ║       Media Processing Command Handlers (Aiogram 3.x)                ║
 ╠══════════════════════════════════════════════════════════════════════╣
-║  CHANGELOG v4.0:                                                     ║
+║  CHANGELOG v4.1:                                                     ║
+║  [UX PREMIUM] Implementasi API Warna Tombol Native Telegram 9.4+     ║
+║                (Primary, Success, Danger) di semua menu inline.      ║
 ║  [UX PREMIUM] Standardisasi Hierarki Emoji (❌ Error, ⏳ Proses).      ║
 ║  [UX PREMIUM] Sinkronisasi ikon Watermark (©️) dengan Dashboard UI.  ║
 ║  [FIX] Memisahkan /compress agar lebih instan (tanpa dub/sub).       ║
@@ -32,7 +34,7 @@ from os.path import exists
 # ── Aiogram ───────────────────────────────────────────────────────────
 from aiogram import Router, F
 from aiogram.types import (
-    Message, ReplyKeyboardMarkup, KeyboardButton, ReplyKeyboardRemove, FSInputFile
+    Message, ReplyKeyboardMarkup, KeyboardButton, ReplyKeyboardRemove, FSInputFile, InlineKeyboardButton, InlineKeyboardMarkup, CallbackQuery
 )
 from aiogram.filters import Command
 
@@ -70,7 +72,11 @@ def _make_reply_kb(options: list, row_width: int = 2) -> ReplyKeyboardMarkup:
     kb = []
     row = []
     for opt in options:
-        row.append(KeyboardButton(text=opt))
+        if "Batal" in opt or "❌" in opt: btn_style = "danger"
+        elif "Ya" in opt or "✅" in opt: btn_style = "success"
+        else: btn_style = "primary"
+        
+        row.append(KeyboardButton(text=opt, style=btn_style))
         if len(row) == row_width:
             kb.append(row)
             row = []
