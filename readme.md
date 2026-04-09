@@ -1,30 +1,47 @@
-# A Multi-Feature Telegram Bot
+# 🎬 STUDIO KHOIRUL BOT — Trinity Edition (v4.1)
 
+A Multi-Feature Telegram Bot designed for automated video production, advanced media manipulation, AI-powered subtitling, and high-speed leeching. Built on the blazing-fast **Trinity Architecture** (Aiogram + Telethon + Pyrogram).
 
-### Configuration
-To configure this bot add the environment variables stated below. Or add them in [sample_config.env](./sample_config.env) and change the name to `config.env`. Or add the environment variable `CONFIG_FILE_URL` and put config.env direct url in it.
-- `API_ID` - (Required)Get it by creating an app on [https://my.telegram.org](https://my.telegram.org)
-- `API_HASH` - (Required)Get it by creating an app on [https://my.telegram.org](https://my.telegram.org)
-- `TOKEN` - (Required)Get it by creating a bot on [https://t.me/BotFather](https://t.me/BotFather)
-- `OWNER_ID` - (Required)Numerical User ID of bot owner
-- `SUDO_USERS` - (Required)Numerical User IDs of sudo users separated by space.
-- `AUTH_GROUP_ID` - (Optional)Numerical chat id of group, required if you want to use pyrogram download/upload in group.
-- `RESTART_NOTIFY_ID` - (Optional)Numerical user id of user or chat id of group/channel to notify on bot start, set it False if you don't want notification on start.
-- `AUTO_SET_BOT_CMDS` - (Required)Set True if you want bot to setup its commands by itself otherwise set it False.
-- `RUNNING_TASK_LIMIT` - (Required)Number Of Concurrent Tasks.
-- `UNFINISHED_PROGRESS_STR` - (Required)Unfinished progress bar string value.
-- `FINISHED_PROGRESS_STR` - (Required)Finished progress bar string value.
-- `UPDATE_PACKAGES` - (Optional)Set True if you want to update the packages.
-- `UPSTREAM_REPO` - (Optional)Your github repository link, if your repo is private add https://username:{githubtoken}@github.com/{username}/{reponame} format.
-- `UPSTREAM_BRANCH` - (Optional)Upstream branch for update.
-- `TIMEZONE` - (Optional)Timezone for clock time in status. Default is `Asia/Kolkata`.
-- `SAVE_TO_DATABASE` - (Required)Set value True if you want to use MongoDB Database else False.
-- `MONGODB_URI` - (Optional*)MongoDB URL to save data, only required when SAVE_TO_DATABASE's value is True.
-- `Use_Session_String` - (Required)Set value True if you want to use Telegram user session string to upload 4GB file to telegram else False.
-- `Session_String` - (Optional*)Telethon Session String, only required when Use_Session_String's value is True.
+---
 
-### Commands
-```
+### ⚙️ Configuration
+To configure this bot, add the environment variables stated below. You can add them in `sample_config.env` and rename the file to `config.env`, or set the environment variable `CONFIG_FILE_URL` with a direct link to your configuration file.
+
+#### 🔑 Core Variables
+- `API_ID` - (Required) Get it by creating an app on [my.telegram.org](https://my.telegram.org).
+- `API_HASH` - (Required) Get it by creating an app on [my.telegram.org](https://my.telegram.org).
+- `TOKEN` - (Required) Get your bot token from [@BotFather](https://t.me/BotFather).
+- `OWNER_ID` - (Required) Numerical User ID of the bot owner.
+- `SUDO_USERS` - (Required) Numerical User IDs of sudo admins, separated by space.
+
+#### 🚀 System & Performance
+- `RUNNING_TASK_LIMIT` - (Required) Number of concurrent tasks the bot can handle.
+- `UNFINISHED_PROGRESS_STR` - (Required) Character for unfinished progress bar (e.g., `░`).
+- `FINISHED_PROGRESS_STR` - (Required) Character for finished progress bar (e.g., `█`).
+- `TIMEZONE` - (Optional) Timezone for clock time in status (Default: `Asia/Jakarta`).
+
+#### 💽 Database & Storage
+- `SAVE_TO_DATABASE` - (Required) Set `True` if you want to use a MongoDB Database, else `False`.
+- `MONGODB_URI` - (Optional*) MongoDB URL to save data (Required if `SAVE_TO_DATABASE` is True).
+- `Use_Session_String` - (Required) Set `True` to use a Telethon user session to bypass the 2GB upload limit.
+- `Session_String` - (Optional*) Telethon Session String (Required if `Use_Session_String` is True).
+
+#### 📺 Third-Party API (Optional for Premium Features)
+- `TRAKTEER_API_KEY` - Your Trakteer Creator API Key for automatic VIP verification via `/verify`.
+- `YOUTUBE_API_KEY` - Ensure `client_secret.json` and `token.json` are present in the root directory for `/ytupload`.
+
+#### 🔄 Updates & Notifications
+- `UPDATE_PACKAGES` - (Optional) Set `True` to update packages automatically.
+- `UPSTREAM_REPO` - (Optional) Your GitHub repository link for updates.
+- `UPSTREAM_BRANCH` - (Optional) Upstream branch to pull updates from.
+- `RESTART_NOTIFY_ID` - (Optional) Numerical ID (User/Chat) to notify on bot start. Set `False` to disable.
+- `AUTO_SET_BOT_CMDS` - (Required) Set `True` to let the bot auto-configure its commands menu.
+
+---
+
+### 📝 Available Commands
+
+```text
 # ═══ 🎬 STUDIO PRODUKSI & AI ═══
 recap - Rangkum film otomatis dgn AI & Voiceover
 clip - Potong video jadi Shorts/Reels dari file .txt
@@ -35,6 +52,10 @@ radar - Buat video game/film baru (Tema Cyber)
 patch - Buat video berita/update kilat
 archives - Buat video sejarah/arsip (Tema Retro)
 ytupload - Upload video langsung ke YouTube
+
+# ═══ 🤖 AI SUBTITLES & TRANSLATION ═══
+autosub - Buat subtitle otomatis dari Video/Audio (Whisper AI)
+autotranslate - Terjemahkan file .srt ke bahasa apapun
 
 # ═══ 🎮 MANAJEMEN ASET STUDIO ═══
 addgameplay - Simpan video gameplay ke server bot
@@ -49,6 +70,9 @@ cut - Buang bagian tengah video yang tidak diinginkan
 crop - Potong rasio layar video (16:9, 9:16, dll)
 autocrop - Otomatis buang black bar pada video
 rotate - Putar atau balikkan arah video
+speed - Ubah kecepatan pemutaran video (Lambat/Cepat)
+mute - Hapus seluruh suara/audio dari video
+dubbing - Ganti suara asli video dengan file audio baru
 
 # ═══ 🛠 PEMROSESAN MEDIA DASAR ═══
 compress - Kompres ukuran video
@@ -59,7 +83,7 @@ hardmux - Tanam subtitle permanen ke dalam video
 softmux - Tambahkan subtitle sebagai stream
 softremux - Hapus sub lama & tambahkan yang baru
 extension - Ubah ekstensi file (contoh: mkv ke mp4)
-extract - Ekstrak audio atau subtitle dari video
+extract - Ekstrak audio, subtitle, thumbnail HD, atau frame ZIP
 gensample - Buat cuplikan video pendek
 genss - Buat kolase screenshot dari video
 changemetadata - Ubah judul dan metadata video/audio
@@ -71,7 +95,7 @@ leech - Unduh dari tautan lalu kirim ke Telegram
 mirror - Unduh dari tautan lalu upload ke Google Drive
 
 # ═══ ⚙️ PENGATURAN PENGGUNA ═══
-settings - Buka menu pengaturan bot
+settings - Buka menu pengaturan bot utama
 savewatermark - Simpan gambar watermark default
 savethumb - Simpan gambar thumbnail default
 saveconfig - Simpan konfigurasi rclone Google Drive
@@ -104,7 +128,6 @@ restart - Mulai ulang mesin bot
 herokurestart - Mulai ulang Dyno Heroku
 help - Buka panduan lengkap bot
 start - Mulai interaksi bot
-```
 
 
 
