@@ -1,19 +1,18 @@
 """
 ╔══════════════════════════════════════════════════════════════════════╗
 ║           bot_helper/FFMPEG/FFMPEG_Status.py                         ║
-║           Encoder1 Bot — v3.1                                        ║
+║           Encoder1 Bot — v3.2 (Anti-Deadlock Update)                 ║
 ╠══════════════════════════════════════════════════════════════════════╣
 ║  CHANGELOG dari versi lama:                                          ║
-║  [FIX HIGH]  File log dibuka tiap baris → buka sekali di luar loop  ║
-║  [FIX]       bare except → except (OSError, FileNotFoundError)      ║
-║  [FIX]       ValueError continue → break + warning                  ║
-║  [FIX]       stderr None guard sebelum iterasi                      ║
-║  [FIX]       print(line) → LOGGER.debug() (throttled)              ║
-║  [FIX]       returncode = False → None (type konsisten)             ║
-║  [FIX]       check_running_process throttle (tiap 50 baris)        ║
-║  [NEW]       read_progress() — parse -progress log untuk persen     ║
-║  [NEW]       get_progress_info() — return dict lengkap progress     ║
-║  [IMPROVE]   process_logs dipakai sebagai ring buffer (max 100)     ║
+║  [FIX CRITICAL] Mengubah `async for` menjadi loop `readline()`       ║
+║  [FIX CRITICAL] Menambahkan Pipe Drainer: Jika terjadi ValueError    ║
+║                 (Line too long), sisa log di memori akan disedot dan ║
+║                 dibuang agar FFmpeg tidak membeku/stuck selamanya.   ║
+║  [FIX HIGH]  File log dibuka tiap baris → buka sekali di luar loop   ║
+║  [FIX]       check_running_process throttle (tiap 50 baris)          ║
+║  [NEW]       read_progress() — parse -progress log untuk persen      ║
+║  [NEW]       get_progress_info() — return dict lengkap progress      ║
+║  [IMPROVE]   process_logs dipakai sebagai ring buffer (max 100)      ║
 ╚══════════════════════════════════════════════════════════════════════╝
 """
 
@@ -230,15 +229,12 @@ class FfmpegStatus:
         """
         Baca stderr FFmpeg secara async dan simpan ke log file.
 
-        [FIX HIGH] File log dibuka SEKALI di luar loop (bukan setiap baris)
-        [FIX]      stderr None guard
-        [FIX]      ValueError → break + warning (bukan continue infinite loop)
-        [FIX]      print(line) → LOGGER.debug() dengan throttling
-        [FIX]      check_running_process throttle setiap 50 baris
+        [FIX CRITICAL] Menggunakan readline loop dengan mekanisme Pipe Drainer
+                       untuk mencegah FFmpeg stuck/beku karena buffer memory penuh.
         """
         LOGGER.info(f"🔵 FFmpeg logger mulai: {process_id}")
 
-        # [FIX] Guard: jika stderr tidak di-pipe, return langsung
+        # Guard: jika stderr tidak di-pipe, return langsung
         if self.process.stderr is None:
             LOGGER.warning(f"⚠️  FFmpeg stderr tidak di-pipe untuk {process_id}")
             await self.process.wait()
@@ -248,9 +244,6 @@ class FfmpegStatus:
         log_path = f"{process_dir}/FFMPEG_LOG.txt"
 
         try:
-            # [FIX HIGH] Buka file SEKALI di luar loop
-            # Sebelumnya: dibuka dan ditutup untuk SETIAP baris stderr
-            # Dengan ribuan baris output FFmpeg, ini sangat boros I/O
             async with aio_open(log_path, "a+", encoding="utf-8") as log_f:
                 # Tulis command di awal log
                 await log_f.write(f"CMD: {' '.join(str(c) for c in command)}\n")
@@ -258,41 +251,50 @@ class FfmpegStatus:
 
                 line_count = 0
 
-                try:
-                    async for raw_line in self.process.stderr:
-                        # [FIX] check_running_process throttle — setiap 50 baris
-                        # Bukan setiap baris yang bisa berarti ribuan DB queries
-                        if line_count % _CANCEL_CHECK_INTERVAL == 0:
-                            if not check_running_process(process_id):
-                                LOGGER.info(f"🔒 FFmpeg {process_id} dibatalkan")
-                                try:
-                                    self.process.kill()
-                                except ProcessLookupError:
-                                    pass
-                                break
+                # [FIX CRITICAL: ANTI-DEADLOCK LOOP]
+                while True:
+                    try:
+                        # Baca per baris secara manual
+                        raw_line = await self.process.stderr.readline()
+                        if not raw_line: # Jika kosong, berarti FFmpeg sudah selesai
+                            break
+                    except ValueError as e:
+                        # [ANTI-MACET] Jika baris kepanjangan (chunk exceed limit),
+                        # SEDOT dan BUANG isi pipa memori agar FFmpeg tidak membeku!
+                        LOGGER.warning(f"⚠️ Pipa Log Mampet (Line too long): {e} — Menguras pipa untuk {process_id}...")
+                        try:
+                            # Baca sisa chunk memori secara paksa dan lupakan (drain)
+                            await self.process.stderr.read(65536) 
+                        except Exception as drain_err:
+                            LOGGER.debug(f"Drain error: {drain_err}")
+                        continue # Lanjut baca baris berikutnya dengan aman!
 
-                        line = raw_line.decode("utf-8", errors="replace").strip()
-                        if not line:
-                            line_count += 1
-                            continue
+                    # Cek pembatalan (Cancel) setiap 50 baris
+                    if line_count % _CANCEL_CHECK_INTERVAL == 0:
+                        if not check_running_process(process_id):
+                            LOGGER.info(f"🔒 FFmpeg {process_id} dibatalkan oleh user.")
+                            try:
+                                self.process.kill()
+                            except ProcessLookupError:
+                                pass
+                            break
 
-                        # Simpan ke ring buffer
-                        self.save_log(line)
-
-                        # [FIX] LOGGER.debug bukan print() — tidak ke stdout
-                        # Hanya log baris yang mengandung kata kunci penting
-                        if any(kw in line.lower() for kw in ("error", "warning", "invalid", "failed")):
-                            LOGGER.debug(f"FFmpeg [{process_id}]: {line}")
-
-                        # Tulis ke log file (sudah terbuka — tidak open/close lagi)
-                        await log_f.write(f"{line}\n")
+                    # Decode baris yang aman
+                    line = raw_line.decode("utf-8", errors="replace").strip()
+                    if not line:
                         line_count += 1
+                        continue
 
-                except ValueError as e:
-                    # [FIX] ValueError di-suppress → break + warning
-                    # Biasanya berarti file handle sudah closed
-                    LOGGER.warning(f"⚠️  FFmpeg logger ValueError: {e} — stop logging")
-                    # Tidak continue (infinite loop) — break keluar dari loop
+                    # Simpan ke ring buffer UI
+                    self.save_log(line)
+
+                    # Hanya print ke console jika ada kata kunci error (Biar gak nyampah)
+                    if any(kw in line.lower() for kw in ("error", "warning", "invalid", "failed")):
+                        LOGGER.debug(f"FFmpeg [{process_id}]: {line}")
+
+                    # Tulis ke file FFMPEG_LOG.txt
+                    await log_f.write(f"{line}\n")
+                    line_count += 1
 
         except (OSError, PermissionError) as e:
             LOGGER.error(f"❌ Gagal buka/tulis log file {log_path}: {e}")
@@ -306,7 +308,6 @@ class FfmpegStatus:
             except Exception as e:
                 LOGGER.warning(f"⚠️  process.wait() error: {e}")
 
-        # [FIX] Dari False → None sebagai initial, sekarang isi dengan int aktual
         self.returncode = self.process.returncode
         LOGGER.info(
             f"{'✅' if self.returncode == 0 else '❌'} "
