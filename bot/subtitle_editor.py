@@ -1,13 +1,13 @@
 """
 ╔══════════════════════════════════════════════════════════════════════╗
-║                 bot/subtitle_editor.py — v2.0 (WORKSPACE)            ║
-║       Subtitle Editor: Save, Load, Edit, & Trans (Studio Khoirul)    ║
+║                 bot/subtitle_editor.py — v2.1 (NAVIGATION PRO)       ║
+║       Subtitle Editor: Workspace & Jump Feature (Studio Khoirul)     ║
 ╠══════════════════════════════════════════════════════════════════════╣
-║  CHANGELOG v2.0:                                                     ║
+║  CHANGELOG v2.1:                                                     ║
+║  [NEW] Tombol '🔍 Lompat' untuk navigasi cepat ke baris tertentu.    ║
 ║  [NEW] Sistem Manajemen Proyek (Save, Load, Delete Session).         ║
-║  [NEW] Menu Workspace terbuka jika /subedit dipanggil tanpa file.    ║
-║  [UX]  Kombinasi cerdas InlineKeyboard (Menu) & ReplyKeyboard (Input)║
 ║  [FIX] Database fully integrated dengan MongoDB subtitle_projects.   ║
+║  [UX]  Kombinasi InlineKeyboard & ReplyKeyboard 'Batal'.             ║
 ╚══════════════════════════════════════════════════════════════════════╝
 """
 
@@ -51,12 +51,10 @@ async def get_workspace_kb(user_id: int):
     db = get_db()
     kb = []
     
-    # Cek apakah ada proyek yang sedang aktif di memory (temp)
     active_count = await db.db["subtitle_temp"].count_documents({"user_id": user_id})
     if active_count > 0:
         kb.append([InlineKeyboardButton(text=f"▶️ Lanjutkan Proyek Aktif ({active_count} Baris)", callback_data=f"sub_pg_{user_id}_1")])
     
-    # Cek apakah ada proyek tersimpan
     saved_count = await db.db["subtitle_projects"].count_documents({"user_id": user_id})
     if saved_count > 0:
         kb.append([InlineKeyboardButton(text=f"📂 Buka Proyek Tersimpan ({saved_count})", callback_data=f"sub_proj_{user_id}")])
@@ -67,7 +65,7 @@ async def get_workspace_kb(user_id: int):
 async def get_saved_projects_kb(user_id: int):
     """Daftar Proyek yang Tersimpan"""
     db = get_db()
-    projects = await db.db["subtitle_projects"].find({"user_id": user_id}).sort("_id", -1).to_list(length=10) # Max 10 proyek
+    projects = await db.db["subtitle_projects"].find({"user_id": user_id}).sort("_id", -1).to_list(length=10)
     
     kb = []
     for p in projects:
@@ -82,30 +80,26 @@ async def get_saved_projects_kb(user_id: int):
     return InlineKeyboardMarkup(inline_keyboard=kb)
 
 def get_editor_kb(lines, current_page, total_pages, user_id, target_lang):
-    """Menu Editor Utama"""
+    """Menu Editor Utama dengan Fitur Jump"""
     kb = []
     for line in lines:
         raw_text = str(line.get('text', ''))
         preview = raw_text[:35] + "..." if len(raw_text) > 35 else raw_text
         idx = line.get('index', 0)
-        kb.append([
-            InlineKeyboardButton(
-                text=f"#{idx} | {preview}", 
-                callback_data=f"sub_focus_{user_id}_{idx}"
-            )
-        ])
+        kb.append([InlineKeyboardButton(text=f"#{idx} | {preview}", callback_data=f"sub_focus_{user_id}_{idx}")])
     
     nav_row = []
     if current_page > 1:
         nav_row.append(InlineKeyboardButton(text="⏪ Prev", callback_data=f"sub_pg_{user_id}_{current_page-1}"))
-    nav_row.append(InlineKeyboardButton(text=f"📄 {current_page}/{total_pages}", callback_data="none"))
+    
+    # Tombol Jump
+    nav_row.append(InlineKeyboardButton(text=f"🔍 {current_page}/{total_pages}", callback_data=f"sub_jump_{user_id}"))
+    
     if current_page < total_pages:
         nav_row.append(InlineKeyboardButton(text="Next ⏩", callback_data=f"sub_pg_{user_id}_{current_page+1}"))
     kb.append(nav_row)
     
-    kb.append([
-        InlineKeyboardButton(text=f"🌐 Set Bahasa Target: {target_lang.upper()}", callback_data=f"sub_setlang_{user_id}")
-    ])
+    kb.append([InlineKeyboardButton(text=f"🌐 Set Bahasa Target: {target_lang.upper()}", callback_data=f"sub_setlang_{user_id}")])
     kb.append([
         InlineKeyboardButton(text="⏳ Resync All", callback_data=f"sub_rsall_{user_id}", style="primary"),
         InlineKeyboardButton(text="🌐 Trans All", callback_data=f"sub_trall_{user_id}", style="primary")
@@ -142,7 +136,7 @@ def get_focus_kb(user_id, line_index):
 async def subedit_start(message: Message):
     user_id = message.from_user.id
     
-    # JIKA TIDAK ADA FILE -> BUKA WORKSPACE
+    # BUKA WORKSPACE JIKA TIDAK ADA FILE
     if not message.reply_to_message or not message.reply_to_message.document:
         kb = await get_workspace_kb(user_id)
         text = (
@@ -153,7 +147,6 @@ async def subedit_start(message: Message):
         )
         return await message.answer(text, reply_markup=kb, parse_mode="HTML")
 
-    # JIKA ADA FILE -> PARSE & BUKA EDITOR BARU
     file_name = message.reply_to_message.document.file_name
     if not file_name.lower().endswith('.srt'):
         return await message.reply("❌ **Gagal:** Hanya mendukung format `.srt` untuk saat ini.")
@@ -166,7 +159,6 @@ async def subedit_start(message: Message):
         
         await message.bot.download(message.reply_to_message.document, destination=srt_path)
         
-        # Parse data baru ke DB
         total_lines = await parse_srt_to_db(user_id, srt_path)
         lines = await get_subtitle_page(user_id, page=1, limit=5)
         total_pages = (total_lines // 5) + (1 if total_lines % 5 > 0 else 0)
@@ -244,13 +236,11 @@ async def handle_save_project(call: CallbackQuery):
         project_name = response.text.strip()
         db = get_db()
         
-        # Ambil semua baris dari proyek aktif (temp)
         active_lines = await db.db["subtitle_temp"].find({"user_id": user_id}).to_list(length=None)
         if not active_lines:
             await prompt.delete()
             return await call.message.answer("❌ Proyek kosong, tidak ada yang disimpan.", reply_markup=ReplyKeyboardRemove())
 
-        # Simpan ke koleksi subtitle_projects
         await db.db["subtitle_projects"].update_one(
             {"user_id": user_id, "project_name": project_name},
             {"$set": {"lines": active_lines}},
@@ -285,11 +275,9 @@ async def handle_load_project(call: CallbackQuery):
             
         await call.answer("⏳ Memuat proyek...", show_alert=False)
         
-        # Bersihkan workspace saat ini dan masukkan data proyek
         await db.db["subtitle_temp"].delete_many({"user_id": user_id})
         await db.db["subtitle_temp"].insert_many(project["lines"])
         
-        # Lempar ke UI Editor Halaman 1
         lines = await get_subtitle_page(user_id, page=1, limit=5)
         total_lines = await get_total_sub_lines(user_id)
         total_pages = (total_lines // 5) + (1 if total_lines % 5 > 0 else 0)
@@ -313,7 +301,6 @@ async def handle_delete_project(call: CallbackQuery):
         await db.db["subtitle_projects"].delete_one({"_id": ObjectId(proj_id), "user_id": user_id})
         await call.answer("🗑️ Proyek dihapus!", show_alert=False)
         
-        # Refresh daftar proyek
         kb = await get_saved_projects_kb(user_id)
         text = "<b>💾 PROYEK TERSIMPAN</b>\n━━━━━━━━━━━━━━━━━━━━\n<i>Pilih proyek untuk dimuat (Load) atau dihapus:</i>"
         try: await call.message.edit_text(text, reply_markup=kb, parse_mode="HTML")
@@ -323,8 +310,57 @@ async def handle_delete_project(call: CallbackQuery):
         await call.answer(f"⚠️ Error: {str(e)[:40]}", show_alert=True)
 
 # ═══════════════════════════════════════════════════════════════════════
-#  EDITOR LOGIC (PAGINATION, EDIT, RESYNC, DLL)
+#  EDITOR LOGIC (JUMP, PAGINATION, EDIT, RESYNC, DLL)
 # ═══════════════════════════════════════════════════════════════════════
+
+@router.callback_query(F.data.startswith("sub_jump_"))
+async def handle_jump_prompt(call: CallbackQuery):
+    try:
+        user_id = int(call.data.split("_")[2])
+        if call.from_user.id != user_id: return await call.answer("Bukan milikmu!", show_alert=True)
+        
+        await call.answer()
+        total_lines = await get_total_sub_lines(user_id)
+        prompt = await call.message.answer(
+            f"🔍 <b>LOMPAT KE BARIS</b>\n\nTotal baris: <code>{total_lines}</code>\n"
+            f"Ketik nomor baris yang ingin Anda tuju (contoh: <code>500</code>):", 
+            reply_markup=get_cancel_kb(), parse_mode="HTML"
+        )
+        
+        try: res = await wait_for_message(call.message.chat.id, user_id, 60)
+        except asyncio.TimeoutError: res = None
+            
+        if not res or res.text.lower() == "batal":
+            if prompt: await prompt.delete()
+            return await call.message.answer("Pencarian dibatalkan.", reply_markup=ReplyKeyboardRemove())
+
+        try:
+            line_idx = int(res.text.strip())
+            if line_idx < 1 or line_idx > total_lines:
+                raise ValueError
+        except ValueError:
+            await prompt.delete()
+            return await call.message.answer(f"❌ Masukkan angka baris yang valid (1-{total_lines}).", reply_markup=ReplyKeyboardRemove())
+
+        target_page = ((line_idx - 1) // 5) + 1
+        
+        await prompt.delete()
+        await res.delete()
+        
+        temp = await call.message.answer(f"🚀 Melompat ke baris #{line_idx} (Halaman {target_page})...", reply_markup=ReplyKeyboardRemove())
+        await asyncio.sleep(0.5)
+        await temp.delete()
+
+        lines = await get_subtitle_page(user_id, page=target_page, limit=5)
+        total_pages = (total_lines // 5) + (1 if total_lines % 5 > 0 else 0)
+        target_lang = get_active_settings(user_id).get("ai_subtitle", {}).get("target_lang", "id")
+        
+        text = f"<b>📝 SUBTITLE EDITOR</b>\n━━━━━━━━━━━━━━━━━━━━\n📊 Total: <code>{total_lines} Baris</code>\n📍 Lokasi: Baris #{line_idx}\n\n<i>Silakan pilih baris:</i>"
+        try: await call.message.edit_text(text, reply_markup=get_editor_kb(lines, target_page, total_pages, user_id, target_lang), parse_mode="HTML")
+        except TelegramBadRequest: pass
+        
+    except Exception as e:
+        await call.answer(f"⚠️ Error: {str(e)[:40]}", show_alert=True)
 
 @router.callback_query(F.data.startswith("sub_pg_"))
 async def handle_pagination(call: CallbackQuery):
