@@ -1,18 +1,20 @@
 """
 ╔══════════════════════════════════════════════════════════════════════╗
-║                 bot/subtitle_editor.py — v1.4 (FINAL ASYNC)          ║
+║                 bot/subtitle_editor.py — v1.6 (BULLETPROOF)          ║
 ║       Subtitle Editor: Resync, Edit, & Translate (Studio Khoirul)    ║
 ╠══════════════════════════════════════════════════════════════════════╣
-║  CHANGELOG v1.4:                                                     ║
-║  [FIX CRITICAL] Asyncio.to_thread pada GoogleTranslator (Anti-Macet).║
-║  [NEW] Handler untuk 'Trans All' (Terjemahkan semua baris di DB).    ║
-║  [NEW] Handler untuk 'Resync All' (Geser waktu semua baris).         ║
+║  CHANGELOG v1.6:                                                     ║
+║  [FIX CRITICAL] Membungkus SEMUA tombol dengan Sabuk Pengaman        ║
+║                 (try-except) untuk mencegah tombol stuck selamanya.  ║
+║  [FIX CRITICAL] Fallback str() pada data DB untuk mencegah TypeError ║
+║                 saat membaca baris subtitle yang kosong (NoneType).  ║
 ╚══════════════════════════════════════════════════════════════════════╝
 """
 
 import asyncio
 import os
 import pysrt
+import html
 from aiogram import Router, F
 from aiogram.types import (
     Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton,
@@ -38,14 +40,15 @@ router = Router()
 # ═══════════════════════════════════════════════════════════════════════
 
 def get_editor_kb(lines, current_page, total_pages, user_id):
-    """Layout Utama Editor: Daftar Baris & Navigasi."""
     kb = []
     for line in lines:
-        preview = line['text'][:35] + "..." if len(line['text']) > 35 else line['text']
+        raw_text = str(line.get('text', ''))
+        preview = raw_text[:35] + "..." if len(raw_text) > 35 else raw_text
+        idx = line.get('index', 0)
         kb.append([
             InlineKeyboardButton(
-                text=f"#{line['index']} | {preview}", 
-                callback_data=f"sub_focus_{user_id}_{line['index']}"
+                text=f"#{idx} | {preview}", 
+                callback_data=f"sub_focus_{user_id}_{idx}"
             )
         ])
     
@@ -66,7 +69,6 @@ def get_editor_kb(lines, current_page, total_pages, user_id):
     return InlineKeyboardMarkup(inline_keyboard=kb)
 
 def get_focus_kb(user_id, line_index):
-    """Layout saat mengedit 1 baris spesifik."""
     return InlineKeyboardMarkup(inline_keyboard=[
         [
             InlineKeyboardButton(text="📝 Edit Teks", callback_data=f"sub_edit_txt_{user_id}_{line_index}", style="primary"),
@@ -122,195 +124,303 @@ async def subedit_start(message: Message):
         await status_msg.edit_text(f"❌ **Error:** {e}")
 
 # ═══════════════════════════════════════════════════════════════════════
-#  CALLBACK HANDLERS
+#  CALLBACK HANDLERS DENGAN SABUK PENGAMAN (ANTI STUCK)
 # ═══════════════════════════════════════════════════════════════════════
 
 @router.callback_query(F.data.startswith("sub_pg_"))
 async def handle_pagination(call: CallbackQuery):
-    parts = call.data.split("_")
-    user_id = int(parts[2])
-    
-    page = 1 if parts[3] == "back" else int(parts[3])
-    
-    if call.from_user.id != user_id: return await call.answer("Bukan milikmu!", show_alert=True)
-    
-    lines = await get_subtitle_page(user_id, page=page, limit=5)
-    total_lines = await get_total_sub_lines(user_id)
-    total_pages = (total_lines // 5) + (1 if total_lines % 5 > 0 else 0)
-    
-    text = f"<b>📝 SUBTITLE EDITOR</b>\n━━━━━━━━━━━━━━━━━━━━\n📊 Total: <code>{total_lines} Baris</code>\n\n<i>Pilih baris:</i>"
     try:
-        await call.message.edit_text(text, reply_markup=get_editor_kb(lines, page, total_pages, user_id), parse_mode="HTML")
+        parts = call.data.split("_")
+        user_id = int(parts[2])
+        page = 1 if parts[3] == "back" else int(parts[3])
+        
+        if call.from_user.id != user_id: return await call.answer("Bukan milikmu!", show_alert=True)
+        
+        lines = await get_subtitle_page(user_id, page=page, limit=5)
+        total_lines = await get_total_sub_lines(user_id)
+        total_pages = (total_lines // 5) + (1 if total_lines % 5 > 0 else 0)
+        
+        text = f"<b>📝 SUBTITLE EDITOR</b>\n━━━━━━━━━━━━━━━━━━━━\n📊 Total: <code>{total_lines} Baris</code>\n\n<i>Pilih baris:</i>"
+        try:
+            await call.message.edit_text(text, reply_markup=get_editor_kb(lines, page, total_pages, user_id), parse_mode="HTML")
+        except TelegramBadRequest: pass # Abaikan error jika klik halaman yang sama
         await call.answer()
-    except TelegramBadRequest:
-        await call.answer()
+        
+    except Exception as e:
+        LOGGER.error(f"PG Error: {e}", exc_info=True)
+        await call.answer(f"⚠️ Error: {str(e)[:40]}", show_alert=True)
 
 @router.callback_query(F.data.startswith("sub_focus_"))
 async def handle_focus(call: CallbackQuery):
-    parts = call.data.split("_")
-    user_id, line_idx = int(parts[2]), int(parts[3])
-    if call.from_user.id != user_id: return await call.answer("Bukan milikmu!", show_alert=True)
-    
-    line_data = await get_single_sub_line(user_id, line_idx)
-    if not line_data: return await call.answer("Baris tidak ditemukan.", show_alert=True)
-    
-    text = (
-        f"<b>🛠 EDITING BARIS #{line_idx}</b>\n"
-        f"────────────────────\n"
-        f"⏰ <b>Waktu:</b> <code>{line_data['start']} --> {line_data['end']}</code>\n"
-        f"💬 <b>Teks:</b> <code>{line_data['text']}</code>\n"
-        f"────────────────────"
-    )
-    await call.message.edit_text(text, reply_markup=get_focus_kb(user_id, line_idx), parse_mode="HTML")
-    await call.answer()
+    try:
+        parts = call.data.split("_")
+        user_id, line_idx = int(parts[2]), int(parts[3])
+        if call.from_user.id != user_id: return await call.answer("Bukan milikmu!", show_alert=True)
+        
+        line_data = await get_single_sub_line(user_id, line_idx)
+        if not line_data: return await call.answer("Baris tidak ditemukan di DB.", show_alert=True)
+        
+        # Mencegah TypeError jika teks kosong (None)
+        safe_text = html.escape(str(line_data.get('text', ''))) 
+        start_time = str(line_data.get('start', '00:00:00,000'))
+        end_time = str(line_data.get('end', '00:00:00,000'))
+        
+        text = (
+            f"<b>🛠 EDITING BARIS #{line_idx}</b>\n"
+            f"────────────────────\n"
+            f"⏰ <b>Waktu:</b> <code>{start_time} --> {end_time}</code>\n"
+            f"💬 <b>Teks:</b> <code>{safe_text}</code>\n"
+            f"────────────────────"
+        )
+        await call.message.edit_text(text, reply_markup=get_focus_kb(user_id, line_idx), parse_mode="HTML")
+        await call.answer()
+        
+    except Exception as e:
+        LOGGER.error(f"Focus Error: {e}", exc_info=True)
+        await call.answer(f"⚠️ Error: {str(e)[:40]}", show_alert=True)
 
-# --- Logika Penyesuaian Waktu (Resync) ---
 @router.callback_query(F.data.startswith("sub_adj_"))
 async def handle_adjust_time(call: CallbackQuery):
-    parts = call.data.split("_")
-    user_id, line_idx, ms = int(parts[2]), int(parts[3]), int(parts[4])
-    if call.from_user.id != user_id: return await call.answer("Bukan milikmu!", show_alert=True)
-    
-    line = await get_single_sub_line(user_id, line_idx)
-    st = pysrt.SubRipTime.from_string(line["start"].replace('.', ','))
-    et = pysrt.SubRipTime.from_string(line["end"].replace('.', ','))
-    st.shift(milliseconds=ms)
-    et.shift(milliseconds=ms)
-    
-    await DATA.subtitle_temp.update_one(
-        {"user_id": user_id, "index": line_idx},
-        {"$set": {"start": str(st).replace(',', '.'), "end": str(et).replace(',', '.')}}
-    )
-    await call.answer(f"✅ Digeser {ms}ms")
-    
-    line_data = await get_single_sub_line(user_id, line_idx)
-    text = (
-        f"<b>🛠 EDITING BARIS #{line_idx}</b>\n────────────────────\n"
-        f"⏰ <b>Waktu:</b> <code>{line_data['start']} --> {line_data['end']}</code>\n"
-        f"💬 <b>Teks:</b> <code>{line_data['text']}</code>\n────────────────────"
-    )
     try:
-        await call.message.edit_text(text, reply_markup=get_focus_kb(user_id, line_idx), parse_mode="HTML")
-    except: pass
+        parts = call.data.split("_")
+        user_id, line_idx, ms = int(parts[2]), int(parts[3]), int(parts[4])
+        if call.from_user.id != user_id: return await call.answer("Bukan milikmu!", show_alert=True)
+        
+        line = await get_single_sub_line(user_id, line_idx)
+        start_str = str(line.get("start", "00:00:00,000")).replace('.', ',')
+        end_str = str(line.get("end", "00:00:00,000")).replace('.', ',')
+        
+        st = pysrt.SubRipTime.from_string(start_str)
+        et = pysrt.SubRipTime.from_string(end_str)
+        st.shift(milliseconds=ms)
+        et.shift(milliseconds=ms)
+        
+        await DATA.subtitle_temp.update_one(
+            {"user_id": user_id, "index": line_idx},
+            {"$set": {"start": str(st).replace(',', '.'), "end": str(et).replace(',', '.')}}
+        )
+        await call.answer(f"✅ Waktu digeser {ms}ms")
+        
+        # Refresh UI
+        line_data = await get_single_sub_line(user_id, line_idx)
+        safe_text = html.escape(str(line_data.get('text', '')))
+        text = (
+            f"<b>🛠 EDITING BARIS #{line_idx}</b>\n────────────────────\n"
+            f"⏰ <b>Waktu:</b> <code>{line_data.get('start')} --> {line_data.get('end')}</code>\n"
+            f"💬 <b>Teks:</b> <code>{safe_text}</code>\n────────────────────"
+        )
+        try:
+            await call.message.edit_text(text, reply_markup=get_focus_kb(user_id, line_idx), parse_mode="HTML")
+        except TelegramBadRequest: pass
+        
+    except Exception as e:
+        LOGGER.error(f"Adjust Error: {e}", exc_info=True)
+        await call.answer(f"⚠️ Error: {str(e)[:40]}", show_alert=True)
 
-
-# ─── FITUR ASYNC: TERJEMAHAN 1 BARIS (ANTI-MACET) ───
 @router.callback_query(F.data.startswith("sub_edit_tr_"))
 async def handle_translate_line(call: CallbackQuery):
-    parts = call.data.split("_")
-    user_id, line_idx = int(parts[3]), int(parts[4])
-    if call.from_user.id != user_id: return await call.answer("Bukan milikmu!", show_alert=True)
-    
-    line = await get_single_sub_line(user_id, line_idx)
-    await call.answer("⏳ Menerjemahkan di latar belakang...", show_alert=False)
-    
     try:
+        parts = call.data.split("_")
+        user_id, line_idx = int(parts[3]), int(parts[4])
+        if call.from_user.id != user_id: return await call.answer("Bukan milikmu!", show_alert=True)
+        
+        line = await get_single_sub_line(user_id, line_idx)
+        raw_text = str(line.get("text", ""))
+        await call.answer("⏳ Menerjemahkan...", show_alert=False)
+        
         translator = GoogleTranslator(source='auto', target='id')
-        # [PERBAIKAN]: Menggunakan to_thread agar bot lain tetap bisa jalan (Merge, Cut, dll)
-        translated = await asyncio.to_thread(translator.translate, line["text"])
+        translated = await asyncio.to_thread(translator.translate, raw_text)
         
         await DATA.subtitle_temp.update_one({"user_id": user_id, "index": line_idx}, {"$set": {"text": translated}})
         
         line_data = await get_single_sub_line(user_id, line_idx)
+        safe_text = html.escape(str(line_data.get('text', '')))
         text = (
             f"<b>🛠 EDITING BARIS #{line_idx}</b>\n────────────────────\n"
-            f"⏰ <b>Waktu:</b> <code>{line_data['start']} --> {line_data['end']}</code>\n"
-            f"💬 <b>Teks:</b> <code>{line_data['text']}</code>\n────────────────────"
+            f"⏰ <b>Waktu:</b> <code>{line_data.get('start')} --> {line_data.get('end')}</code>\n"
+            f"💬 <b>Teks:</b> <code>{safe_text}</code>\n────────────────────"
         )
         await call.message.edit_text(text, reply_markup=get_focus_kb(user_id, line_idx), parse_mode="HTML")
+        
     except Exception as e:
-        await call.answer(f"❌ Gagal: {e}", show_alert=True)
+        LOGGER.error(f"Trans Error: {e}", exc_info=True)
+        await call.answer(f"⚠️ Gagal: {str(e)[:40]}", show_alert=True)
 
+@router.callback_query(F.data.startswith("sub_edit_txt_"))
+async def handle_edit_text_prompt(call: CallbackQuery):
+    try:
+        parts = call.data.split("_")
+        user_id, line_idx = int(parts[3]), int(parts[4])
+        if call.from_user.id != user_id: return await call.answer("Bukan milikmu!", show_alert=True)
+        
+        await call.answer()
+        prompt = await call.message.answer(f"📝 **Kirimkan teks baru untuk baris #{line_idx}:**\n_Ketik 'batal' untuk mengabaikan._")
+        
+        try:
+            response = await wait_for_message(call.message.chat.id, user_id, 60)
+        except asyncio.TimeoutError:
+            response = None
+            
+        if not response or response.text.lower() == "batal":
+            if prompt: await prompt.delete()
+            return await call.message.answer("Batal mengedit.")
 
-# ─── FITUR ASYNC: TERJEMAHKAN SEMUA BARIS (ANTI-MACET) ───
+        await DATA.subtitle_temp.update_one({"user_id": user_id, "index": line_idx}, {"$set": {"text": response.text}})
+        try:
+            await response.delete()
+            await prompt.delete()
+        except: pass
+        
+        line_data = await get_single_sub_line(user_id, line_idx)
+        safe_text = html.escape(str(line_data.get('text', '')))
+        text = (
+            f"<b>🛠 EDITING BARIS #{line_idx}</b>\n────────────────────\n"
+            f"⏰ <b>Waktu:</b> <code>{line_data.get('start')} --> {line_data.get('end')}</code>\n"
+            f"💬 <b>Teks:</b> <code>{safe_text}</code>\n────────────────────"
+        )
+        try:
+            await call.message.edit_text(text, reply_markup=get_focus_kb(user_id, line_idx), parse_mode="HTML")
+        except TelegramBadRequest: pass
+        
+    except Exception as e:
+        LOGGER.error(f"Edit Txt Error: {e}", exc_info=True)
+        await call.answer(f"⚠️ Error: {str(e)[:40]}", show_alert=True)
+
 @router.callback_query(F.data.startswith("sub_trall_"))
 async def handle_translate_all(call: CallbackQuery):
-    user_id = int(call.data.split("_")[2])
-    if call.from_user.id != user_id: return await call.answer("Bukan milikmu!", show_alert=True)
-    
-    await call.answer("⏳ Memulai Auto Translate...", show_alert=True)
-    status_msg = await call.message.edit_text("⏳ <b>Auto Translate berjalan di latar belakang...</b>\nAnda bisa menggunakan fitur bot lainnya.", parse_mode="HTML")
-    
     try:
-        # Ambil semua data subtitle user ini dari MongoDB
+        user_id = int(call.data.split("_")[2])
+        if call.from_user.id != user_id: return await call.answer("Bukan milikmu!", show_alert=True)
+        
+        await call.answer("⏳ Memulai Auto Translate...", show_alert=True)
+        status_msg = await call.message.edit_text("⏳ <b>Auto Translate berjalan di latar belakang...</b>\nAnda bisa menggunakan fitur bot lainnya.", parse_mode="HTML")
+        
         cursor = DATA.subtitle_temp.find({"user_id": user_id})
         all_lines = await cursor.to_list(length=None)
-        
         translator = GoogleTranslator(source='auto', target='id')
         
         count = 0
         for line in all_lines:
-            # Gunakan to_thread agar bot TIDAK MACET!
-            translated = await asyncio.to_thread(translator.translate, line["text"])
+            raw_text = str(line.get("text", ""))
+            translated = await asyncio.to_thread(translator.translate, raw_text)
             await DATA.subtitle_temp.update_one({"_id": line["_id"]}, {"$set": {"text": translated}})
             count += 1
-            
-            # Beri napas ke bot setiap 10 baris agar user lain bisa pakai fitur Merge/dll
-            if count % 10 == 0:
-                await asyncio.sleep(0.5) 
-                
+            if count % 10 == 0: await asyncio.sleep(0.5) 
+                    
         await status_msg.edit_text(f"✅ <b>Berhasil menerjemahkan {count} baris!</b>\nSilakan klik 'Selesai & Kompilasi'.", parse_mode="HTML")
     except Exception as e:
-        await status_msg.edit_text(f"❌ Gagal Translate All: {e}")
+        LOGGER.error(f"Tr All Error: {e}", exc_info=True)
+        await call.answer(f"⚠️ Error: {str(e)[:40]}", show_alert=True)
 
-
-# --- Logika Edit Teks Manual ---
-@router.callback_query(F.data.startswith("sub_edit_txt_"))
-async def handle_edit_text_prompt(call: CallbackQuery):
-    parts = call.data.split("_")
-    user_id, line_idx = int(parts[3]), int(parts[4])
-    if call.from_user.id != user_id: return await call.answer("Bukan milikmu!", show_alert=True)
-    
-    prompt = await call.message.answer(f"📝 **Kirimkan teks baru untuk baris #{line_idx}:**\n_Ketik 'batal' untuk mengabaikan._")
-    
+@router.callback_query(F.data.startswith("sub_rsall_"))
+async def handle_resync_all(call: CallbackQuery):
     try:
-        response = await wait_for_message(call.message.chat.id, user_id, 60)
-    except asyncio.TimeoutError:
-        response = None
+        user_id = int(call.data.split("_")[2])
+        if call.from_user.id != user_id: return await call.answer("Bukan milikmu!", show_alert=True)
         
-    if not response or response.text.lower() == "batal":
-        if prompt: await prompt.delete()
-        return await call.answer("Batal mengedit.")
+        await call.answer()
+        prompt = await call.message.answer(
+            "⏳ <b>RESYNC SEMUA BARIS</b>\n\n"
+            "Ketik jumlah milidetik (ms) untuk digeser.\n"
+            "Contoh: <code>500</code> (maju 0.5 detik), <code>-1000</code> (mundur 1 detik).\n\n"
+            "<i>Ketik 'batal' untuk mengabaikan.</i>", 
+            parse_mode="HTML"
+        )
+        
+        try:
+            response = await wait_for_message(call.message.chat.id, user_id, 60)
+        except asyncio.TimeoutError:
+            response = None
+            
+        if not response or response.text.lower() == "batal":
+            if prompt: await prompt.delete()
+            return await call.message.answer("Batal resync.")
 
-    await DATA.subtitle_temp.update_one({"user_id": user_id, "index": line_idx}, {"$set": {"text": response.text}})
-    try:
-        await response.delete()
-        await prompt.delete()
-    except: pass
-    await call.answer("✅ Teks diperbarui!")
-    
-    line_data = await get_single_sub_line(user_id, line_idx)
-    text = (
-        f"<b>🛠 EDITING BARIS #{line_idx}</b>\n────────────────────\n"
-        f"⏰ <b>Waktu:</b> <code>{line_data['start']} --> {line_data['end']}</code>\n"
-        f"💬 <b>Teks:</b> <code>{line_data['text']}</code>\n────────────────────"
-    )
-    try:
-        await call.message.edit_text(text, reply_markup=get_focus_kb(user_id, line_idx), parse_mode="HTML")
-    except: pass
+        try:
+            ms_shift = int(response.text.strip())
+        except ValueError:
+            await prompt.delete()
+            return await call.message.answer("❌ Harus berupa angka bulat (contoh: 500).")
 
+        status_msg = await call.message.edit_text(f"⏳ <b>Memproses Resync {ms_shift}ms...</b>", parse_mode="HTML")
+        
+        cursor = DATA.subtitle_temp.find({"user_id": user_id})
+        all_lines = await cursor.to_list(length=None)
+        
+        count = 0
+        for line in all_lines:
+            st = pysrt.SubRipTime.from_string(str(line.get("start", "00:00:00,000")).replace('.', ','))
+            et = pysrt.SubRipTime.from_string(str(line.get("end", "00:00:00,000")).replace('.', ','))
+            st.shift(milliseconds=ms_shift)
+            et.shift(milliseconds=ms_shift)
+            
+            await DATA.subtitle_temp.update_one(
+                {"_id": line["_id"]},
+                {"$set": {"start": str(st).replace(',', '.'), "end": str(et).replace(',', '.')}}
+            )
+            count += 1
+            if count % 50 == 0: await asyncio.sleep(0.05)
+                    
+        await status_msg.edit_text(f"✅ <b>Berhasil Resync {count} baris sebanyak {ms_shift}ms!</b>\nSilakan klik 'Selesai & Kompilasi'.", parse_mode="HTML")
+        
+    except Exception as e:
+        LOGGER.error(f"Rs All Error: {e}", exc_info=True)
+        await call.answer(f"⚠️ Error: {str(e)[:40]}", show_alert=True)
 
-# --- Finalizing & Closing ---
 @router.callback_query(F.data.startswith("sub_compile_"))
 async def handle_compile(call: CallbackQuery):
-    user_id = int(call.data.split("_")[2])
-    if call.from_user.id != user_id: return await call.answer("Bukan milikmu!", show_alert=True)
-    
-    msg = await call.message.edit_text("⏳ 🏗 **Menyusun file SRT baru...**")
-    output_path = await compile_db_to_srt(user_id)
-    
-    if output_path and os.path.exists(output_path):
-        await call.message.answer_document(
-            document=FSInputFile(output_path),
-            caption="✅ **Subtitle Berhasil Diedit!**"
-        )
-        await msg.delete()
-        await clear_subtitle_temp(user_id)
-    else:
-        await call.message.edit_text("❌ Gagal mengompilasi.")
+    try:
+        user_id = int(call.data.split("_")[2])
+        if call.from_user.id != user_id: return await call.answer("Bukan milikmu!", show_alert=True)
+        
+        await call.answer()
+        msg = await call.message.edit_text("⏳ 🏗 **Menyusun file SRT baru...**")
+        output_path = await compile_db_to_srt(user_id)
+        
+        if output_path and os.path.exists(output_path):
+            await call.message.answer_document(
+                document=FSInputFile(output_path),
+                caption="✅ **Subtitle Berhasil Diedit!**"
+            )
+            await msg.delete()
+            await clear_subtitle_temp(user_id)
+        else:
+            await call.message.edit_text("❌ Gagal mengompilasi file.")
+            
+    except Exception as e:
+        LOGGER.error(f"Compile Error: {e}", exc_info=True)
+        await call.answer(f"⚠️ Error: {str(e)[:40]}", show_alert=True)
+
+@router.callback_query(F.data.startswith("sub_del_"))
+async def handle_delete_line(call: CallbackQuery):
+    try:
+        parts = call.data.split("_")
+        user_id, line_idx = int(parts[2]), int(parts[3])
+        if call.from_user.id != user_id: return await call.answer("Bukan milikmu!", show_alert=True)
+        
+        await DATA.subtitle_temp.delete_one({"user_id": user_id, "index": line_idx})
+        await call.answer("🗑️ Baris dihapus!")
+        
+        lines = await get_subtitle_page(user_id, page=1, limit=5)
+        total_lines = await get_total_sub_lines(user_id)
+        total_pages = (total_lines // 5) + (1 if total_lines % 5 > 0 else 0)
+        
+        text = f"<b>📝 SUBTITLE EDITOR</b>\n━━━━━━━━━━━━━━━━━━━━\n📊 Total: <code>{total_lines} Baris</code>\n\n<i>Pilih baris:</i>"
+        try:
+            await call.message.edit_text(text, reply_markup=get_editor_kb(lines, 1, total_pages, user_id), parse_mode="HTML")
+        except TelegramBadRequest: pass
+        
+    except Exception as e:
+        LOGGER.error(f"Delete Error: {e}", exc_info=True)
+        await call.answer(f"⚠️ Error: {str(e)[:40]}", show_alert=True)
 
 @router.callback_query(F.data.startswith("sub_cancel_"))
 async def handle_cancel(call: CallbackQuery):
-    user_id = int(call.data.split("_")[2])
-    await clear_subtitle_temp(user_id)
-    await call.message.edit_text("❌ Subtitle Editor ditutup.")
+    try:
+        user_id = int(call.data.split("_")[2])
+        await clear_subtitle_temp(user_id)
+        await call.message.edit_text("❌ Subtitle Editor ditutup.")
+        await call.answer("Berhasil ditutup.")
+    except Exception as e:
+        LOGGER.error(f"Cancel Error: {e}", exc_info=True)
+        await call.answer(f"⚠️ Error: {str(e)[:40]}", show_alert=True)
