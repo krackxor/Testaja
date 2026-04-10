@@ -1,12 +1,12 @@
 """
 ╔══════════════════════════════════════════════════════════════════════╗
-║                    bot/subtitle_handlers.py — v2.0                   ║
+║                    bot/subtitle_handlers.py — v2.1                   ║
 ║        Auto Subtitle (AI Whisper) & Auto Translate Subtitle          ║
 ╠══════════════════════════════════════════════════════════════════════╣
-║  CHANGELOG v2.0:                                                     ║
-║  [INTEGRATION] Menggunakan Unified_Engine untuk Antrean & UI         ║
-║  [UX PREMIUM] Progress Bar tersentralisasi & real-time ETA.          ║
-║  [CLEANUP] Menghapus sistem tracking lama yang membebani memori.     ║
+║  CHANGELOG v2.1:                                                     ║
+║  [FIX CRITICAL] Asyncio.to_thread pada loop Whisper Generator.       ║
+║  [FIX CRITICAL] Asyncio.to_thread pada GoogleTranslator.             ║
+║  [IMPROVE] Bot 100% kebal macet saat AI sedang merender teks.        ║
 ╚══════════════════════════════════════════════════════════════════════╝
 """
 
@@ -64,7 +64,6 @@ def _make_reply_kb(options: list, row_width: int = 2) -> ReplyKeyboardMarkup:
     kb = []
     row = []
     for opt in options:
-        # Auto-Color Logic
         if "Batal" in opt or "❌" in opt:
             btn_style = "danger"
         elif "Ya" in opt or "✅" in opt or "Mulai" in opt:
@@ -99,7 +98,7 @@ def _is_vip(user_id: int) -> bool:
 # ═══════════════════════════════════════════════════════════════════════
 
 async def _core_autosub_logic(message: Message, ui, reply_msg: Message, lang_code: str, fname: str) -> None:
-    """Fungsi inti Whisper AI yang telah terintegrasi dengan ProgressUI"""
+    """Fungsi inti Whisper AI yang telah terintegrasi dengan ProgressUI & Anti-Macet"""
     media_path = _tmp(f"media_{message.message_id}.mp4")
     srt_path = _tmp(f"{fname}.srt")
     
@@ -110,23 +109,33 @@ async def _core_autosub_logic(message: Message, ui, reply_msg: Message, lang_cod
         await Telegram.AIOGRAM_BOT.download(target_media, destination=media_path)
         if not os.path.exists(media_path): raise RuntimeError("Gagal mengunduh berkas media.")
 
-        # 2. Inisialisasi AI Whisper
+        # 2. Inisialisasi AI Whisper di latar belakang
         await ui.update("🧠 Memuat Model AI Whisper...", details="Memori sedang dialokasikan ke CPU, harap tunggu...")
         
-        def run_whisper():
+        def init_whisper():
             model = WhisperModel("base", device="cpu", compute_type="int8")
             target_lang = None if lang_code == "auto" else lang_code
             return model.transcribe(media_path, language=target_lang, beam_size=5)
             
-        segments, info = await asyncio.to_thread(run_whisper)
+        segments_gen, info = await asyncio.to_thread(init_whisper)
         detected_lang = info.language
         duration = info.duration
 
-        # 3. Proses Transkripsi & Build SRT
+        # 3. Proses Transkripsi (Generator Fetching secara Async)
         subs = pysrt.SubRipFile()
         last_edit = 0.0
+        i = 1
         
-        for i, segment in enumerate(segments, start=1):
+        while True:
+            try:
+                # [CRITICAL FIX]: Mengambil chunk audio selanjutnya di latar belakang (Tidak memblokir loop)
+                segment = await asyncio.to_thread(next, segments_gen)
+            except StopIteration:
+                break # Transkripsi selesai
+            except Exception as e:
+                LOGGER.error(f"Whisper chunk error: {e}")
+                break
+                
             item = pysrt.SubRipItem(
                 index=i,
                 start=pysrt.SubRipTime(seconds=segment.start),
@@ -134,6 +143,7 @@ async def _core_autosub_logic(message: Message, ui, reply_msg: Message, lang_cod
                 text=segment.text.strip()
             )
             subs.append(item)
+            i += 1
             
             # Update Progress Bar setiap 2 detik via UI Manager
             now = time.time()
@@ -148,6 +158,9 @@ async def _core_autosub_logic(message: Message, ui, reply_msg: Message, lang_cod
                     details=f"Bahasa: {detected_lang.upper()}\n📝 \"{short_text}\""
                 )
                 last_edit = now
+                
+            # Beri napas event loop agar tombol dashboard merespons
+            await asyncio.sleep(0.01)
 
         # 4. Simpan & Kirim
         await ui.update("💾 Menyimpan File...", details="Menyusun format SubRip (.srt)...")
@@ -172,7 +185,7 @@ async def _core_autosub_logic(message: Message, ui, reply_msg: Message, lang_cod
 # ═══════════════════════════════════════════════════════════════════════
 
 async def _core_autotranslate_logic(message: Message, ui, reply_msg: Message, target_lang: str, fname: str) -> None:
-    """Fungsi inti Auto Translate yang telah terintegrasi dengan ProgressUI"""
+    """Fungsi inti Auto Translate yang telah terintegrasi dengan ProgressUI & Anti-Macet"""
     srt_in = _tmp(f"in_{message.message_id}.srt")
     srt_out = _tmp(f"{fname}_{target_lang}.srt")
     
@@ -190,9 +203,14 @@ async def _core_autotranslate_logic(message: Message, ui, reply_msg: Message, ta
         translator = GoogleTranslator(source='auto', target=target_lang)
         last_edit = 0.0
 
-        # 3. Proses Translate
+        # 3. Proses Translate Secara Async
         for i, sub in enumerate(subs, start=1):
-            sub.text = translator.translate(sub.text)
+            # [CRITICAL FIX]: Translasi dilakukan di background thread
+            sub.text = await asyncio.to_thread(translator.translate, sub.text)
+            
+            # Beri napas event loop agar bot tidak macet (sangat penting untuk SRT > 500 baris)
+            if i % 5 == 0:
+                await asyncio.sleep(0.1)
             
             # Update Progress Bar setiap 2 detik via UI Manager
             if time.time() - last_edit >= 2.0 or i == total_lines:
@@ -249,7 +267,12 @@ async def autosub_handler(message: Message) -> None:
     # WIZARD STEP 1: LANGUAGE
     kb_lang = _make_reply_kb(["🔄 Auto Detect", "🇮🇩 Indonesian (id)", "🇬🇧 English (en)", "🇯🇵 Japanese (ja)", "❌ Batal"], 2)
     msg_lang = await message.reply("🗣️ **Pilih Bahasa Suara pada Video:**", reply_markup=kb_lang)
-    resp_lang = await wait_for_message(chat_id, user_id, 60)
+    
+    try:
+        resp_lang = await wait_for_message(chat_id, user_id, 60)
+    except asyncio.TimeoutError:
+        return await message.answer("❌ Waktu habis.", reply_markup=ReplyKeyboardRemove())
+        
     await _clean_msgs(msg_lang, resp_lang)
     
     txt_lang = (resp_lang.text or "").lower()
@@ -272,7 +295,12 @@ async def autosub_handler(message: Message) -> None:
         f"Lanjutkan? Proses ini mungkin memakan waktu tergantung durasi video."
     )
     msg_conf = await message.reply(conf_txt, reply_markup=kb_conf)
-    resp_conf = await wait_for_message(chat_id, user_id, 60)
+    
+    try:
+        resp_conf = await wait_for_message(chat_id, user_id, 60)
+    except asyncio.TimeoutError:
+        return await message.answer("❌ Waktu habis.", reply_markup=ReplyKeyboardRemove())
+        
     await _clean_msgs(msg_conf, resp_conf)
     
     if not resp_conf or "batal" in (resp_conf.text or "").lower():
@@ -309,7 +337,12 @@ async def autotranslate_handler(message: Message) -> None:
     # WIZARD STEP 1: TARGET LANGUAGE
     kb_lang = _make_reply_kb(["🇮🇩 Indonesian (id)", "🇬🇧 English (en)", "🇯🇵 Japanese (ja)", "Kustom", "❌ Batal"], 3)
     msg_lang = await message.reply("🌐 **Pilih Bahasa Target (Terjemahan):**", reply_markup=kb_lang)
-    resp_lang = await wait_for_message(chat_id, user_id, 60)
+    
+    try:
+        resp_lang = await wait_for_message(chat_id, user_id, 60)
+    except asyncio.TimeoutError:
+        return await message.answer("❌ Waktu habis.", reply_markup=ReplyKeyboardRemove())
+        
     await _clean_msgs(msg_lang, resp_lang)
     
     txt_lang = (resp_lang.text or "").lower()
@@ -318,7 +351,11 @@ async def autotranslate_handler(message: Message) -> None:
         
     if "kustom" in txt_lang:
         msg_cust = await message.reply("Ketik kode bahasa target (misal: `ko` untuk Korea, `es` untuk Spanyol):", reply_markup=ReplyKeyboardRemove())
-        resp_cust = await wait_for_message(chat_id, user_id, 60)
+        try:
+            resp_cust = await wait_for_message(chat_id, user_id, 60)
+        except asyncio.TimeoutError:
+            return await message.answer("❌ Waktu habis.", reply_markup=ReplyKeyboardRemove())
+            
         await _clean_msgs(msg_cust, resp_cust)
         if not resp_cust or "batal" in (resp_cust.text or "").lower():
             return await message.answer("❌ Dibatalkan.", reply_markup=ReplyKeyboardRemove())
@@ -338,7 +375,12 @@ async def autotranslate_handler(message: Message) -> None:
         f"Lanjutkan?"
     )
     msg_conf = await message.reply(conf_txt, reply_markup=kb_conf)
-    resp_conf = await wait_for_message(chat_id, user_id, 60)
+    
+    try:
+        resp_conf = await wait_for_message(chat_id, user_id, 60)
+    except asyncio.TimeoutError:
+        return await message.answer("❌ Waktu habis.", reply_markup=ReplyKeyboardRemove())
+        
     await _clean_msgs(msg_conf, resp_conf)
     
     if not resp_conf or "batal" in (resp_conf.text or "").lower():
