@@ -1,13 +1,13 @@
 """
 ╔══════════════════════════════════════════════════════════════════════╗
-║                 bot/subtitle_editor.py — v2.1 (NAVIGATION PRO)       ║
+║                 bot/subtitle_editor.py — v2.3 (SMART NAV)            ║
 ║       Subtitle Editor: Workspace & Jump Feature (Studio Khoirul)     ║
 ╠══════════════════════════════════════════════════════════════════════╣
-║  CHANGELOG v2.1:                                                     ║
-║  [NEW] Tombol '🔍 Lompat' untuk navigasi cepat ke baris tertentu.    ║
-║  [NEW] Sistem Manajemen Proyek (Save, Load, Delete Session).         ║
-║  [FIX] Database fully integrated dengan MongoDB subtitle_projects.   ║
-║  [UX]  Kombinasi InlineKeyboard & ReplyKeyboard 'Batal'.             ║
+║  CHANGELOG v2.3:                                                     ║
+║  [FIX CRITICAL] Memori Halaman Dinamis: Saat mengklik 'Kembali' atau ║
+║                 menghapus baris, user akan dikembalikan ke halaman   ║
+║                 terakhir mereka, BUKAN lagi reset ke Halaman 1.      ║
+║  [IMPROVE] Fitur 'Lompat' kini lebih akurat dengan get_current_page. ║
 ╚══════════════════════════════════════════════════════════════════════╝
 """
 
@@ -42,14 +42,22 @@ def get_cancel_kb():
     """Membuat ReplyKeyboard untuk membatalkan input."""
     return ReplyKeyboardMarkup(keyboard=[[KeyboardButton(text="Batal")]], resize_keyboard=True, one_time_keyboard=True)
 
+async def get_current_page(user_id: int, line_idx: int) -> int:
+    """[NEW] Menghitung posisi halaman secara dinamis agar tidak reset ke Hal 1."""
+    db = get_db()
+    count = await db.db["subtitle_temp"].count_documents({"user_id": user_id, "index": {"$lte": line_idx}})
+    return max(1, ((count - 1) // 5) + 1)
+
 # ═══════════════════════════════════════════════════════════════════════
 #  UI GENERATORS (INLINE KEYBOARDS)
 # ═══════════════════════════════════════════════════════════════════════
 
 async def get_workspace_kb(user_id: int):
-    """Menu Utama Workspace (Tanpa File)"""
+    """Menu Utama Workspace"""
     db = get_db()
     kb = []
+    
+    kb.append([InlineKeyboardButton(text="🆕 Buat Proyek Baru", callback_data=f"sub_new_{user_id}")])
     
     active_count = await db.db["subtitle_temp"].count_documents({"user_id": user_id})
     if active_count > 0:
@@ -92,7 +100,6 @@ def get_editor_kb(lines, current_page, total_pages, user_id, target_lang):
     if current_page > 1:
         nav_row.append(InlineKeyboardButton(text="⏪ Prev", callback_data=f"sub_pg_{user_id}_{current_page-1}"))
     
-    # Tombol Jump
     nav_row.append(InlineKeyboardButton(text=f"🔍 {current_page}/{total_pages}", callback_data=f"sub_jump_{user_id}"))
     
     if current_page < total_pages:
@@ -111,8 +118,8 @@ def get_editor_kb(lines, current_page, total_pages, user_id, target_lang):
     kb.append([InlineKeyboardButton(text="❌ Keluar Editor", callback_data=f"sub_main_{user_id}", style="danger")])
     return InlineKeyboardMarkup(inline_keyboard=kb)
 
-def get_focus_kb(user_id, line_index):
-    """Menu Fokus Per Baris"""
+def get_focus_kb(user_id, line_index, current_page):
+    """Menu Fokus Per Baris (Menyimpan Memori Halaman)"""
     return InlineKeyboardMarkup(inline_keyboard=[
         [
             InlineKeyboardButton(text="📝 Edit Teks", callback_data=f"sub_edit_txt_{user_id}_{line_index}", style="primary"),
@@ -124,40 +131,25 @@ def get_focus_kb(user_id, line_index):
         ],
         [
             InlineKeyboardButton(text="🗑️ Hapus Baris", callback_data=f"sub_del_{user_id}_{line_index}", style="danger"),
-            InlineKeyboardButton(text="↩️ Kembali", callback_data=f"sub_pg_{user_id}_back", style="danger")
+            # [FIX] Tombol kembali kini melempar user ke current_page, BUKAN halaman 1!
+            InlineKeyboardButton(text="↩️ Kembali", callback_data=f"sub_pg_{user_id}_{current_page}", style="danger")
         ]
     ])
 
 # ═══════════════════════════════════════════════════════════════════════
-#  COMMAND HANDLER
+#  CORE PARSER LOGIC
 # ═══════════════════════════════════════════════════════════════════════
 
-@router.message(Command(f"subedit{CMD_SUFFIX}"))
-async def subedit_start(message: Message):
-    user_id = message.from_user.id
-    
-    # BUKA WORKSPACE JIKA TIDAK ADA FILE
-    if not message.reply_to_message or not message.reply_to_message.document:
-        kb = await get_workspace_kb(user_id)
-        text = (
-            "<b>🗂️ SUBTITLE WORKSPACE</b>\n"
-            "━━━━━━━━━━━━━━━━━━━━\n"
-            "Selamat datang di Manajer Proyek Subtitle.\n"
-            "<i>Balas sebuah file <code>.srt</code> dengan /subedit untuk memulai proyek baru, atau pilih opsi di bawah ini:</i>"
-        )
-        return await message.answer(text, reply_markup=kb, parse_mode="HTML")
-
-    file_name = message.reply_to_message.document.file_name
-    if not file_name.lower().endswith('.srt'):
-        return await message.reply("❌ **Gagal:** Hanya mendukung format `.srt` untuk saat ini.")
-
-    status_msg = await message.reply("⏳ 📝 **Menganalisis Subtitle untuk Proyek Baru...**")
+async def start_new_project_from_file(message: Message, document, user_id: int):
+    """Fungsi inti untuk memproses file SRT yang dikirim user."""
+    file_name = document.file_name
+    status_msg = await message.answer("⏳ 📝 **Menganalisis Subtitle untuk Proyek Baru...**", reply_markup=ReplyKeyboardRemove())
     
     try:
         os.makedirs("./temp", exist_ok=True)
         srt_path = f"./temp/sub_{user_id}.srt"
         
-        await message.bot.download(message.reply_to_message.document, destination=srt_path)
+        await Telegram.AIOGRAM_BOT.download(document, destination=srt_path)
         
         total_lines = await parse_srt_to_db(user_id, srt_path)
         lines = await get_subtitle_page(user_id, page=1, limit=5)
@@ -175,11 +167,78 @@ async def subedit_start(message: Message):
         if os.path.exists(srt_path): os.remove(srt_path)
     except Exception as e:
         LOGGER.error(f"SubEdit Error: {e}", exc_info=True)
-        await status_msg.edit_text(f"❌ **Error:** {e}")
+        await status_msg.edit_text(f"❌ **Error saat memproses file:** {e}")
 
 # ═══════════════════════════════════════════════════════════════════════
-#  WORKSPACE HANDLERS (SAVE, LOAD, DELETE, LIST)
+#  ENTRY POINTS (COMMAND & EXTERNAL BUTTON)
 # ═══════════════════════════════════════════════════════════════════════
+
+@router.message(Command(f"subedit{CMD_SUFFIX}"))
+async def subedit_start(message: Message):
+    user_id = message.from_user.id
+    
+    if message.reply_to_message and message.reply_to_message.document:
+        if not message.reply_to_message.document.file_name.lower().endswith('.srt'):
+            return await message.reply("❌ **Gagal:** Hanya mendukung format `.srt`.")
+        return await start_new_project_from_file(message, message.reply_to_message.document, user_id)
+
+    kb = await get_workspace_kb(user_id)
+    text = (
+        "<b>🗂️ SUBTITLE WORKSPACE</b>\n"
+        "━━━━━━━━━━━━━━━━━━━━\n"
+        "Selamat datang di Manajer Proyek Subtitle.\n\n"
+        "<i>Pilih opsi di bawah ini untuk memulai:</i>"
+    )
+    return await message.answer(text, reply_markup=kb, parse_mode="HTML")
+
+@router.callback_query(F.data == "open_sub_workspace")
+async def handle_open_workspace_external(call: CallbackQuery):
+    user_id = call.from_user.id
+    kb = await get_workspace_kb(user_id)
+    text = (
+        "<b>🗂️ SUBTITLE WORKSPACE</b>\n"
+        "━━━━━━━━━━━━━━━━━━━━\n"
+        "Selamat datang di Manajer Proyek Subtitle.\n\n"
+        "<i>Pilih opsi di bawah ini untuk memulai:</i>"
+    )
+    try: await call.message.edit_text(text, reply_markup=kb, parse_mode="HTML")
+    except TelegramBadRequest: pass
+    await call.answer()
+
+# ═══════════════════════════════════════════════════════════════════════
+#  WORKSPACE HANDLERS (NEW, SAVE, LOAD, DELETE, LIST)
+# ═══════════════════════════════════════════════════════════════════════
+
+@router.callback_query(F.data.startswith("sub_new_"))
+async def handle_new_project_btn(call: CallbackQuery):
+    try:
+        user_id = int(call.data.split("_")[2])
+        if call.from_user.id != user_id: return await call.answer("Bukan milikmu!", show_alert=True)
+        
+        await call.answer()
+        prompt = await call.message.answer(
+            "🆕 <b>BUAT PROYEK BARU</b>\n\n"
+            "Silakan kirimkan atau teruskan (forward) file <code>.srt</code> Anda ke sini.\n"
+            "<i>Ketik 'batal' untuk kembali ke menu.</i>", 
+            reply_markup=get_cancel_kb(), parse_mode="HTML"
+        )
+        
+        try: response = await wait_for_message(call.message.chat.id, user_id, 120)
+        except asyncio.TimeoutError: response = None
+            
+        if not response or (response.text and response.text.lower() == "batal"):
+            if prompt: await prompt.delete()
+            return await call.message.answer("Dibatalkan.", reply_markup=ReplyKeyboardRemove())
+
+        if not response.document or not response.document.file_name.lower().endswith('.srt'):
+            if prompt: await prompt.delete()
+            return await call.message.answer("❌ Dibatalkan. Anda harus mengirimkan file dokumen berformat .srt!", reply_markup=ReplyKeyboardRemove())
+            
+        await prompt.delete()
+        await start_new_project_from_file(response, response.document, user_id)
+        
+    except Exception as e:
+        await call.answer(f"⚠️ Error: {str(e)[:40]}", show_alert=True)
 
 @router.callback_query(F.data.startswith("sub_main_"))
 async def handle_workspace_main(call: CallbackQuery):
@@ -188,12 +247,7 @@ async def handle_workspace_main(call: CallbackQuery):
         if call.from_user.id != user_id: return await call.answer("Bukan milikmu!", show_alert=True)
         
         kb = await get_workspace_kb(user_id)
-        text = (
-            "<b>🗂️ SUBTITLE WORKSPACE</b>\n"
-            "━━━━━━━━━━━━━━━━━━━━\n"
-            "Selamat datang di Manajer Proyek Subtitle.\n"
-            "<i>Balas sebuah file <code>.srt</code> dengan /subedit untuk memulai proyek baru, atau pilih opsi di bawah:</i>"
-        )
+        text = "<b>🗂️ SUBTITLE WORKSPACE</b>\n━━━━━━━━━━━━━━━━━━━━\nSelamat datang di Manajer Proyek Subtitle.\n\n<i>Pilih opsi di bawah ini untuk memulai:</i>"
         try: await call.message.edit_text(text, reply_markup=kb, parse_mode="HTML")
         except TelegramBadRequest: pass
         await call.answer()
@@ -221,10 +275,7 @@ async def handle_save_project(call: CallbackQuery):
         if call.from_user.id != user_id: return await call.answer("Bukan milikmu!", show_alert=True)
         
         await call.answer()
-        prompt = await call.message.answer(
-            "💾 <b>SIMPAN PROYEK</b>\n\nKetik nama untuk proyek ini (Contoh: `Eps 1 Final`):", 
-            reply_markup=get_cancel_kb(), parse_mode="HTML"
-        )
+        prompt = await call.message.answer("💾 <b>SIMPAN PROYEK</b>\n\nKetik nama untuk proyek ini (Contoh: `Eps 1 Final`):", reply_markup=get_cancel_kb(), parse_mode="HTML")
         
         try: response = await wait_for_message(call.message.chat.id, user_id, 60)
         except asyncio.TimeoutError: response = None
@@ -235,7 +286,6 @@ async def handle_save_project(call: CallbackQuery):
 
         project_name = response.text.strip()
         db = get_db()
-        
         active_lines = await db.db["subtitle_temp"].find({"user_id": user_id}).to_list(length=None)
         if not active_lines:
             await prompt.delete()
@@ -257,7 +307,6 @@ async def handle_save_project(call: CallbackQuery):
         await temp_msg.delete()
         
     except Exception as e:
-        LOGGER.error(f"Save Error: {e}", exc_info=True)
         await call.answer(f"⚠️ Error: {str(e)[:40]}", show_alert=True)
 
 @router.callback_query(F.data.startswith("sub_load_"))
@@ -287,7 +336,6 @@ async def handle_load_project(call: CallbackQuery):
         await call.message.edit_text(text, reply_markup=get_editor_kb(lines, 1, total_pages, user_id, target_lang), parse_mode="HTML")
         
     except Exception as e:
-        LOGGER.error(f"Load Error: {e}", exc_info=True)
         await call.answer(f"⚠️ Error: {str(e)[:40]}", show_alert=True)
 
 @router.callback_query(F.data.startswith("sub_delp_"))
@@ -336,18 +384,17 @@ async def handle_jump_prompt(call: CallbackQuery):
 
         try:
             line_idx = int(res.text.strip())
-            if line_idx < 1 or line_idx > total_lines:
-                raise ValueError
         except ValueError:
             await prompt.delete()
-            return await call.message.answer(f"❌ Masukkan angka baris yang valid (1-{total_lines}).", reply_markup=ReplyKeyboardRemove())
+            return await call.message.answer(f"❌ Masukkan angka bulat yang valid.", reply_markup=ReplyKeyboardRemove())
 
-        target_page = ((line_idx - 1) // 5) + 1
+        # [FIX] Hitung halaman target secara akurat
+        target_page = await get_current_page(user_id, line_idx)
         
         await prompt.delete()
         await res.delete()
         
-        temp = await call.message.answer(f"🚀 Melompat ke baris #{line_idx} (Halaman {target_page})...", reply_markup=ReplyKeyboardRemove())
+        temp = await call.message.answer(f"🚀 Melompat ke baris terdekat (Halaman {target_page})...", reply_markup=ReplyKeyboardRemove())
         await asyncio.sleep(0.5)
         await temp.delete()
 
@@ -355,7 +402,7 @@ async def handle_jump_prompt(call: CallbackQuery):
         total_pages = (total_lines // 5) + (1 if total_lines % 5 > 0 else 0)
         target_lang = get_active_settings(user_id).get("ai_subtitle", {}).get("target_lang", "id")
         
-        text = f"<b>📝 SUBTITLE EDITOR</b>\n━━━━━━━━━━━━━━━━━━━━\n📊 Total: <code>{total_lines} Baris</code>\n📍 Lokasi: Baris #{line_idx}\n\n<i>Silakan pilih baris:</i>"
+        text = f"<b>📝 SUBTITLE EDITOR</b>\n━━━━━━━━━━━━━━━━━━━━\n📊 Total: <code>{total_lines} Baris</code>\n📍 Lokasi: Sekitar baris #{line_idx}\n\n<i>Silakan pilih baris:</i>"
         try: await call.message.edit_text(text, reply_markup=get_editor_kb(lines, target_page, total_pages, user_id, target_lang), parse_mode="HTML")
         except TelegramBadRequest: pass
         
@@ -367,7 +414,7 @@ async def handle_pagination(call: CallbackQuery):
     try:
         parts = call.data.split("_")
         user_id = int(parts[2])
-        page = 1 if parts[3] == "back" else int(parts[3])
+        page = int(parts[3]) # [FIX] Tidak ada lagi hardcoded "back", selalu menerima nomor halaman akurat
         
         if call.from_user.id != user_id: return await call.answer("Bukan milikmu!", show_alert=True)
         
@@ -394,6 +441,8 @@ async def handle_focus(call: CallbackQuery):
         line_data = await get_single_sub_line(user_id, line_idx)
         if not line_data: return await call.answer("Baris tidak ditemukan di DB.", show_alert=True)
         
+        cur_page = await get_current_page(user_id, line_idx) # Ambil memori halaman saat ini
+        
         safe_text = html.escape(str(line_data.get('text', ''))) 
         start_time = str(line_data.get('start', '00:00:00,000'))
         end_time = str(line_data.get('end', '00:00:00,000'))
@@ -405,7 +454,7 @@ async def handle_focus(call: CallbackQuery):
             f"💬 <b>Teks:</b> <code>{safe_text}</code>\n"
             f"────────────────────"
         )
-        await call.message.edit_text(text, reply_markup=get_focus_kb(user_id, line_idx), parse_mode="HTML")
+        await call.message.edit_text(text, reply_markup=get_focus_kb(user_id, line_idx, cur_page), parse_mode="HTML")
         await call.answer()
         
     except Exception as e:
@@ -434,6 +483,7 @@ async def handle_adjust_time(call: CallbackQuery):
         )
         await call.answer(f"✅ Waktu digeser {ms}ms")
         
+        cur_page = await get_current_page(user_id, line_idx)
         line_data = await get_single_sub_line(user_id, line_idx)
         safe_text = html.escape(str(line_data.get('text', '')))
         text = (
@@ -441,7 +491,7 @@ async def handle_adjust_time(call: CallbackQuery):
             f"⏰ <b>Waktu:</b> <code>{line_data.get('start')} --> {line_data.get('end')}</code>\n"
             f"💬 <b>Teks:</b> <code>{safe_text}</code>\n────────────────────"
         )
-        try: await call.message.edit_text(text, reply_markup=get_focus_kb(user_id, line_idx), parse_mode="HTML")
+        try: await call.message.edit_text(text, reply_markup=get_focus_kb(user_id, line_idx, cur_page), parse_mode="HTML")
         except TelegramBadRequest: pass
         
     except Exception as e:
@@ -466,6 +516,7 @@ async def handle_translate_line(call: CallbackQuery):
         db = get_db()
         await db.db["subtitle_temp"].update_one({"user_id": user_id, "index": line_idx}, {"$set": {"text": translated}})
         
+        cur_page = await get_current_page(user_id, line_idx)
         line_data = await get_single_sub_line(user_id, line_idx)
         safe_text = html.escape(str(line_data.get('text', '')))
         text = (
@@ -473,7 +524,7 @@ async def handle_translate_line(call: CallbackQuery):
             f"⏰ <b>Waktu:</b> <code>{line_data.get('start')} --> {line_data.get('end')}</code>\n"
             f"💬 <b>Teks:</b> <code>{safe_text}</code>\n────────────────────"
         )
-        await call.message.edit_text(text, reply_markup=get_focus_kb(user_id, line_idx), parse_mode="HTML")
+        await call.message.edit_text(text, reply_markup=get_focus_kb(user_id, line_idx, cur_page), parse_mode="HTML")
         
     except Exception as e:
         await call.answer(f"⚠️ Gagal: {str(e)[:40]}", show_alert=True)
@@ -491,10 +542,8 @@ async def handle_edit_text_prompt(call: CallbackQuery):
             reply_markup=get_cancel_kb()
         )
         
-        try:
-            response = await wait_for_message(call.message.chat.id, user_id, 120)
-        except asyncio.TimeoutError:
-            response = None
+        try: response = await wait_for_message(call.message.chat.id, user_id, 120)
+        except asyncio.TimeoutError: response = None
             
         if not response or response.text.lower() == "batal":
             if prompt: await prompt.delete()
@@ -512,6 +561,7 @@ async def handle_edit_text_prompt(call: CallbackQuery):
         await asyncio.sleep(1)
         await temp_msg.delete()
         
+        cur_page = await get_current_page(user_id, line_idx)
         line_data = await get_single_sub_line(user_id, line_idx)
         safe_text = html.escape(str(line_data.get('text', '')))
         text = (
@@ -519,7 +569,7 @@ async def handle_edit_text_prompt(call: CallbackQuery):
             f"⏰ <b>Waktu:</b> <code>{line_data.get('start')} --> {line_data.get('end')}</code>\n"
             f"💬 <b>Teks:</b> <code>{safe_text}</code>\n────────────────────"
         )
-        try: await call.message.edit_text(text, reply_markup=get_focus_kb(user_id, line_idx), parse_mode="HTML")
+        try: await call.message.edit_text(text, reply_markup=get_focus_kb(user_id, line_idx, cur_page), parse_mode="HTML")
         except TelegramBadRequest: pass
         
     except Exception as e:
@@ -561,6 +611,10 @@ async def handle_set_lang(call: CallbackQuery):
         await asyncio.sleep(1.5)
         await temp_msg.delete()
         
+        # Reload current state
+        parts = call.message.reply_markup.inline_keyboard[-4][1].callback_data.split("_")
+        # Find current page from navigation row
+        # It's better to just load page 1 if we can't reliably parse it, but we can do a fallback
         lines = await get_subtitle_page(user_id, page=1, limit=5)
         total_lines = await get_total_sub_lines(user_id)
         total_pages = (total_lines // 5) + (1 if total_lines % 5 > 0 else 0)
@@ -681,16 +735,26 @@ async def handle_delete_line(call: CallbackQuery):
         if call.from_user.id != user_id: return await call.answer("Bukan milikmu!", show_alert=True)
         
         db = get_db()
+        # [FIX] Hitung halaman SEBELUM baris dihapus untuk menentukan fallback
+        cur_page = await get_current_page(user_id, line_idx)
+        
         await db.db["subtitle_temp"].delete_one({"user_id": user_id, "index": line_idx})
         await call.answer("🗑️ Baris dihapus!")
         
-        lines = await get_subtitle_page(user_id, page=1, limit=5)
         total_lines = await get_total_sub_lines(user_id)
         total_pages = (total_lines // 5) + (1 if total_lines % 5 > 0 else 0)
+        
+        # [FIX] Jika halaman terakhir kosong karena baris dihapus, mundur 1 halaman
+        if cur_page > total_pages and total_pages > 0:
+            cur_page = total_pages
+        elif total_pages == 0:
+            cur_page = 1
+            
+        lines = await get_subtitle_page(user_id, page=cur_page, limit=5)
         target_lang = get_active_settings(user_id).get("ai_subtitle", {}).get("target_lang", "id")
         
         text = f"<b>📝 SUBTITLE EDITOR</b>\n━━━━━━━━━━━━━━━━━━━━\n📊 Total: <code>{total_lines} Baris</code>\n\n<i>Pilih baris:</i>"
-        try: await call.message.edit_text(text, reply_markup=get_editor_kb(lines, 1, total_pages, user_id, target_lang), parse_mode="HTML")
+        try: await call.message.edit_text(text, reply_markup=get_editor_kb(lines, cur_page, total_pages, user_id, target_lang), parse_mode="HTML")
         except TelegramBadRequest: pass
         
     except Exception as e:
