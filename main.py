@@ -1,9 +1,12 @@
 """
 ╔══════════════════════════════════════════════════════════════════════╗
-║                    main.py — v3.4 (Unified Engine Edition)           ║
-║         Encoder1 Bot — v3.4 (Studio Khoirul Premium Update)          ║
+║                    main.py — v3.5 (Unified Engine Edition)           ║
+║         Encoder1 Bot — v3.5 (Studio Khoirul Premium Update)          ║
 ╠══════════════════════════════════════════════════════════════════════╣
-║  CHANGELOG v3.4:                                                     ║
+║  CHANGELOG v3.5:                                                     ║
+║  [FIX CRITICAL] Reorder Routers: Memindahkan `bot.callbacks` ke      ║
+║                 urutan PALING BAWAH untuk mencegah masalah           ║
+║                 'Router Black Hole' (Tombol macet/stuck).            ║
 ║  [NEW] Integrasi bot_helper.Process.Unified_Engine                   ║
 ║  [FIX] Inisialisasi antrean Semaphore global saat startup.           ║
 ║  [FIX] Sinkronisasi data antrean Dashboard dengan Engine.            ║
@@ -145,14 +148,15 @@ async def main():
     # Mendaftarkan Middleware Global (Urutan sangat krusial)
     Telegram.AIOGRAM_DP.message.outer_middleware(WaiterCatcherMiddleware())
 
-    # ─── AUTO-LOADER ROUTERS ───
-    # Memasukkan semua Router Aiogram yang terdeteksi
+    # ─── AUTO-LOADER ROUTERS (URUTAN DIPERBAIKI) ───
+    # [FIX CRITICAL] bot.callbacks DIPINDAHKAN KE PALING BAWAH!
     modules_to_include = [
-        bot.ui_dashboard,   # Dashboard didahulukan agar diprioritaskan
+        bot.ui_dashboard,   # Dashboard didahulukan
         bot.admin_handlers, bot.vip_handlers, bot.media_handlers,
-        bot.advanced_media_handlers, bot.callbacks, bot.Gameplay,
-        bot.AutoClip, bot.MovieRecap, bot.YTUpload, 
-        bot.subtitle_handlers, bot.subtitle_editor
+        bot.advanced_media_handlers, bot.Gameplay, bot.AutoClip, 
+        bot.MovieRecap, bot.YTUpload, bot.subtitle_handlers, 
+        bot.subtitle_editor, 
+        bot.callbacks       # <-- CALLBACKS HARUS PALING BAWAH
     ]
     
     loaded_routers = 0
