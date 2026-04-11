@@ -1,17 +1,15 @@
 """
 ╔══════════════════════════════════════════════════════════════════════╗
-║            bot_helper/Database/User_Data.py — v4.2                   ║
-║            Encoder1 Bot — AI Subtitle & Trinity Update               ║
+║            bot_helper/Database/User_Data.py — v4.3                   ║
+║            Encoder1 Bot — PAY-AS-YOU-GO EDITION                      ║
 ╠══════════════════════════════════════════════════════════════════════╣
-║  CHANGELOG v4.2:                                                     ║
+║  CHANGELOG v4.3:                                                     ║
+║  [NEW]  Migrasi dari sistem 'VIP Expiry Date' menjadi 'Sistem Poin'. ║
+║  [NEW]  Menambahkan 'balance_points' (Saldo Poin) ke default user.   ║
+║  [NEW]  Fungsi get_user_balance, add_user_balance, deduct_user_balance ║
+║  [FIX]  Menghapus key usang (premium_expiry_date, total_vip_duration)║
+║         agar database lebih bersih.                                  ║
 ║  [FIX]  Import List, Dict, Optional untuk Python 3.11 Typing.        ║
-║  [NEW]  ai_subtitle: Setting default untuk Whisper AI & Translation  ║
-║  [NEW]  get_subtitle_page: Pagination untuk baris subtitle           ║
-║  [NEW]  get_total_sub_lines: Hitung total baris di database          ║
-║  [NEW]  get_single_sub_line: Ambil satu baris untuk menu fokus       ║
-║  [NEW]  clear_subtitle_temp: Hapus sesi edit subtitle                ║
-║  [FIX]  ensure_user_data_structure: Sinkronisasi key AI & Editor     ║
-║  [FIX]  Integrasi penuh dengan sistem Singleton get_db()             ║
 ║  [FIX]  Thread-safe write operations dengan _DATA_LOCK               ║
 ╚══════════════════════════════════════════════════════════════════════╝
 """
@@ -32,7 +30,7 @@ TASK_LIMIT = Config.RUNNING_TASK_LIMIT
 # ── Global DATA (in-memory cache) ─────────────────────────────────────
 DATA: dict = Config.DATA
 
-# [FIX HIGH] Lock untuk semua write operations ke DATA
+# Lock untuk semua write operations ke DATA
 # Cegah race condition saat dua task modify DATA[user_id] bersamaan
 _DATA_LOCK = asyncio.Lock()
 
@@ -57,13 +55,6 @@ def change_task_limit(new_limit: int) -> None:
 # ═══════════════════════════════════════════════════════════════════════
 
 async def _save_to_db(data_to_save: dict) -> bool:
-    """
-    [FIX] Serialize dan save ke DB dengan json.dumps() bukan str().
-    Sebelumnya: str(DATA) — Python repr, butuh eval() untuk baca.
-    Sekarang: json.dumps() — valid JSON, dibaca dengan json.loads().
-
-    [IMPROVE] Save hanya data yang berubah, bukan seluruh DATA global.
-    """
     if not Config.SAVE_TO_DATABASE:
         return True
     db = get_db()
@@ -82,11 +73,7 @@ async def _save_to_db(data_to_save: dict) -> bool:
 # ═══════════════════════════════════════════════════════════════════════
 
 def _get_default_user_data() -> dict:
-    """
-    Return struktur data default untuk user baru.
-    [FIX] Tidak lagi duplikat settings di root DAN profiles.Default.
-    Settings hanya ada di profiles.Default — akses via active_profile.
-    """
+    """Return struktur data default untuk user baru."""
     default_settings = {
         "video": {
             "enabled": True, "encoder": "libx264", "preset": "fast", "crf": 23,
@@ -112,7 +99,7 @@ def _get_default_user_data() -> dict:
                 "duration": {"mode": "full", "from": "00:00:10", "to": "00:00:20", "interval": 60},
             },
         },
-        "ai_subtitle": { # [NEW] Settings default untuk AI Subtitle & SubEdit
+        "ai_subtitle": {
             "model": "base",       
             "source_lang": "auto", 
             "target_lang": "id",   
@@ -138,8 +125,9 @@ def _get_default_user_data() -> dict:
         "gen_ss": False, "ss_no": 5, "gen_sample": False,
         "tgdownload": "Pyrogram", "tgupload": "Pyrogram",
         "multi_tasks": False, "upload_all": True, "custom_metadata": False,
-        "premium_expiry_date": None,
-        "total_vip_duration": 0,
+        
+        # [NEW v4.3] Sistem Dompet Saldo (Point System)
+        "balance_points": 0,
     }
 
     return {
@@ -151,10 +139,6 @@ def _get_default_user_data() -> dict:
     }
 
 def get_active_settings(user_id: int) -> dict:
-    """
-    [NEW] Ambil settings aktif untuk user.
-    Return data dari active_profile jika ada, fallback ke root.
-    """
     user_data      = DATA.get(user_id, {})
     active_profile = user_data.get("active_profile", "Default")
     profiles       = user_data.get("profiles", {})
@@ -162,15 +146,53 @@ def get_active_settings(user_id: int) -> dict:
 
 
 # ═══════════════════════════════════════════════════════════════════════
+#  SISTEM SALDO POIN (PAY-AS-YOU-GO)
+# ═══════════════════════════════════════════════════════════════════════
+
+def get_user_balance(user_id: int) -> int:
+    """Mengambil saldo poin user saat ini dari memori (Sangat Cepat)."""
+    return DATA.get(user_id, {}).get("balance_points", 0)
+
+async def add_user_balance(user_id: int, amount: int, dbsave: bool = True) -> bool:
+    """Menambah saldo poin user (Untuk verifikasi top-up)."""
+    if user_id not in DATA:
+        await new_user(user_id, dbsave)
+    
+    async with _DATA_LOCK:
+        current = DATA[user_id].get("balance_points", 0)
+        DATA[user_id]["balance_points"] = current + amount
+    
+    if dbsave:
+        return await _save_to_db({user_id: DATA[user_id]})
+    return True
+
+async def deduct_user_balance(user_id: int, amount: int, dbsave: bool = True) -> bool:
+    """
+    Memotong saldo poin user.
+    Return False jika saldo tidak cukup (Aman dari minus).
+    """
+    if user_id not in DATA:
+        await new_user(user_id, dbsave)
+        
+    async with _DATA_LOCK:
+        current = DATA[user_id].get("balance_points", 0)
+        if current < amount:
+            return False # Saldo kurang!
+        DATA[user_id]["balance_points"] = current - amount
+        
+    if dbsave:
+        return await _save_to_db({user_id: DATA[user_id]})
+    return True
+
+
+# ═══════════════════════════════════════════════════════════════════════
 #  GET DATA & USER MANAGEMENT
 # ═══════════════════════════════════════════════════════════════════════
 
 def get_data() -> dict:
-    """Return in-memory DATA cache."""
     return DATA
 
 async def get_fresh_user_data(user_id: int) -> dict:
-    """Ambil data terbaru dari MongoDB untuk user tertentu."""
     if not Config.SAVE_TO_DATABASE:
         return DATA.get(user_id, {})
 
@@ -183,10 +205,8 @@ async def get_fresh_user_data(user_id: int) -> dict:
         if not fresh_data_str:
             return DATA.get(user_id, {})
 
-        # [SECURITY] _deserialize() — tidak pakai eval()
         fresh_data = _deserialize(fresh_data_str)
 
-        # [FIX] Jangan overwrite seluruh DATA — merge hanya key yang tidak ada di memory
         async with _DATA_LOCK:
             for key, val in fresh_data.items():
                 if key not in DATA:
@@ -200,7 +220,6 @@ async def get_fresh_user_data(user_id: int) -> dict:
 
 
 async def new_user(user_id: int, dbsave: bool) -> bool:
-    """Buat entri data untuk user baru."""
     async with _DATA_LOCK:
         DATA[user_id] = _get_default_user_data()
 
@@ -212,10 +231,6 @@ async def new_user(user_id: int, dbsave: bool) -> bool:
 
 
 async def ensure_user_data_structure(user_id: int) -> None:
-    """
-    Pastikan user punya semua key yang diperlukan.
-    Tambahkan key yang hilang, hapus key obsolete.
-    """
     if user_id not in DATA:
         await new_user(user_id, Config.SAVE_TO_DATABASE)
         return
@@ -224,16 +239,15 @@ async def ensure_user_data_structure(user_id: int) -> None:
     user_data    = DATA[user_id]
     changes      = []
 
-    obsolete_keys = ["softmux", "softremux", "is_premium"]
+    # [FIX v4.3] Tambahkan premium_expiry_date dan total_vip_duration ke daftar hapus
+    obsolete_keys = ["softmux", "softremux", "is_premium", "premium_expiry_date", "total_vip_duration"]
 
     async with _DATA_LOCK:
-        # Hapus key obsolete
         for key in obsolete_keys:
             if key in user_data:
                 del user_data[key]
                 changes.append(f"DELETE {key}")
 
-        # Tambahkan key yang hilang
         for key, default_val in default_data.items():
             if key not in user_data:
                 user_data[key] = copy.deepcopy(default_val)
@@ -249,7 +263,6 @@ async def ensure_user_data_structure(user_id: int) -> None:
                             user_data[key][sub_key] = copy.deepcopy(sub_default)
                             changes.append(f"ADD {key}.{sub_key}")
                         
-                        # Deep check khusus untuk watermark
                         elif key == "watermark" and isinstance(sub_default, dict):
                             if not isinstance(user_data[key].get(sub_key), dict):
                                 user_data[key][sub_key] = copy.deepcopy(sub_default)
@@ -275,7 +288,6 @@ async def ensure_user_data_structure(user_id: int) -> None:
 # ═══════════════════════════════════════════════════════════════════════
 
 async def saveoptions(user_id: int, dname: str, value: Any, dbsave: bool) -> bool:
-    """Simpan satu setting untuk user."""
     try:
         if user_id not in DATA:
             await new_user(user_id, dbsave)
@@ -293,7 +305,6 @@ async def saveoptions(user_id: int, dname: str, value: Any, dbsave: bool) -> boo
 
 
 async def saveconfig(user_id: int, dname: str, pos: str, value: Any, dbsave: bool) -> bool:
-    """Simpan sub-setting (nested dict) untuk user."""
     try:
         if user_id not in DATA:
             await new_user(user_id, dbsave)
@@ -317,7 +328,6 @@ async def saveconfig(user_id: int, dname: str, pos: str, value: Any, dbsave: boo
 # ═══════════════════════════════════════════════════════════════════════
 
 async def resetdatabase(dbsave: bool) -> bool:
-    """Reset semua user ke setting default."""
     global _RESETTING
     if _RESETTING:
         LOGGER.warning("⚠️ resetdatabase dipanggil saat reset sedang berlangsung")
@@ -338,7 +348,6 @@ async def resetdatabase(dbsave: bool) -> bool:
             DATA.clear()
             DATA.update(global_data)
 
-        # Buat ulang data untuk semua user
         for uid in user_ids:
             async with _DATA_LOCK:
                 DATA[uid] = _get_default_user_data()
@@ -362,7 +371,6 @@ async def resetdatabase(dbsave: bool) -> bool:
 # ═══════════════════════════════════════════════════════════════════════
 
 async def save_restart(chat_id: int, msg_id: int) -> bool:
-    """Simpan ID untuk notifikasi setelah restart."""
     try:
         async with _DATA_LOCK:
             if "restart" not in DATA:
@@ -379,7 +387,6 @@ async def save_restart(chat_id: int, msg_id: int) -> bool:
 
 
 async def clear_restart() -> bool:
-    """Hapus semua restart notification IDs."""
     try:
         async with _DATA_LOCK:
             if "restart" in DATA:
@@ -395,36 +402,29 @@ async def clear_restart() -> bool:
 
 
 # ═══════════════════════════════════════════════════════════════════════
-#  UTILITY (Termasuk Fungsi yang Sempat Terlewat)
+#  UTILITY
 # ═══════════════════════════════════════════════════════════════════════
 
 def is_resetting() -> bool:
-    """Return True jika reset sedang berlangsung."""
     return _RESETTING
 
 
 async def sync_user_to_db(user_id: int) -> bool:
-    """
-    [RESTORED] Force sync satu user ke DB.
-    Berguna setelah batch update tanpa auto-save.
-    """
     if user_id not in DATA:
         return False
     return await _save_to_db({user_id: DATA[user_id]})
 
 
 async def get_all_user_ids() -> list[int]:
-    """Return list semua user ID yang ada di DATA."""
     exclude = {"restart", "claimed_order_ids"}
     return [uid for uid in DATA.keys() if uid not in exclude and isinstance(uid, int)]
 
 
 # ═══════════════════════════════════════════════════════════════════════
-#  SUBTITLE EDITOR HELPERS (NEW v4.2)
+#  SUBTITLE EDITOR HELPERS
 # ═══════════════════════════════════════════════════════════════════════
 
 async def get_subtitle_page(user_id: int, page: int, limit: int = 5) -> List[Dict]:
-    """Mengambil data subtitle dengan sistem pagination."""
     db = get_db()
     if db is None: return []
     
@@ -437,7 +437,6 @@ async def get_subtitle_page(user_id: int, page: int, limit: int = 5) -> List[Dic
         return []
 
 async def get_total_sub_lines(user_id: int) -> int:
-    """Menghitung total baris subtitle user."""
     db = get_db()
     if db is None: return 0
     try:
@@ -447,7 +446,6 @@ async def get_total_sub_lines(user_id: int) -> int:
         return 0
 
 async def get_single_sub_line(user_id: int, index: int) -> Optional[Dict]:
-    """Mengambil satu baris spesifik untuk diedit."""
     db = get_db()
     if db is None: return None
     try:
@@ -457,7 +455,6 @@ async def get_single_sub_line(user_id: int, index: int) -> Optional[Dict]:
         return None
 
 async def clear_subtitle_temp(user_id: int) -> bool:
-    """Menghapus sesi edit subtitle."""
     db = get_db()
     if db is None: return False
     try:
