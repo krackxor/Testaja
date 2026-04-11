@@ -4,6 +4,7 @@
 ║            Callback Query Handler (Aiogram 3.x)                      ║
 ╠══════════════════════════════════════════════════════════════════════╣
 ║  FIXES dari versi lama:                                              ║
+║  [NEW v4.3] Penambahan Menu "Kunci API Cloud" untuk GoFile/PxDrain.  ║
 ║  [NEW v4.2] Penambahan tombol "Dompet Poin" di Menu Settings Utama.  ║
 ║  [UX PREMIUM] Implementasi API Warna Tombol Native Telegram 9.4+     ║
 ║                (Primary, Success, Danger) di seluruh Dashboard.      ║
@@ -468,6 +469,9 @@ async def general_callback(call: CallbackQuery, txt: str, user_id: int, chat_id:
         if accounts:
             KB.append([InlineKeyboardButton(text=f"🔮 Akun Rclone — {drive_name}", callback_data="nik66bots", style="primary")])
             KB.extend(gen_keyboard(accounts, drive_name, "generaldrivename", 2, False))
+            
+    # [NEW v4.3] Tombol untuk API Cloud (Dipindahkan ke General Settings)
+    KB.append([InlineKeyboardButton(text="🔑 Atur Kunci API Cloud", callback_data="cloud_api_settings", style="success")])
 
     KB.append([InlineKeyboardButton(text="↩️ Kembali ke Umum", callback_data="settings_bot", style="danger")])
     
@@ -1045,7 +1049,7 @@ async def callback(call: CallbackQuery):
     user_id = call.from_user.id
 
     # [UX PATCH] Putus animasi "Loading" di tombol secara instan untuk menu navigasi
-    nav_commands = {"settings", "settings_media", "settings_bot", "close_settings", "profile_main", "profile_manage", "profile_quick", "point_wallet"}
+    nav_commands = {"settings", "settings_media", "settings_bot", "close_settings", "profile_main", "profile_manage", "profile_quick", "point_wallet", "cloud_api_settings"}
     if txt in nav_commands or txt.endswith("_settings") or txt.endswith("_info"):
         try: await call.answer()
         except: pass
@@ -1060,7 +1064,7 @@ async def callback(call: CallbackQuery):
                 msg,
                 reply_markup=InlineKeyboardMarkup(inline_keyboard=[
                     [InlineKeyboardButton(text="👤 Profil", callback_data="profile_main", style="primary"),
-                     InlineKeyboardButton(text="💳 Cek Dompet Poin", callback_data="point_wallet", style="success")], # [NEW v4.2] Tombol Dompet
+                     InlineKeyboardButton(text="💳 Cek Dompet Poin", callback_data="point_wallet", style="success")], 
                     [InlineKeyboardButton(text="💾 Save Rclone Config", callback_data="cmd_saveconfig", style="primary")],
                     [InlineKeyboardButton(text="©️ Set Watermark Default", callback_data="cmd_savewatermark", style="primary"),
                      InlineKeyboardButton(text="🖼️ Set Thumb Default", callback_data="cmd_savethumb", style="primary")],
@@ -1127,6 +1131,47 @@ async def callback(call: CallbackQuery):
                     [InlineKeyboardButton(text="↩️ Kembali ke Pengaturan", callback_data="settings", style="danger")],
                 ])
             )
+
+        # ── [NEW v4.3] API Cloud Pribadi ──────────────────────────────
+        elif txt == "cloud_api_settings":
+            user_keys = get_data().get(user_id, {}).get("cloud_keys", {})
+            gf = "Ada ✅" if user_keys.get("gofile") else "Kosong ❌"
+            pd = "Ada ✅" if user_keys.get("pixeldrain") else "Kosong ❌"
+            
+            msg = (
+                "<b>🔑 MANAJEMEN API CLOUD PRIBADI</b>\n\n"
+                "Gunakan akun Cloud Anda sendiri saat mengunggah file agar file dapat Anda kelola dan tersimpan secara permanen.\n\n"
+                f"• <b>GoFile Token:</b> {gf}\n"
+                f"• <b>Pixeldrain Key:</b> {pd}\n\n"
+                "<i>Pilih API mana yang ingin Anda perbarui:</i>"
+            )
+            kb = InlineKeyboardMarkup(inline_keyboard=[
+                [InlineKeyboardButton(text="⚙️ Set GoFile", callback_data="set_api_gofile", style="primary"),
+                 InlineKeyboardButton(text="⚙️ Set Pixeldrain", callback_data="set_api_pixeldrain", style="primary")],
+                [InlineKeyboardButton(text="🗑️ Hapus GoFile", callback_data="del_api_gofile", style="danger"),
+                 InlineKeyboardButton(text="🗑️ Hapus Pixeldrain", callback_data="del_api_pixeldrain", style="danger")],
+                [InlineKeyboardButton(text="↩️ Kembali ke Pengaturan", callback_data="general_settings", style="danger")]
+            ])
+            await call.message.edit_text(msg, reply_markup=kb, parse_mode="HTML")
+
+        elif txt.startswith("set_api_"):
+            provider = txt.split("_")[2]
+            resp = await get_text_data(chat_id, user_id, call, 120, f"Kirim API Key/Token {provider.capitalize()} Anda:")
+            if resp:
+                ud = get_data().get(user_id, {})
+                if "cloud_keys" not in ud: ud["cloud_keys"] = {}
+                ud["cloud_keys"][provider] = resp.text.strip()
+                await saveoptions(user_id, "cloud_keys", ud["cloud_keys"], SAVE_TO_DATABASE)
+                await call.message.answer(f"✅ Kunci API {provider.capitalize()} berhasil disimpan.", reply_markup=InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="↩️ Kembali ke Menu Cloud", callback_data="cloud_api_settings", style="primary")]]))
+
+        elif txt.startswith("del_api_"):
+            provider = txt.split("_")[2]
+            ud = get_data().get(user_id, {})
+            if "cloud_keys" in ud and provider in ud["cloud_keys"]:
+                ud["cloud_keys"][provider] = ""
+                await saveoptions(user_id, "cloud_keys", ud["cloud_keys"], SAVE_TO_DATABASE)
+            await call.answer(f"🗑️ Kunci {provider.capitalize()} dihapus.", show_alert=True)
+            await general_callback(call, "general_settings", user_id, chat_id) # Redirect back
 
         # ── Profile Management ───────────────────────────────────────
         elif txt.startswith("profile_"):
