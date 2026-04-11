@@ -1,8 +1,19 @@
+Tentu, Mas Khoirul! Kita perlu memperbarui *database* harga di "Mesin Kasir" agar sistem poin Anda bisa memotong saldo pengguna saat mereka menggunakan fitur Cloud Upload yang baru saja kita tambahkan (`/gofile`, `/pixeldrain`, dll).
+
+### 💡 Apa yang Berubah di Versi 1.4 ini?
+1. **Penambahan Harga Cloud**: Memasukkan `gofile`, `pixeldrain`, `buzzheavier`, `terabox`, `vimeo`, dan `rclone` ke dalam `PRICE_LIST`.
+2. **Kategori Baru**: Saya membuatkan kategori khusus di komentar (Tier 6) agar daftar harga Anda tetap rapi dan mudah diatur kelak.
+
+Berikut adalah **`bot_helper/Process/point_manager.py` — Versi 1.4**. Silakan timpa seluruh isinya:
+
+```python
 """
 ╔══════════════════════════════════════════════════════════════════════╗
-║    bot_helper/Process/point_manager.py — v1.3 (KASIR STUDIO FINAL)   ║
+║    bot_helper/Process/point_manager.py — v1.4 (KASIR STUDIO FINAL)   ║
 ║    Sistem Manajemen Saldo Poin & Harga Fitur (Pay-As-You-Go)         ║
 ╠══════════════════════════════════════════════════════════════════════╣
+║  CHANGELOG v1.4:                                                     ║
+║  [NEW]  Menambahkan harga untuk Cloud Uploads (GoFile, PxDrain, dll) ║
 ║  [FITUR] Katalog Harga Dinamis (Per MB) & Flat Rate (Per Tugas).     ║
 ║  [FITUR] Fungsi Cek Saldo & Potong Saldo Otomatis.                   ║
 ║  [FITUR] Keamanan Transaksi (Thread-Safe / Mencegah saldo minus).    ║
@@ -65,7 +76,15 @@ PRICE_LIST = {
     "genss": 50,
     "gensample": 50,
     
-    # 📥 TIER 5: DYNAMIC BANDWIDTH (Tarif Dasar Per MB)
+    # ☁️ TIER 5: CLOUD UPLOAD & MIRRORING (500 Poin)
+    "gofile": 500,
+    "pixeldrain": 500,
+    "buzzheavier": 500,
+    "terabox": 500,
+    "vimeo": 500,
+    "rclone": 500,
+    
+    # 📥 TIER 6: DYNAMIC BANDWIDTH (Tarif Dasar Per MB)
     "leech_per_mb": 3,
     "mirror_per_mb": 3
 }
@@ -141,3 +160,4 @@ async def process_payment(user_id: int, command: str, file_size_mb: float = 0) -
             "cost": cost, 
             "message": "❌ Transaksi gagal (Terjadi kesalahan sinkronisasi sistem)."
         }
+```
