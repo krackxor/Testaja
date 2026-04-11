@@ -1,13 +1,13 @@
 """
 ╔══════════════════════════════════════════════════════════════════════╗
 ║            bot_helper/Process/Process_Status.py                      ║
-║            Encoder1 Bot — v4.5 (Pure Markdown Final Edition)         ║
+║            Encoder1 Bot — v4.8 (Full Restoration Edition)            ║
 ╠══════════════════════════════════════════════════════════════════════╣
-║  CHANGELOG v4.5:                                                     ║
-║  [FIX CRITICAL] Mengubah seluruh format menjadi Markdown murni       ║
-║                 (**tebal**, _miring_, `kode`) agar sesuai dengan     ║
-║                 permintaan dan tidak ada tag HTML yang bocor.        ║
-║  [UX] Mempertahankan Layout UI Profesional untuk tampilan layar HP.  ║
+║  CHANGELOG v4.8:                                                     ║
+║  [FIX CRITICAL] MENGEMBALIKAN SEMUA VARIABEL DAN FUNGSI LAMA yang    ║
+║                 sempat terhapus (split_mode, extract_maps, dll) agar ║
+║                 media_handlers.py tidak crash saat inisialisasi.     ║
+║  [UX REFINED]   Full Pure Markdown Support (**tebal**, `kode`).      ║
 ╚══════════════════════════════════════════════════════════════════════╝
 """
 
@@ -41,10 +41,8 @@ UNFINISHED_PROGRESS_STR = Config.UNFINISHED_PROGRESS_STR
 CMD_SUFFIX              = Config.CMD_SUFFIX
 download_dir            = Config.DOWNLOAD_DIR
 
-# Konstanta UI
 DIVIDER = "━━━━━━━━━━━━━━━━━━━━"
 
-# Peta nama posisi watermark
 ws_name = {
     "5:5":                                  "Kiri Atas",
     "main_w-overlay_w-5:5":                 "Kanan Atas",
@@ -63,18 +61,16 @@ def create_direc(direc: str) -> None:
         makedirs(direc, exist_ok=True)
 
 def get_progress_bar_from_percentage(percentage: str) -> str:
-    try:
-        p = int(float(percentage.strip().strip("%")))
-    except:
-        p = 0
-    p     = min(max(p, 0), 100)
+    try: p = int(float(percentage.strip().strip("%")))
+    except: p = 0
+    p = min(max(p, 0), 100)
     cFull = p // 8
     p_str = FINISHED_PROGRESS_STR * cFull + UNFINISHED_PROGRESS_STR * (12 - cFull)
     return f"[{p_str}]"
 
 def get_progress_bar_string(current: float, total: float) -> str:
     if total <= 0: total = 1
-    p     = min(max(round(current * 100 / total), 0), 100)
+    p = min(max(round(current * 100 / total), 0), 100)
     cFull = p // 8
     p_str = FINISHED_PROGRESS_STR * cFull + UNFINISHED_PROGRESS_STR * (12 - cFull)
     return f"[{p_str}]"
@@ -83,33 +79,47 @@ def ffmpeg_status_foot(status, user_id: int, start_time: float, time_in_us: floa
     user_data   = get_data().get(user_id, {})
     status_foot = ""
     if user_data.get("ffmpeg_ptime", True):
-        status_foot += f"\n⏱ **Durasi:** `{get_readable_time(time() - start_time)}`"
+        status_foot += f"\n⏱ **W. Proses:** `{get_readable_time(time() - start_time)}`"
     if user_data.get("ffmpeg_size", True):
-        sep = " | " if "⏱" in status_foot else "\n"
+        sep = " | " if status_foot else "\n"
         try:
             est_size = get_human_size((status.output_size() / max(time_in_us, 1)) * status.duration * 1024 * 1024)
-            status_foot += f"{sep}💾 **Est:** `{est_size}`"
+            status_foot += f"{sep}💽 **Est. Ukuran:** `{est_size}`"
         except:
-            status_foot += f"{sep}💾 **Est:** `N/A`"
+            status_foot += f"{sep}💽 **Est. Ukuran:** `N/A`"
     return status_foot
 
 def generate_ffmpeg_status_head(user_id: int, pmode: str, input_size: int) -> str:
     user_data          = get_data().get(user_id, {})
     video_settings     = user_data.get("video", {})
-    
+    watermark_settings = user_data.get("watermark", {})
+    merge_settings     = user_data.get("merge", {})
+    mux_settings       = user_data.get("mux", {})
+
     if pmode in [Names.compress, Names.convert, Names.hardmux, Names.watermark, Names.encode]:
+        qsize_text = f"`{video_settings.get('queue_size', '-')}`" if video_settings.get("use_queue_size") else "`Normal`"
         res_val = video_settings.get('resolution', 'Auto')
-        enc_val = video_settings.get('encoder', 'libx264')
         text = (
             f"**⚙️ Konfigurasi Engine:**\n"
-            f"`{res_val} | {enc_val} | CRF:{video_settings.get('crf')}`\n"
-            f"📥 **Input:** `{get_human_size(input_size)}`"
+            f"├ **Res:** `{res_val}` | **Preset:** `{video_settings.get('preset')}`\n"
+            f"├ **CRF:** `{video_settings.get('crf')}` | **Sub:** `{video_settings.get('copy_sub')}`\n"
+            f"├ **Buf:** {qsize_text} | **Peta:** `{video_settings.get('map')}`\n"
+            f"└ **Enc:** `{video_settings.get('encoder')}` | **IN:** `{get_human_size(input_size)}`"
         )
+        if pmode == Names.watermark:
+            text += (
+                f"\n├ **WM Skala:** `{watermark_settings.get('size', '-')} %`\n"
+                f"└ **WM Posisi:** `{ws_name.get(watermark_settings.get('position', ''), 'N/A')}`"
+            )
         return text
+    elif pmode == Names.merge:
+        return f"**⚙️ Info Gabung:** Peta `{merge_settings.get('map')}` | Fix Blank `{merge_settings.get('fix_blank')}`"
+    elif pmode in [Names.softmux, Names.softremux]:
+        return f"**⚙️ Info Mux:** Codec `{mux_settings.get('sub_codec')}` | IN `{get_human_size(input_size)}`"
     return ""
 
 # ═══════════════════════════════════════════════════════════════════════
-#  RCLONE & UTILITIES
+#  RCLONE UTILITIES
 # ═══════════════════════════════════════════════════════════════════════
 
 async def get_ffmpeg_process_line(proc) -> bytes | bool:
@@ -131,33 +141,23 @@ async def getdrivelink(search_command: list, event) -> str | bool:
         decoded = stdout.decode().strip()
         data    = loads(decoded)
         return data[0]["ID"]
-    except:
-        return False
+    except: return False
 
-async def check_file_drive_link(
-    search_command: list, event, fileloc: str, r_config: str, drive_name: str, name: str, caption: str,
-) -> None:
+async def check_file_drive_link(search_command: list, event, fileloc: str, r_config: str, drive_name: str, name: str, caption: str) -> None:
     file_link = await rclone_get_link(drive_name, name, r_config)
     try: fisize = get_human_size(getsize(fileloc))
     except: fisize = "Unknown"
 
     if file_link:
         file_text = (
-            f"✅ **Upload Selesai!**\n"
-            f"📁 **File:** `{name}`\n"
-            f"☁️ **Drive:** `{drive_name}`\n"
-            f"💽 **Ukuran:** `{fisize}`\n\n"
-            f"🔗 **Tautan Unduh:**\n{file_link}"
+            f"✅ **Upload Selesai!**\n📁 **File:** `{name}`\n☁️ **Drive:** `{drive_name}`\n"
+            f"💽 **Ukuran:** `{fisize}`\n\n🔗 **Tautan Unduh:**\n{file_link}"
         )
     else:
         file_text = (
-            f"✅ **Upload Selesai!**\n"
-            f"📁 **File:** `{name}`\n"
-            f"☁️ **Drive:** `{drive_name}`\n"
-            f"💽 **Ukuran:** `{fisize}`\n\n"
-            f"❗ _Gagal mengekstrak tautan otomatis._"
+            f"✅ **Upload Selesai!**\n📁 **File:** `{name}`\n☁️ **Drive:** `{drive_name}`\n"
+            f"💽 **Ukuran:** `{fisize}`\n\n❗ _Gagal mengekstrak tautan otomatis._"
         )
-
     if caption: file_text += f"\n\n{str(caption).strip()}"
     await event.reply(file_text)
 
@@ -168,88 +168,179 @@ async def rclone_get_link(remote: str, name: str, conf: str) -> str | bool:
     if process.returncode == 0: return out.decode().strip()
     return False
 
+
 # ═══════════════════════════════════════════════════════════════════════
-#  PROCESS STATUS CLASS
+#  PROCESS STATUS CLASS (RESTORED)
 # ═══════════════════════════════════════════════════════════════════════
 
 class ProcessStatus:
-    def __init__(self, user_id, chat_id, user_name, user_first_name, event, process_type, **kwargs):
-        self.user_id = user_id
-        self.chat_id = chat_id
-        self.user_name = user_name
+    """Tracking state untuk satu proses bot. [ALL VARIABLES RESTORED]"""
+
+    def __init__(
+        self, user_id: int, chat_id: int, user_name: str, user_first_name: str,
+        event, process_type: str, file_name=False, thumbnail=False,
+        start_time=False, custom_metadata=False, custom_index=False,
+        input_mode: str = "Telegram",
+    ):
+        self.user_id        = user_id
+        self.chat_id        = chat_id
+        self.amap_options   = "0:a"
+        self.user_name      = user_name
         self.user_first_name = user_first_name
-        self.event = event
-        self.process_type = process_type
-        self.process_id = gen_random_string(10)
-        self.dir = f"{download_dir}/{user_id}/{gen_random_string(5)}"
-        self.send_files = []
-        self.dw_files = []
-        self.status_message = "🔁 **Menginisialisasi...**"
-        self.ping = time()
-        self.start_time = time()
-        
-        # [FIX] Konversi link ke Markdown Telethon
-        if self.user_name:
-            self.added_by = f"[{user_first_name}](https://t.me/{user_name})"
+        self.event          = event
+        self.garbage_messages = []
+        self.dir            = f"{download_dir}/{user_id}/{gen_random_string(5)}"
+        self.send_files     = []
+        self.dw_files       = []
+        self.subtitles      = []
+        self.dw_index       = "-/-"
+        self.file_name      = file_name
+        self.status_message_id = gen_random_string(5)
+        self.process_id     = gen_random_string(10)
+        self.status_message = f"🔁 **Menginisialisasi...**\n_Tunggu sebentar..._"
+        self.message        = "Tidak Ditemukan"
+        self.caption        = False
+        self.process_type   = process_type
+        self.start_time     = start_time if start_time else time()
+        self.convert_quality = 480
+        self.convert_index  = "-/-"
+        self.ping           = time()
+        self.trash_objects  = False
+        self.multi_tasks    = []
+        self.multi_task_no  = 0
+        self.custom_metadata = custom_metadata
+        self.custom_index   = custom_index
+        self.input_mode     = input_mode
+
+        # [RESTORED] Variabel vital untuk media_handlers.py
+        self.trim_start    = None
+        self.trim_end      = None
+        self.split_mode    = None
+        self.split_value   = None
+        self.cut_ranges    = []
+        self.rotate_option = None
+        self.new_extension = None
+        self.file_type     = "video"
+        self.crop_params   = None
+        self.extract_maps  = []
+        self.custom_watermark  = {}
+        self.custom_dub_audio  = None
+        self.video_filters     = None
+        self.audio_filters     = None
+        self.custom_ffmpeg_cmd = [] 
+        self.extra_inputs      = [] 
+
+        if not thumbnail and exists(f"./userdata/{user_id}_Thumbnail.jpg"):
+            self.thumbnail = f"./userdata/{user_id}_Thumbnail.jpg"
         else:
-            self.added_by = f"**{user_first_name}**"
+            self.thumbnail = thumbnail
 
-    def get_task_details(self) -> str:
-        # [FIX] Menggunakan Markdown murni
-        return f"👤 **Aktor:** {self.added_by} | **ID:** `{self.user_id}`\n"
+        # Formatting Aktor Markdown
+        if self.user_name:
+            self.added_by = f"[{self.user_first_name}](https://t.me/{self.user_name})"
+        else:
+            self.added_by = f"**{self.user_first_name}**"
 
+    # ── Multi-task Methods ───────────────────────────────────────────
+    def append_multi_tasks(self, task) -> None: self.multi_tasks.append(task)
+    def change_multi_tasks_no(self, no: int) -> None: self.multi_task_no = no
+    def get_multi_task_no(self) -> str:
+        if self.multi_task_no:
+            done = self.multi_task_no - len(self.multi_tasks)
+            return f"({done}/{self.multi_task_no})"
+        return ""
+    def replace_multi_tasks(self, multi_tasks: list) -> None: self.multi_tasks = multi_tasks
+
+    # ── Status Message Methods ───────────────────────────────────────
+    def update_status_message(self, message: str) -> None: self.message = message
+    def update_convert_quality(self, convert_quality) -> None: self.convert_quality = convert_quality
+    def update_convert_index(self, convert_index: str) -> None: self.convert_index = convert_index
+    def update_process_message(self, text: str) -> None: self.status_message = text
+    def update_start_time(self, start_time: float) -> None: self.start_time = start_time
+
+    # ── File Methods ─────────────────────────────────────────────────
+    def set_custom_thumbnail(self, thumbnail: str) -> None: self.thumbnail = thumbnail
+    def move_custom_thumbnail(self, thumbnail: str | None) -> None:
+        if not thumbnail: return
+        if exists(thumbnail):
+            name     = thumbnail.split("/")[-1]
+            move_dir = f"{self.dir}/thumbnail"
+            if exists(f"{move_dir}/{name}"): move_dir = f"{self.dir}/{gen_random_string(5)}"
+            create_direc(move_dir)
+            shutil_move(thumbnail, f"{move_dir}/{name}")
+            self.thumbnail = f"{move_dir}/{name}"
+        else:
+            self.thumbnail = "./thumb.jpg" if exists("./thumb.jpg") else None
+
+    def set_send_files(self, name: str) -> None: self.send_files = [f"{self.dir}/{name}"]
+    def replace_send_files(self, file_name: str) -> None: self.send_files = [file_name]
+    def replace_send_list(self, send_files: list) -> None: self.send_files = send_files
+    def append_send_files(self, name: str) -> None:
+        path = f"{self.dir}/{name}"
+        if path not in self.send_files: self.send_files.append(path)
+    def append_send_files_loc(self, fileloc: str) -> None:
+        if fileloc not in self.send_files: self.send_files.append(fileloc)
+    def append_dw_files_loc(self, fileloc: str) -> None:
+        if fileloc not in self.dw_files: self.dw_files.append(fileloc)
+    def append_dw_files(self, name: str) -> None:
+        path = f"{self.dir}/{name}"
+        if path not in self.dw_files: self.dw_files.append(path)
+    def set_file_name(self, file_name: str) -> None:
+        if not self.file_name: self.file_name = file_name
+    def set_file_name_from_send_list(self) -> None:
+        if not self.file_name:
+            try:
+                if self.send_files: self.file_name = self.send_files[-1].split("/")[-1]
+            except Exception: pass
+
+    def set_caption(self, caption: str) -> None: self.caption = caption
+    def set_amap_options(self, options: str) -> None: self.amap_options = options
+    def set_dw_index(self, dw_index: str) -> None: self.dw_index = dw_index
+
+    def move_dw_file(self, name: str) -> None:
+        src = f"{self.dir}/{name}"
+        if not exists(src) or src not in self.dw_files: return
+        self.dw_files.remove(src)
+        move_dir = f"{self.dir}/work_files"
+        create_direc(move_dir)
+        dest = f"{move_dir}/{name}"
+        if exists(dest): rename(dest, f"{move_dir}/{gen_random_string(5)}_{name}")
+        shutil_move(src, dest)
+        self.send_files.append(dest)
+
+    def move_send_files(self, send_files: list) -> None:
+        for file in send_files:
+            if not exists(file): continue
+            name     = file.split("/")[-1]
+            move_dir = f"{self.dir}/work_files"
+            if exists(f"{move_dir}/{name}"): move_dir = f"{self.dir}/{gen_random_string(5)}"
+            create_direc(move_dir)
+            shutil_move(file, f"{move_dir}/{name}")
+            self.send_files.append(f"{move_dir}/{name}")
+
+    def append_subtitles(self, sub_loc: str) -> None:
+        if not exists(sub_loc): return
+        if sub_loc not in self.subtitles: self.subtitles.append(sub_loc)
+
+    # ── Status Update Methods ────────────────────────────────────────
     async def update_status(self, status) -> None:
-        ffmpeg_head = ""
         if status.type() == Names.ffmpeg:
-            ffmpeg_head = generate_ffmpeg_status_head(self.user_id, self.process_type, status.input_size())
+            input_size  = status.input_size()
+            ffmpeg_head = generate_ffmpeg_status_head(self.user_id, self.process_type, input_size)
 
-        iter_count = 0 
+        total_files   = len(self.send_files)
+        error_no      = 0
+        multi_task_no = self.get_multi_task_no()
+        iter_count    = 0 
+
         while True:
             self.ping = time()
             iter_count += 1
 
-            if status.type() == Names.ffmpeg:
-                if iter_count % _CANCEL_CHECK_EVERY == 0 and not check_running_process(self.process_id): break
-                if status.returncode is not None: break
-
-                time_in_us, progress, speed = 1, "error", 1.0
-                if exists(status.log_file):
-                    try:
-                        async with aio_open(status.log_file, "r", encoding="utf-8", errors="replace") as f:
-                            ffmpeg_text = await f.read()
-                        time_in_us = get_value(refindall(r"out_time_ms=(.+)", ffmpeg_text), int, 1)
-                        progress = get_value(refindall(r"progress=(\w+)", ffmpeg_text), str, "error")
-                        speed = get_value(refindall(r"speed=(\d+\.?\d*)", ffmpeg_text), float, 1)
-                    except: pass
-                
-                if progress == "end": break
-                elapsed_time = time_in_us / 1_000_000
-                duration = max(status.duration, 0.001)
-                pct = f"{elapsed_time * 100 / duration:.1f}%"
-                
-                # [FIX CRITICAL] Menggunakan format Markdown murni
-                text = (
-                    f"**{Names.STATUS.get(self.process_type, self.process_type)}**\n"
-                    f"📁 `{status.name[:30]}...`\n"
-                    f"{get_progress_bar_string(elapsed_time, duration)} **{pct}**\n"
-                    f"{DIVIDER}\n"
-                    f"{self.get_task_details()}"
-                    f"🚀 **Engine:** `FFmpeg Core`\n"
-                    f"{ffmpeg_head}\n"
-                    f"{DIVIDER}\n"
-                    f"⏳ **Progress:** `{get_readable_time(elapsed_time)} / {get_readable_time(duration)}`\n"
-                    f"⚡ **Speed:** `{speed}x`"
-                    f"{ffmpeg_status_foot(status, self.user_id, self.start_time, time_in_us)}\n"
-                    f"{DIVIDER}\n"
-                    f"_Batal? /cancel{CMD_SUFFIX} process {self.process_id}_"
-                )
-                self.status_message = text
-                await asynciosleep(0.5)
-                
-            elif status.type() == Names.aria:
+            if status.type() == Names.aria:
                 if status.process_status == 0:
                     text = (
-                        f"**{status.status()}** `[{self.dw_index}]`\n"
+                        f"**{status.status()}** `{self.dw_index}`\n"
                         f"📁 `{status.name()}`\n"
                         f"{get_progress_bar_from_percentage(status.progress())} **{status.progress()}**\n"
                         f"{DIVIDER}\n"
@@ -262,23 +353,80 @@ class ProcessStatus:
                     )
                     self.status_message = text
                     await asynciosleep(0.5)
+                else: break
+
+            elif status.type() == Names.ffmpeg:
+                if iter_count % _CANCEL_CHECK_EVERY == 0 and not check_running_process(self.process_id): break
+                if status.returncode is not None: break
+
+                if exists(status.log_file):
+                    try:
+                        async with aio_open(status.log_file, "r", encoding="utf-8", errors="replace") as f:
+                            ffmpeg_text = await f.read()
+                        time_in_us = get_value(refindall(r"out_time_ms=(.+)", ffmpeg_text), int, 1)
+                        progress   = get_value(refindall(r"progress=(\w+)", ffmpeg_text), str, "error")
+                        speed      = get_value(refindall(r"speed=(\d+\.?\d*)", ffmpeg_text), float, 1)
+                    except:
+                        time_in_us, progress, speed = 1, "error", 1.0
                 else:
-                    break
+                    time_in_us, progress, speed = 1, "error", 1.0
 
-    def telegram_update_status(
-        self, current: int, total: int, mode: str, name: str,
-        start_time: float, status: str, engine: str, client=False,
-    ) -> None:
+                if progress == "end": break
+                if progress == "error":
+                    if error_no == 100: break
+                    error_no += 1
+
+                elapsed_time = time_in_us / 1_000_000
+
+                if self.process_type == Names.convert:
+                    process_state = f"{Names.STATUS[self.process_type]} Ke {self.convert_quality}P [{self.convert_index}]"
+                    name          = status.name
+                elif self.process_type != Names.merge:
+                    process_state = Names.STATUS.get(self.process_type, self.process_type)
+                    name          = status.name
+                else:
+                    process_state = f"{Names.STATUS[self.process_type]} [{total_files} Berkas]"
+                    name          = str(self.file_name)
+
+                user_data        = get_data().get(self.user_id, {})
+                show_detailed    = user_data.get("detailed_messages", True)
+
+                duration         = max(status.duration, 0.001)
+                progress_percent = f"{elapsed_time * 100 / duration:.1f}%"
+                progress_bar     = get_progress_bar_string(elapsed_time, duration)
+                eta_str          = get_readable_time(floor((duration - elapsed_time) / speed)) if speed > 0 else "N/A"
+
+                text = (
+                    f"**{process_state}** `{multi_task_no}`\n"
+                    f"📁 `{name}`\n"
+                    f"{progress_bar} **{progress_percent}**\n"
+                    f"{DIVIDER}\n"
+                    f"{self.get_task_details()}"
+                    f"🚀 **Engine:** `FFmpeg Core`\n"
+                    f"{ffmpeg_head if show_detailed else ''}\n"
+                    f"{DIVIDER}\n"
+                    f"⏳ **Progress:** `{get_readable_time(elapsed_time)} / {get_readable_time(duration)}`\n"
+                    f"⚡ **Speed:** `{speed}x` | ⏱ **ETA:** `{eta_str}`"
+                    f"{ffmpeg_status_foot(status, self.user_id, self.start_time, time_in_us)}\n"
+                    f"{DIVIDER}\n"
+                    f"_Cek Log: /ffmpeg{CMD_SUFFIX} log {self.process_id}_\n"
+                    f"_Batal? /cancel{CMD_SUFFIX} process {self.process_id}_"
+                )
+                self.status_message = text
+                await asynciosleep(0.5)
+
+        if status.type() == Names.aria and status.name():
+            path = f"{self.dir}/{status.name()}"
+            if path not in self.dw_files: self.dw_files.append(path)
+
+    def telegram_update_status(self, current: int, total: int, mode: str, name: str, start_time: float, status: str, engine: str, client=False) -> None:
         self.ping = time()
-        if client and not check_running_process(self.process_id):
-            client.stop_transmission()
-
+        if client and not check_running_process(self.process_id): client.stop_transmission()
         elapsed = max(1, round(time() - start_time))
         speed   = current / elapsed
         eta = get_readable_time((total - current) / speed) if (speed > 0 and total > current) else "N/A"
         pct  = f"{current * 100 / max(total, 1):.1f}%"
         
-        # [FIX] Telegram Status ke Markdown murni
         text = (
             f"**{status}**\n"
             f"📁 `{name}`\n"
@@ -293,24 +441,17 @@ class ProcessStatus:
         )
         self.status_message = text
 
-    async def rclone__update_status(
-        self, rclone_process, name: str, search_command: list, fileloc: str,
-        r_config: str, drive_name: str, status: str,
-    ) -> bool:
+    async def rclone__update_status(self, rclone_process, name: str, search_command: list, fileloc: str, r_config: str, drive_name: str, status: str) -> bool:
         cancelled = False
         log_path  = f"{self.dir}/upload_log_{name}.txt"
-
         try:
             async with aio_open(log_path, "a+", encoding="utf-8") as log_f:
                 try:
                     async for raw_line in rclone_process.stdout:
                         if not check_running_process(self.process_id):
-                            cancelled = True
-                            break
-
+                            cancelled = True; break
                         line = raw_line.decode("utf-8", errors="replace").strip()
                         await log_f.write(f"{line}\n")
-
                         try:
                             datam = refindall(r"Transferred:.*ETA.*", line)
                             if datam:
@@ -318,8 +459,6 @@ class ProcessStatus:
                                 percentage = progress[1].strip("% ")
                                 dwdata     = progress[0].strip().split("/")
                                 eta        = progress[3].strip().replace("ETA", "").strip()
-                                
-                                # [FIX] Rclone Status ke Markdown murni
                                 text = (
                                     f"**{status}**\n"
                                     f"📁 `{name}`\n"
@@ -340,13 +479,9 @@ class ProcessStatus:
 
         if not cancelled:
             await rclone_process.wait()
-            if rclone_process.returncode == 0:
-                await check_file_drive_link(search_command, self.event, fileloc, r_config, drive_name, name, self.caption)
+            if rclone_process.returncode == 0: await check_file_drive_link(search_command, self.event, fileloc, r_config, drive_name, name, self.caption)
             else:
-                if exists(log_path):
-                    await self.event.client.send_file(self.chat_id, file=log_path, allow_cache=False, reply_to=self.event.message, caption=f"❌ Error saat mengunggah {name} ke Drive")
-                else:
-                    await self.event.reply("❗ Berkas log rclone tidak ditemukan")
+                if exists(log_path): await self.event.client.send_file(self.chat_id, file=log_path, allow_cache=False, reply_to=self.event.message, caption=f"❌ Error saat mengunggah {name} ke Drive")
         else:
             try: rclone_process.kill()
             except: pass
@@ -355,7 +490,3 @@ class ProcessStatus:
 
         if exists(log_path): remove(log_path)
         return True
-
-    # Helper functions bawaan class yang tidak perlu dimodifikasi
-    def replace_send_list(self, files): self.send_files = files
-    def update_process_message(self, text): self.status_message = text
