@@ -3,13 +3,14 @@
 ║            bot_helper/Process/Unified_Engine.py                      ║
 ║            Mesin Antrean & UI Terpusat (Studio Khoirul)              ║
 ╠══════════════════════════════════════════════════════════════════════╣
-║  CHANGELOG v4.5:                                                     ║
-║  [NEW] Menanamkan fitur "Indeterminate Animation Loop". Jika tugas   ║
-║        memakan waktu lama tanpa ukuran file yang jelas (cth: Render  ║
-║        AI Studio), bar [██░░░░] akan terus bergerak secara otomatis  ║
-║        agar user tahu bot tidak macet/stuck.                         ║
-║  [UX REFINED] Mengubah seluruh pelaporan UI menggunakan format       ║
-║               Markdown murni (**tebal**, `kode`) (No HTML leaking).  ║
+║  CHANGELOG v4.7:                                                     ║
+║  [NEW] Menambahkan fungsi `prep_phase` untuk laporan UI persiapan    ║
+║        Lore (Trim/Split) beserta sisa antrean klip.                  ║
+║  [NEW] Menanamkan fitur "Indeterminate Animation Loop" agar user     ║
+║        tahu bot tidak macet saat merender data Studio.               ║
+║  [UX]  Full Pure Markdown Support & Admin Bypass Status.             ║
+║  [FIX] Memisahkan memori antrean internal agar tidak terjadi         ║
+║        TypeError pada struktur deque.                                ║
 ╚══════════════════════════════════════════════════════════════════════╝
 """
 
@@ -22,7 +23,7 @@ from config.config import Config
 LOGGER = Config.LOGGER
 _task_semaphore = asyncio.Semaphore(Config.RUNNING_TASK_LIMIT)
 
-# Memori dictionary internal agar tidak bertabrakan dengan Running_Tasks
+# Memori dictionary internal
 _ue_queued = {}
 _ue_working = {}
 
@@ -33,7 +34,7 @@ DIVIDER = "━━━━━━━━━━━━━━━━━━━━"
 # 1. HELPER FORMATTER
 # ==========================================
 def humanbytes(size):
-    """Format bytes ke ukuran yang mudah dibaca (MB, GB)"""
+    """Format bytes ke ukuran yang mudah dibaca"""
     if not size or size <= 0: 
         return "0 B"
     power = 2**10
@@ -63,14 +64,16 @@ def TimeFormatter(milliseconds: float) -> str:
     return tmp if tmp else "0s"
 
 def get_progress_bar(current: float, max_val: float, width: int = 10) -> str:
-    """Style Progress Bar statis untuk ukuran pasti [████░░░░]"""
+    """Progress Bar untuk ukuran pasti [████░░░░]"""
     if max_val <= 0: 
         return f"[{'░' * width}]"
-    
     percent = min(max(current / max_val, 0.0), 1.0)
     filled = int(percent * width)
     empty = width - filled
     return f"[{'█' * filled}{'░' * empty}]"
+
+def is_admin(user_id: int) -> bool:
+    return user_id in Config.SUDO_USERS
 
 # ==========================================
 # 2. SISTEM UI (PROGRESS MANAGER & ANIMATOR)
@@ -82,21 +85,46 @@ class ProgressUI:
         self.last_text = ""
         self.start_time = time.time()
         self.user_id = message.from_user.id
+        self.is_admin_user = is_admin(self.user_id)
         
-        # Konversi HTML link ke Markdown Telegram
         if message.from_user.username:
             self.added_by = f"[{message.from_user.first_name}](https://t.me/{message.from_user.username})"
         else:
             self.added_by = f"**{message.from_user.first_name}**"
 
-        # Variabel untuk Animasi Loading Otomatis
         self._animating = False
         self._anim_task = None
         self._anim_status = "⚙️ Memproses Data..."
         self._anim_details = "Sistem sedang bekerja..."
 
+    async def prep_phase(self, action_text: str = "Mempersiapkan proses pembagian...", remaining: int = 0):
+        """
+        [NEW v4.7] Menampilkan status persiapan klip Lore.
+        """
+        await self.stop_animation()
+        
+        admin_text = "👑 **Akses Admin:** Bypass sistem poin (Gratis)." if self.is_admin_user else "💎 **Sistem Poin:** Saldo Terpotong."
+        rem_text = f"⏳ **Belum di proses:** `{remaining}`" if remaining > 0 else "⏳ **Proses sinkronisasi...**"
+        
+        text = (
+            f"⏳ ✅ **{action_text}**\n"
+            f"📁 `{self.module_name}`\n"
+            f"{DIVIDER}\n"
+            f"👤 **Aktor:** {self.added_by} | **ID:** `{self.user_id}`\n"
+            f"{admin_text}\n"
+            f"{rem_text}\n"
+            f"{DIVIDER}\n"
+            f"_Sistem sedang menyiapkan potongan video sesuai naskah..._"
+        )
+
+        if text != self.last_text:
+            try:
+                await self.message.edit_text(text, parse_mode="Markdown", disable_web_page_preview=True)
+                self.last_text = text
+            except TelegramBadRequest:
+                pass
+
     async def _animation_loop(self):
-        """Looping animasi bar (Sweep effect) saat ukuran file belum diketahui"""
         frames = [
             "[█░░░░░░░░░]", "[██░░░░░░░░]", "[███░░░░░░░]", "[████░░░░░░]",
             "[█████░░░░░]", "[██████░░░░]", "[███████░░░]", "[████████░░]",
@@ -107,7 +135,6 @@ class ProgressUI:
         while self._animating:
             frame = frames[idx % len(frames)]
             idx += 1
-            
             text = (
                 f"**{self._anim_status}**\n"
                 f"📁 `{self.module_name}`\n"
@@ -118,50 +145,35 @@ class ProgressUI:
                 f"{DIVIDER}\n"
                 f"_{self._anim_details}_"
             )
-            
             if text != self.last_text:
                 try:
                     await self.message.edit_text(text, parse_mode="Markdown", disable_web_page_preview=True)
                     self.last_text = text
-                except TelegramBadRequest:
-                    pass
-            await asyncio.sleep(1) # Bergerak 1 frame setiap 1 detik
+                except TelegramBadRequest: pass
+            await asyncio.sleep(1)
 
     async def start_animation(self, status: str, details: str = ""):
-        """Memulai task animasi background"""
         self._anim_status = status
-        if details:
-            self._anim_details = details
-            
-        if self._animating:
-            return # Sudah jalan, cukup perbarui teksnya saja
-            
+        if details: self._anim_details = details
+        if self._animating: return 
         self._animating = True
         self._anim_task = asyncio.create_task(self._animation_loop())
 
     async def stop_animation(self):
-        """Menghentikan animasi saat proses selesai atau mendapat ukuran file pasti"""
         self._animating = False
         if self._anim_task:
             self._anim_task.cancel()
             self._anim_task = None
 
     async def update(self, status: str, current: float = 0, total: float = 0, speed: float = 0, eta: float = 0, details: str = ""):
-        """Update UI. Jika total=0 (Indeterminate), jalankan animasi. Jika total>0, jalankan bar biasa."""
-        
-        # 1. JIKA ADA TOTAL UKURAN FILE (Misal: Download/Upload)
         if total > 0:
-            await self.stop_animation() # Matikan animasi looping
-            
+            await self.stop_animation()
             percent = (current / total * 100)
             percent_clean = round(min(max(percent, 0), 100), 1)
             bar = get_progress_bar(current, total, width=10)
-            
-            cur_str = humanbytes(current)
-            tot_str = humanbytes(total)
+            cur_str, tot_str = humanbytes(current), humanbytes(total)
             speed_str = f"{humanbytes(speed)}/s" if speed > 0 else "0 B/s"
             eta_str = TimeFormatter(eta * 1000) if eta > 0 else "N/A"
-
             text = (
                 f"**{status}**\n"
                 f"📁 `{self.module_name}`\n"
@@ -171,23 +183,15 @@ class ProgressUI:
                 f"🚀 **Engine:** `Unified Core`\n"
                 f"📦 **Data:** `{cur_str} / {tot_str}`\n"
             )
-            if speed > 0:
-                text += f"⚡ **Speed:** `{speed_str}` | ⏱ **ETA:** `{eta_str}`\n"
-                
-            if details:
-                text += f"{DIVIDER}\n_{details}_"
-
+            if speed > 0: text += f"⚡ **Speed:** `{speed_str}` | ⏱ **ETA:** `{eta_str}`\n"
+            if details: text += f"{DIVIDER}\n_{details}_"
             if text != self.last_text:
                 try:
                     await self.message.edit_text(text, parse_mode="Markdown", disable_web_page_preview=True)
                     self.last_text = text
-                except TelegramBadRequest:
-                    pass 
-                    
-        # 2. JIKA TOTAL = 0 (Proses Rendering / AI TTS yang memakan waktu)
+                except TelegramBadRequest: pass 
         else:
             await self.start_animation(status, details)
-
 
     async def finish(self, final_text: str = "✅ **Proses Selesai!**"):
         await self.stop_animation()
@@ -195,46 +199,32 @@ class ProgressUI:
             elapsed = TimeFormatter((time.time() - self.start_time) * 1000)
             text = f"{final_text}\n\n⏱️ **Waktu Total:** `{elapsed}`"
             await self.message.edit_text(text, parse_mode="Markdown", disable_web_page_preview=True)
-        except: 
-            pass
+        except: pass
 
     async def error(self, error_text: str):
         await self.stop_animation()
-        try:
-            await self.message.edit_text(f"❌ **Error Terjadi:**\n`{error_text}`", parse_mode="Markdown")
-        except: 
-            pass
+        try: await self.message.edit_text(f"❌ **Error Terjadi:**\n`{error_text}`", parse_mode="Markdown")
+        except: pass
 
 # ==========================================
 # 3. FUNGSI PENGIKAT (THE WRAPPER)
 # ==========================================
 async def execute_unified_task(message: Message, module_name: str, task_function, *args, **kwargs):
     user_id = message.from_user.id
-    task_id = f"{user_id}_{int(time.time())}"
-    
+    task_id = f"UE_{user_id}_{int(time.time())}"
     status_msg = await message.answer(f"🔄 **Menambahkan {module_name} ke antrean...**", parse_mode="Markdown")
     ui = ProgressUI(status_msg, module_name)
-
     _ue_queued[task_id] = module_name
-    queue_position = len(_ue_queued)
     
-    await ui.update(f"⏳ Menunggu Giliran", details=f"Posisi antrean saat ini: {queue_position}")
-
-    # MASUK KE MESIN KERJA
+    await ui.update(f"⏳ Menunggu Giliran", details=f"Posisi antrean: {len(_ue_queued)}")
     async with _task_semaphore:
-        if task_id in _ue_queued:
-            del _ue_queued[task_id]
+        _ue_queued.pop(task_id, None)
         _ue_working[task_id] = module_name
-        
-        # Mulai animasi bar otomatis agar user tahu proses sedang berjalan
-        await ui.update("⚙️ Mengeksekusi Modul...", details="Sistem AI dan FFmpeg sedang memproses data. Harap tunggu, ini mungkin memakan waktu beberapa menit...")
-        
+        await ui.update("⚙️ Mengeksekusi Modul...", details="Sistem sedang menganalisis data naskah...")
         try:
-            # Eksekusi fungsi bisnis utamanya
             await task_function(message, ui, *args, **kwargs)
         except Exception as e:
             LOGGER.error(f"Task Error [{module_name}]: {e}", exc_info=True)
             await ui.error(str(e))
         finally:
-            if task_id in _ue_working:
-                del _ue_working[task_id]
+            _ue_working.pop(task_id, None)
