@@ -1,6 +1,6 @@
 """
 ╔══════════════════════════════════════════════════════════════════════╗
-║       bot/admin_handlers.py — v4.1                                   ║
+║       bot/admin_handlers.py — v4.2                                   ║
 ║       Admin & System Command Handlers (Aiogram 3.x)                  ║
 ╠══════════════════════════════════════════════════════════════════════╣
 ║  Commands: /start /time /restart /herokurestart /log /logs           ║
@@ -9,18 +9,14 @@
 ║            /clearconfigs /checksudo /addsudo /delsudo /renew         ║
 ║            /resetdb /changeconfig /settings                          ║
 ╠══════════════════════════════════════════════════════════════════════╣
-║  CHANGELOG v4.1:                                                     ║
+║  CHANGELOG v4.2:                                                     ║
+║  [FIX HIGH] Sinkronisasi Memory SUDO_USERS (Sistem Poin Pay-As-You-Go)║
+║             Agar Admin baru langsung dapat bypass gratis tanpa restart.║
 ║  [UX PREMIUM] Implementasi API Warna Tombol Native Telegram 9.4+     ║
 ║                (Primary, Success, Danger) pada Reply & Inline KB.    ║
 ║  [UX PREMIUM] Standardisasi Hierarki Emoji (❌ Error, ⏳ Proses).      ║
 ║  [UX PREMIUM] Menerapkan Reply Keyboard Singkat ("✅ Ya", "❌ Batal")  ║
-║  [UX PREMIUM] Menerapkan Auto-Delete agar chat tetap bersih & rapi.  ║
-║  [UX PREMIUM] Menerapkan Kotak Konfirmasi (Summary Box) pada fitur   ║
-║                krusial seperti /resetdb, /renew, dan /saveconfig.    ║
-║  [FIX HIGH] Implementasi CMD_SUFFIX pada semua dekorator Command     ║
-║  [FIX HIGH] Gunakan asyncio.to_thread pada subprocess srun (restart) ║
-║  [FIX HIGH] Memperbaiki error parse_mode pada perintah /log          ║
-║  [UPDATE] Konsistensi UI, Ikon, Timeout, dan Batal selaras 100%.     ║
+║  [UX PREMIUM] Menerapkan Kotak Konfirmasi (Summary Box)              ║
 ╚══════════════════════════════════════════════════════════════════════╝
 """
 
@@ -442,8 +438,13 @@ async def _addsudo(message: Message):
         return await message.answer(f"❌ ID sudah ada di Sudo.\n\n`{sudo_users}`", reply_markup=ReplyKeyboardRemove())
         
     sudo_users.append(sudo_id)
+    
+    # [NEW v4.2] Sinkronisasi Memory untuk Mesin Kasir Pay-As-You-Go
+    if sudo_id not in Config.SUDO_USERS:
+        Config.SUDO_USERS.append(sudo_id)
+        
     _save_sudo_list()
-    await message.answer(f"✅ ➕ Berhasil Ditambahkan.\n\n`{sudo_users}`", reply_markup=ReplyKeyboardRemove())
+    await message.answer(f"✅ ➕ Berhasil Ditambahkan (Bypass Poin Aktif).\n\n`{sudo_users}`", reply_markup=ReplyKeyboardRemove())
 
 
 @router.message(Command(f"delsudo{CMD_SUFFIX}"))
@@ -471,6 +472,11 @@ async def _delsudo(message: Message):
         return await message.answer(f"❌ ID Tidak Ditemukan.\n\n`{sudo_users}`", reply_markup=ReplyKeyboardRemove())
         
     sudo_users.remove(sudo_id)
+    
+    # [NEW v4.2] Sinkronisasi Memory untuk Mesin Kasir Pay-As-You-Go
+    if sudo_id in Config.SUDO_USERS:
+        Config.SUDO_USERS.remove(sudo_id)
+        
     _save_sudo_list()
     await message.answer(f"✅ ➖ Berhasil Dihapus.\n\n`{sudo_users}`", reply_markup=ReplyKeyboardRemove())
 
@@ -551,7 +557,8 @@ async def _settings(message: Message):
     if user_id not in get_data(): await new_user(user_id, SAVE_TO_DATABASE)
         
     kb = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="👤 Profil", callback_data="profile_main", style="primary")],
+        [InlineKeyboardButton(text="👤 Profil", callback_data="profile_main", style="primary"),
+         InlineKeyboardButton(text="💳 Cek Dompet Poin", callback_data="point_wallet", style="success")], # [NEW v4.2] Tombol Dompet
         [InlineKeyboardButton(text="🎬 Encode",   callback_data="settings_media", style="primary")],
         [InlineKeyboardButton(text="🤖 Umum & Tampilan", callback_data="settings_bot", style="primary")],
         [InlineKeyboardButton(text="⭕ Tutup", callback_data="close_settings", style="danger")],
