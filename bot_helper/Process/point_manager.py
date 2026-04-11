@@ -1,15 +1,18 @@
 """
 ╔══════════════════════════════════════════════════════════════════════╗
-║    bot_helper/Process/point_manager.py — v1.0 (KASIR STUDIO)         ║
+║    bot_helper/Process/point_manager.py — v1.3 (KASIR STUDIO FINAL)   ║
 ║    Sistem Manajemen Saldo Poin & Harga Fitur (Pay-As-You-Go)         ║
 ╠══════════════════════════════════════════════════════════════════════╣
-║  [FITUR] Katalog Harga Dinamis & Flat Rate.                          ║
+║  [FITUR] Katalog Harga Dinamis (Per MB) & Flat Rate (Per Tugas).     ║
 ║  [FITUR] Fungsi Cek Saldo & Potong Saldo Otomatis.                   ║
-║  [FITUR] Keamanan Transaksi (Mencegah saldo minus).                  ║
+║  [FITUR] Keamanan Transaksi (Thread-Safe / Mencegah saldo minus).    ║
+║  [FITUR] Pencatatan Riwayat Transaksi (History Mutasi).              ║
+║  [FIX]   Bypass Poin: Owner & Admin (SUDO) 100% Gratis & Unlimited.  ║
 ╚══════════════════════════════════════════════════════════════════════╝
 """
 
-from bot_helper.Database.DB_Handler import get_db
+# [NEW] Mengambil fungsi keamanan database langsung dari User_Data.py
+from bot_helper.Database.User_Data import get_user_balance, deduct_user_balance, add_usage_history
 from config.config import Config
 
 LOGGER = Config.LOGGER
@@ -71,27 +74,6 @@ PRICE_LIST = {
 # 2. FUNGSI INTI KEUANGAN (TRANSAKSI)
 # ==========================================
 
-async def get_user_balance(user_id: int) -> int:
-    """Mengambil sisa saldo poin pengguna dari Database."""
-    db = get_db()
-    user_data = await db.db["users"].find_one({"user_id": user_id})
-    if not user_data:
-        return 0
-    return user_data.get("balance_points", 0)
-
-async def add_points(user_id: int, amount: int) -> bool:
-    """Menambahkan poin ke akun pengguna (Untuk Top-Up/Verifikasi)."""
-    if amount <= 0: return False
-    db = get_db()
-    
-    # Gunakan $inc agar aman jika ada transaksi bersamaan (Thread-Safe)
-    result = await db.db["users"].update_one(
-        {"user_id": user_id},
-        {"$inc": {"balance_points": amount}},
-        upsert=True
-    )
-    return result.modified_count > 0 or result.upserted_id is not None
-
 async def calculate_cost(command: str, file_size_mb: float = 0) -> int:
     """
     Menghitung total biaya poin untuk sebuah perintah.
@@ -109,34 +91,45 @@ async def calculate_cost(command: str, file_size_mb: float = 0) -> int:
 
 async def process_payment(user_id: int, command: str, file_size_mb: float = 0) -> dict:
     """
-    Fungsi utama kasir: Mengecek harga, mencocokkan saldo, dan memotongnya jika cukup.
+    Fungsi utama kasir: Mengecek hak akses, mengecek harga, dan memotong saldo.
     Mengembalikan dict: {"success": bool, "cost": int, "message": str}
     """
-    cost = await calculate_cost(command, file_size_mb)
     
-    # Jika harga 0 (Fitur Gratis / Tidak terdaftar di katalog)
+    # 👑 1. [CEK AKSES ADMIN] Jika user adalah Admin/Owner, langsung loloskan gratis!
+    if user_id in Config.SUDO_USERS:
+        return {
+            "success": True, 
+            "cost": 0, 
+            "message": "👑 **Akses Admin:** Bypass sistem poin (Gratis)."
+        }
+
+    # -- PROSES UNTUK USER REGULER --
+    
+    cost = await calculate_cost(command, file_size_mb)
+    friendly_name = command.replace("/", "").upper()
+    
+    # 🆓 2. [CEK FITUR GRATIS]
     if cost == 0:
         return {"success": True, "cost": 0, "message": "Fitur ini gratis."}
 
-    # Cek Saldo
-    current_balance = await get_user_balance(user_id)
+    # 💳 3. [CEK SALDO]
+    current_balance = get_user_balance(user_id)
     
     if current_balance < cost:
         return {
             "success": False, 
             "cost": cost, 
-            "message": f"❌ Saldo Poin Anda tidak cukup!\n\n💎 Harga Proses: `{cost:,}` Poin\n💳 Saldo Anda: `{current_balance:,}` Poin\n\n<i>Silakan Top-Up melalui menu /verify</i>"
+            "message": f"❌ **Saldo Poin tidak cukup!**\n\n💎 Harga Proses: `{cost:,}` Poin\n💳 Saldo Anda: `{current_balance:,}` Poin\n\n<i>Silakan Top-Up melalui menu /verify untuk menambah saldo.</i>"
         }
         
-    # Potong Saldo (Gunakan $inc dengan nilai minus)
-    db = get_db()
-    result = await db.db["users"].update_one(
-        {"user_id": user_id, "balance_points": {"$gte": cost}}, # Pastikan saldo masih cukup tepat sebelum dipotong
-        {"$inc": {"balance_points": -cost}}
-    )
+    # 💸 4. [POTONG SALDO]
+    is_success = await deduct_user_balance(user_id, cost, dbsave=True)
     
-    if result.modified_count > 0:
-        new_balance = current_balance - cost
+    if is_success:
+        # 📝 5. [CATAT RIWAYAT TRANSAKSI]
+        await add_usage_history(user_id, friendly_name, cost, dbsave=True)
+        
+        new_balance = get_user_balance(user_id)
         return {
             "success": True, 
             "cost": cost, 
@@ -146,5 +139,5 @@ async def process_payment(user_id: int, command: str, file_size_mb: float = 0) -
         return {
             "success": False, 
             "cost": cost, 
-            "message": "❌ Transaksi gagal. Saldo mungkin berubah saat diproses."
+            "message": "❌ Transaksi gagal (Terjadi kesalahan sinkronisasi sistem)."
         }
