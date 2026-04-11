@@ -3,7 +3,11 @@
 ║            bot_helper/Process/Unified_Engine.py                      ║
 ║            Mesin Antrean & UI Terpusat (Studio Khoirul)              ║
 ╠══════════════════════════════════════════════════════════════════════╣
-║  UPDATE: Integrasi Antrean + UI disamakan dengan Process_Status.py   ║
+║  CHANGELOG v4.2:                                                     ║
+║  [UX REFINED] Tampilan UI dirombak menggunakan garis pemisah (Divider)║
+║               agar identik dengan gaya visual Process_Status.py.     ║
+║  [FIX CRITICAL] Memisahkan memori antrean _ue_queued & _ue_working   ║
+║                 agar tidak bertabrakan dengan tipe data `deque`.     ║
 ║  [FIX]   Memperbaiki bug formatting angka/waktu pada Progress Bar.   ║
 ╚══════════════════════════════════════════════════════════════════════╝
 """
@@ -15,15 +19,16 @@ from aiogram.types import Message
 from aiogram.exceptions import TelegramBadRequest
 from config.config import Config
 
-# [INTEGRASI ANTREAN]
-try:
-    from bot_helper.Process.Running_Tasks import queued_task, working_task
-except ImportError:
-    queued_task = {}
-    working_task = {}
-
 LOGGER = Config.LOGGER
 _task_semaphore = asyncio.Semaphore(Config.RUNNING_TASK_LIMIT)
+
+# [FIX CRITICAL] Menggunakan memori dictionary internal agar tidak bertabrakan 
+# dengan struktur list/deque milik modul FFmpeg (Running_Tasks)
+_ue_queued = {}
+_ue_working = {}
+
+# Konstanta UI
+DIVIDER = "━━━━━━━━━━━━━━━━━━━━"
 
 # ==========================================
 # 1. HELPER FORMATTER
@@ -81,17 +86,18 @@ class ProgressUI:
         self.module_name = escape_html(module_name)
         self.last_text = ""
         self.start_time = time.time()
+        self.user_id = message.from_user.id
+        self.added_by = f"<a href='https://t.me/{message.from_user.username}'>{message.from_user.first_name}</a>" if message.from_user.username else f"<b>{message.from_user.first_name}</b>"
 
     async def update(self, status: str, current: float = 0, total: float = 0, speed: float = 0, eta: float = 0, details: str = ""):
         """
-        Update UI dengan parameter lengkap. 
-        Aman dipanggil hanya dengan 'status' dan 'details' tanpa memicu error angka.
+        Update UI dengan parameter lengkap dan visual yang konsisten dengan Process_Status.
         """
         safe_status = escape_html(status)
         safe_details = escape_html(details)
         
-        text = f"<b>{safe_status}</b>\n\n"
-        text += f"<b>Modul:</b> <code>{self.module_name}</code>\n"
+        text = f"<b>{safe_status}</b>\n"
+        text += f"📁 <code>{self.module_name}</code>\n"
         
         # Hanya tampilkan bar & persentase jika total > 0
         if total > 0:
@@ -102,24 +108,29 @@ class ProgressUI:
             cur_str = humanbytes(current)
             tot_str = humanbytes(total)
             speed_str = f"{humanbytes(speed)}/s" if speed > 0 else "0 B/s"
-            eta_str = TimeFormatter(eta * 1000) if eta > 0 else "Menghitung..."
+            eta_str = TimeFormatter(eta * 1000) if eta > 0 else "N/A"
 
-            text += f"<b>Progress:</b> {bar} <code>{percent_clean}%</code>\n"
-            text += f"<b>Loaded:</b> <code>{cur_str} / {tot_str}</code>\n"
+            text += f"{bar} <b>{percent_clean}%</b>\n"
+            text += f"{DIVIDER}\n"
+            text += f"👤 <b>Aktor:</b> {self.added_by} | <b>ID:</b> <code>{self.user_id}</code>\n"
+            text += f"🚀 <b>Engine:</b> <code>Unified Core</code>\n"
+            text += f"📦 <b>Data:</b> <code>{cur_str} / {tot_str}</code>\n"
             if speed > 0:
-                text += f"<b>Speed:</b> <code>{speed_str}</code>\n"
-            if eta > 0:
-                text += f"<b>ETA:</b> <code>{eta_str}</code>\n"
+                text += f"⚡ <b>Speed:</b> <code>{speed_str}</code> | ⏱ <b>ETA:</b> <code>{eta_str}</code>\n"
         else:
-            # Mode Indeterminate (misal: saat render video)
-            text += f"<b>Status:</b> <code>Memproses...</code>\n"
+            # Mode Indeterminate (misal: saat render video di Studio)
+            text += f"⏳ <b>Memproses Data...</b>\n"
+            text += f"{DIVIDER}\n"
+            text += f"👤 <b>Aktor:</b> {self.added_by} | <b>ID:</b> <code>{self.user_id}</code>\n"
+            text += f"🚀 <b>Engine:</b> <code>Unified Core</code>\n"
 
         if details:
-            text += f"\n<i>{safe_details}</i>"
+            text += f"{DIVIDER}\n"
+            text += f"<i>{safe_details}</i>"
 
         if text != self.last_text:
             try:
-                await self.message.edit_text(text, parse_mode="HTML")
+                await self.message.edit_text(text, parse_mode="HTML", disable_web_page_preview=True)
                 self.last_text = text
             except TelegramBadRequest:
                 pass 
@@ -128,7 +139,7 @@ class ProgressUI:
         try:
             elapsed = TimeFormatter((time.time() - self.start_time) * 1000)
             text = f"{final_text}\n\n⏱️ <b>Waktu Total:</b> <code>{elapsed}</code>"
-            await self.message.edit_text(text, parse_mode="HTML")
+            await self.message.edit_text(text, parse_mode="HTML", disable_web_page_preview=True)
         except: 
             pass
 
@@ -149,15 +160,17 @@ async def execute_unified_task(message: Message, module_name: str, task_function
     status_msg = await message.answer(f"🔄 <b>Menambahkan {escape_html(module_name)} ke antrean...</b>", parse_mode="HTML")
     ui = ProgressUI(status_msg, module_name)
 
-    queued_task[task_id] = module_name
-    queue_position = len(queued_task)
+    # [FIX] Masukkan ke antrean internal Unified Engine
+    _ue_queued[task_id] = module_name
+    queue_position = len(_ue_queued)
     
     await ui.update(f"⏳ Menunggu Giliran", details=f"Posisi antrean saat ini: {queue_position}")
 
     async with _task_semaphore:
-        if task_id in queued_task:
-            del queued_task[task_id]
-        working_task[task_id] = module_name
+        # Pindahkan dari antrean ke proses berjalan
+        if task_id in _ue_queued:
+            del _ue_queued[task_id]
+        _ue_working[task_id] = module_name
         
         try:
             # Eksekusi fungsi bisnis utamanya (misal: render studio, upload cloud, dsb)
@@ -166,5 +179,6 @@ async def execute_unified_task(message: Message, module_name: str, task_function
             LOGGER.error(f"Task Error [{module_name}]: {e}", exc_info=True)
             await ui.error(str(e))
         finally:
-            if task_id in working_task:
-                del working_task[task_id]
+            # Hapus dari memori kerja setelah selesai/error
+            if task_id in _ue_working:
+                del _ue_working[task_id]
