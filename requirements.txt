@@ -1,5 +1,5 @@
 # ╔══════════════════════════════════════════════════════════════════════╗
-# ║            REQUIREMENTS.TXT — Encoder Bot (Trinity v4.1)             ║
+# ║            REQUIREMENTS.TXT — Encoder Bot (Trinity v5.2)             ║
 # ║            Last updated: 2026 — Python 3.11+                         ║
 # ╚══════════════════════════════════════════════════════════════════════╝
 #
@@ -121,13 +121,16 @@ pysrt>=1.1.2
 deep-translator>=1.11.4
 
 
-# ── YOUTUBE API ───────────────────────────────────────────────────────
-# Google API client
+# ── YOUTUBE & CLOUD API (MIRRORING) ───────────────────────────────────
+# Google API client (YouTube Uploads)
 google-api-python-client==2.143.0
 
 # OAuth2 — PERHATIAN: run_local_server() tidak bisa di VPS headless!
 google-auth-oauthlib==1.2.1
 google-auth-httplib2==0.2.0
+
+# [NEW v5.2] Vimeo API Client (Untuk fitur /vimeo mirror)
+PyVimeo==1.1.2
 
 
 # ── WEB SERVER (untuk webhook / health check) ─────────────────────────
