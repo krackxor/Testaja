@@ -1,7 +1,7 @@
 """
 UI Dashboard Template for STUDIO KHOIRUL (Aiogram 3.x)
-Versi: PROFESSIONAL v6.0 - Full Fix UnboundLocalError + Navigation
-Update: Import safety, Full keyboard, 120s timeout, Admin protection
+Versi: PROFESSIONAL v6.3 - Compact Menu Edition
+Update: Memendekkan teks tombol agar tidak terpotong di layar HP.
 """
 
 import asyncio
@@ -118,7 +118,7 @@ def get_back_cancel_kb() -> InlineKeyboardMarkup:
     ])
 
 # ==========================================
-# 4. KEYBOARD LAYOUTS (Lengkap)
+# 4. KEYBOARD LAYOUTS (COMPACT EDITION)
 # ==========================================
 
 def kb_start_menu() -> InlineKeyboardMarkup:
@@ -128,7 +128,7 @@ def kb_start_menu() -> InlineKeyboardMarkup:
             InlineKeyboardButton(text="📢 Channel", url="https://t.me/TelMovIDCariFilm", style="primary")
         ],
         [
-            InlineKeyboardButton(text="🚀 Masuk Dashboard", callback_data="menu_main", style="success")
+            InlineKeyboardButton(text="🚀 Dashboard", callback_data="menu_main", style="success")
         ]
     ])
 
@@ -139,21 +139,21 @@ def kb_main_menu(is_admin_user: bool = False) -> InlineKeyboardMarkup:
             InlineKeyboardButton(text="🎞️ Encode", callback_data="menu_encode", style="primary")
         ],
         [
-            InlineKeyboardButton(text="✂️ Editor Video", callback_data="menu_editor", style="primary"),
-            InlineKeyboardButton(text="🤖 AI & Subtitle", callback_data="menu_ai", style="primary")
+            InlineKeyboardButton(text="✂️ Editor", callback_data="menu_editor", style="primary"),
+            InlineKeyboardButton(text="🤖 AI & Sub", callback_data="menu_ai", style="primary")
         ],
         [
             InlineKeyboardButton(text="🎮 Aset", callback_data="menu_assets", style="primary"),
             InlineKeyboardButton(text="📥 Download", callback_data="menu_download", style="primary")
         ],
         [
-            InlineKeyboardButton(text="⚙️ Pengaturan", callback_data="settings", style="primary"),
+            InlineKeyboardButton(text="⚙️ Setting", callback_data="settings", style="primary"),
             InlineKeyboardButton(text="👑 VIP", callback_data="menu_vip", style="success")
         ]
     ]
     if is_admin_user:
         buttons.append([
-            InlineKeyboardButton(text="🔧 Admin Control Panel", callback_data="menu_admin", style="primary")
+            InlineKeyboardButton(text="🔧 Admin", callback_data="menu_admin", style="primary")
         ])
     buttons.append([
         InlineKeyboardButton(text="❌ Tutup", callback_data="action_close", style="danger")
@@ -162,10 +162,10 @@ def kb_main_menu(is_admin_user: bool = False) -> InlineKeyboardMarkup:
 
 def kb_ai() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="🧠 Auto Subtitle (AI)", callback_data="cmd_autosub", style="primary")],
+        [InlineKeyboardButton(text="🧠 Auto Sub", callback_data="cmd_autosub", style="primary")],
         [
-            InlineKeyboardButton(text="🌐 Auto Translate", callback_data="cmd_autotranslate", style="primary"),
-            InlineKeyboardButton(text="📝 Editor Subtitle", callback_data="cmd_subedit", style="primary")
+            InlineKeyboardButton(text="🌐 Auto Trans", callback_data="cmd_autotranslate", style="primary"),
+            InlineKeyboardButton(text="📝 Sub Editor", callback_data="open_sub_workspace", style="primary")
         ],
         [InlineKeyboardButton(text="↩️ Kembali", callback_data="menu_main", style="danger")]
     ])
@@ -194,12 +194,23 @@ def kb_studio() -> InlineKeyboardMarkup:
 
 def kb_encode() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="🚀 Encode Cepat", callback_data="cmd_encode", style="success")],
-        [InlineKeyboardButton(text="🎛️ Encode Custom", callback_data="cmd_customencode", style="primary")],
         [
-            InlineKeyboardButton(text="ℹ️ Info Encode", callback_data="info_encode", style="primary"),
-            InlineKeyboardButton(text="↩️ Kembali", callback_data="menu_main", style="danger")
-        ]
+            InlineKeyboardButton(text="🚀 Fast Encode", callback_data="cmd_encode", style="success"),
+            InlineKeyboardButton(text="🎛️ Custom", callback_data="cmd_customencode", style="primary")
+        ],
+        [
+            InlineKeyboardButton(text="🎥 Set Video", callback_data="video_settings", style="primary"),
+            InlineKeyboardButton(text="🎵 Set Audio", callback_data="audio_settings", style="primary")
+        ],
+        [
+            InlineKeyboardButton(text="🚜 Format", callback_data="convert_settings", style="primary"),
+            InlineKeyboardButton(text="🏷️ Metadata", callback_data="metadata_settings", style="primary")
+        ],
+        [
+            InlineKeyboardButton(text="©️ Watermark", callback_data="watermark_settings", style="primary"),
+            InlineKeyboardButton(text="ℹ️ Info", callback_data="info_encode", style="primary")
+        ],
+        [InlineKeyboardButton(text="↩️ Kembali", callback_data="menu_main", style="danger")]
     ])
 
 def kb_editor() -> InlineKeyboardMarkup:
@@ -211,11 +222,11 @@ def kb_editor() -> InlineKeyboardMarkup:
         [InlineKeyboardButton(text="🔗 Gabung", callback_data="cmd_merge", style="primary")],
         [
             InlineKeyboardButton(text="✂️ Trim", callback_data="cmd_trim", style="primary"),
-            InlineKeyboardButton(text="🔪 Potong", callback_data="cmd_cut", style="primary"),
+            InlineKeyboardButton(text="🔪 Cut", callback_data="cmd_cut", style="primary"),
             InlineKeyboardButton(text="📐 Split", callback_data="cmd_split", style="primary")
         ],
         [
-            InlineKeyboardButton(text="⚡ Kecepatan", callback_data="cmd_speed", style="primary"),
+            InlineKeyboardButton(text="⚡ Speed", callback_data="cmd_speed", style="primary"),
             InlineKeyboardButton(text="📁 Ekstensi", callback_data="cmd_extension", style="primary")
         ],
         [
@@ -225,7 +236,7 @@ def kb_editor() -> InlineKeyboardMarkup:
         ],
         [InlineKeyboardButton(text="©️ Watermark", callback_data="cmd_watermark", style="primary")],
         [
-            InlineKeyboardButton(text="🔇 Mute Audio", callback_data="cmd_mute", style="primary"),
+            InlineKeyboardButton(text="🔇 Mute", callback_data="cmd_mute", style="primary"),
             InlineKeyboardButton(text="🎙️ Dubbing", callback_data="cmd_dubbing", style="primary")
         ],
         [
@@ -235,25 +246,25 @@ def kb_editor() -> InlineKeyboardMarkup:
         ],
         [
             InlineKeyboardButton(text="🏷️ Metadata", callback_data="cmd_changemetadata", style="primary"),
-            InlineKeyboardButton(text="🔀 Ubah Index", callback_data="cmd_changeindex", style="primary")
+            InlineKeyboardButton(text="🔀 Index", callback_data="cmd_changeindex", style="primary")
         ],
         [InlineKeyboardButton(text="📥 Ekstrak", callback_data="cmd_extract", style="primary")],
         [
-            InlineKeyboardButton(text="📸 Screenshot", callback_data="cmd_genss", style="primary"),
+            InlineKeyboardButton(text="📸 SS", callback_data="cmd_genss", style="primary"),
             InlineKeyboardButton(text="🎞️ Sample", callback_data="cmd_gensample", style="primary")
         ],
         [
-            InlineKeyboardButton(text="ℹ️ Info Media", callback_data="cmd_mediainfo", style="primary"),
+            InlineKeyboardButton(text="ℹ️ Info", callback_data="cmd_mediainfo", style="primary"),
             InlineKeyboardButton(text="↩️ Kembali", callback_data="menu_main", style="danger")
         ]
     ])
 
 def kb_assets() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="➕ Tambah Footage", callback_data="cmd_addgameplay", style="success")],
+        [InlineKeyboardButton(text="➕ Add Footage", callback_data="cmd_addgameplay", style="success")],
         [
-            InlineKeyboardButton(text="📋 List Footage", callback_data="cmd_listgameplay", style="primary"),
-            InlineKeyboardButton(text="🔊 Tambah SFX", callback_data="cmd_addsfx", style="primary")
+            InlineKeyboardButton(text="📋 List", callback_data="cmd_listgameplay", style="primary"),
+            InlineKeyboardButton(text="🔊 Add SFX", callback_data="cmd_addsfx", style="primary")
         ],
         [
             InlineKeyboardButton(text="🗑️ Hapus", callback_data="cmd_deletegameplay", style="danger"),
@@ -264,8 +275,8 @@ def kb_assets() -> InlineKeyboardMarkup:
 def kb_download() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=[
         [
-            InlineKeyboardButton(text="📥 Leech URL", callback_data="cmd_leech", style="primary"),
-            InlineKeyboardButton(text="☁️ Mirror Cloud", callback_data="cmd_mirror", style="primary")
+            InlineKeyboardButton(text="📥 Leech", callback_data="cmd_leech", style="primary"),
+            InlineKeyboardButton(text="☁️ Mirror", callback_data="cmd_mirror", style="primary")
         ],
         [InlineKeyboardButton(text="↩️ Kembali", callback_data="menu_main", style="danger")]
     ])
@@ -273,34 +284,25 @@ def kb_download() -> InlineKeyboardMarkup:
 def kb_settings() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=[
         [
-            InlineKeyboardButton(text="💾 Set Rclone", callback_data="cmd_saveconfig", style="success"),
-            InlineKeyboardButton(text="🖼️ Set Thumb", callback_data="cmd_savethumb", style="success")
+            InlineKeyboardButton(text="💾 Rclone", callback_data="cmd_saveconfig", style="success"),
+            InlineKeyboardButton(text="🖼️ Thumb", callback_data="cmd_savethumb", style="success")
         ],
         [
-            InlineKeyboardButton(text="📥 Upload Watermark", callback_data="cmd_savewatermark", style="success"),
-            InlineKeyboardButton(text="©️ Setting Watermark", callback_data="watermark_settings", style="primary")
+            InlineKeyboardButton(text="📥 Add WM", callback_data="cmd_savewatermark", style="success"),
+            InlineKeyboardButton(text="🤖 Set Bot", callback_data="settings_bot", style="primary")
         ],
         [
-            InlineKeyboardButton(text="🎥 Video Prefs", callback_data="video_settings", style="primary"),
-            InlineKeyboardButton(text="🎵 Audio Prefs", callback_data="audio_settings", style="primary")
+            InlineKeyboardButton(text="🔗 Rule Merge", callback_data="merge_settings", style="primary"),
+            InlineKeyboardButton(text="📝 Rule Mux", callback_data="mux_settings", style="primary")
         ],
-        [
-            InlineKeyboardButton(text="🔗 Merge Rule", callback_data="merge_settings", style="primary"),
-            InlineKeyboardButton(text="📝 Muxing Rule", callback_data="mux_settings", style="primary")
-        ],
-        [
-            InlineKeyboardButton(text="🚜 Target Konversi", callback_data="convert_settings", style="primary"),
-            InlineKeyboardButton(text="🏷️ Metadata", callback_data="metadata_settings", style="primary")
-        ],
-        [InlineKeyboardButton(text="🤖 Setting Umum (Bot)", callback_data="settings_bot", style="primary")],
         [InlineKeyboardButton(text="↩️ Kembali", callback_data="menu_main", style="danger")]
     ])
 
 def kb_vip() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=[
         [
-            InlineKeyboardButton(text="👑 Status VIP", callback_data="cmd_myvip", style="primary"),
-            InlineKeyboardButton(text="ℹ️ Info VIP", callback_data="cmd_vip_info", style="primary")
+            InlineKeyboardButton(text="👑 Status", callback_data="cmd_myvip", style="primary"),
+            InlineKeyboardButton(text="ℹ️ Info", callback_data="cmd_vip_info", style="primary")
         ],
         [InlineKeyboardButton(text="💳 Verifikasi", callback_data="cmd_verify", style="success")],
         [InlineKeyboardButton(text="↩️ Kembali", callback_data="menu_main", style="danger")]
@@ -311,24 +313,24 @@ def kb_admin() -> InlineKeyboardMarkup:
         [
             InlineKeyboardButton(text="📊 Status", callback_data="cmd_status", style="primary"),
             InlineKeyboardButton(text="⏱️ Uptime", callback_data="cmd_time", style="primary"),
-            InlineKeyboardButton(text="⚡ Speedtest", callback_data="cmd_speedtest", style="primary")
+            InlineKeyboardButton(text="⚡ Speed", callback_data="cmd_speedtest", style="primary")
         ],
         [
             InlineKeyboardButton(text="📈 Stats", callback_data="cmd_stats", style="primary"),
             InlineKeyboardButton(text="📜 Log", callback_data="cmd_log", style="primary"),
-            InlineKeyboardButton(text="📁 Unduh", callback_data="cmd_logs", style="primary")
+            InlineKeyboardButton(text="📁 DL Logs", callback_data="cmd_logs", style="primary")
         ],
         [
-            InlineKeyboardButton(text="🔄 Cek Config", callback_data="cmd_changeconfig", style="primary"),
-            InlineKeyboardButton(text="🗑️ Hapus Config", callback_data="cmd_clearconfigs", style="danger")
+            InlineKeyboardButton(text="🔄 Cek Cfg", callback_data="cmd_changeconfig", style="primary"),
+            InlineKeyboardButton(text="🗑️ Del Cfg", callback_data="cmd_clearconfigs", style="danger")
         ],
         [
-            InlineKeyboardButton(text="🧹 Bersihkan", callback_data="cmd_renew", style="primary"),
+            InlineKeyboardButton(text="🧹 Clean", callback_data="cmd_renew", style="primary"),
             InlineKeyboardButton(text="💥 Reset DB", callback_data="cmd_resetdb", style="danger")
         ],
         [
-            InlineKeyboardButton(text="👮 List Sudo", callback_data="cmd_checksudo", style="primary"),
-            InlineKeyboardButton(text="👑 List VIP", callback_data="cmd_view_vip", style="primary")
+            InlineKeyboardButton(text="👮 Sudo", callback_data="cmd_checksudo", style="primary"),
+            InlineKeyboardButton(text="👑 VIPs", callback_data="cmd_view_vip", style="primary")
         ],
         [
             InlineKeyboardButton(text="➕ Sudo", callback_data="cmd_addsudo", style="success"),
@@ -384,7 +386,7 @@ async def nav_ai(callback: CallbackQuery):
 
 @ui_router.callback_query(F.data == "menu_encode")
 async def nav_encode(callback: CallbackQuery):
-    text = create_section_header("🎞️", "Encode", "Encoding video dengan preset optimized atau custom parameters")
+    text = create_section_header("🎞️", "Encode & Profil", "Eksekusi encoding video dan atur preferensi kualitas (Video, Audio, Watermark, dan Metadata).")
     await safe_edit(callback.message, text, kb_encode())
     await callback.answer()
 
@@ -422,7 +424,7 @@ async def nav_download(callback: CallbackQuery):
 
 @ui_router.callback_query(F.data == "settings")
 async def nav_settings(callback: CallbackQuery):
-    text = create_section_header("⚙️", "Pengaturan", "Konfigurasi engine, media, dan metadata Studio Khoirul.\n<i>(Menu terhubung langsung ke sistem inti bot)</i>")
+    text = create_section_header("⚙️", "Pengaturan Global", "Konfigurasi engine bot, Rclone, file sistem, dan aturan Muxing/Merge.")
     await safe_edit(callback.message, text, kb_settings())
     await callback.answer()
 
@@ -468,7 +470,7 @@ Kontrol penuh parameter encoding
     await callback.answer()
 
 # ==========================================
-# 7. COMMAND ROUTER - FIXED
+# 7. COMMAND ROUTER
 # ==========================================
 
 @ui_router.callback_query(F.data.startswith("cmd_"))
@@ -476,14 +478,12 @@ async def route_commands(callback: CallbackQuery):
     cmd = callback.data.split("_", 1)[1]
     user_id = callback.from_user.id
 
-    # Import modules di paling atas fungsi (mencegah UnboundLocalError)
     try:
         import bot.admin_handlers as adm
         import bot.media_handlers as med
         import bot.advanced_media_handlers as adv
         import bot.vip_handlers as vip
         import bot.subtitle_handlers as sub
-        import bot.subtitle_editor as subed
         import bot.MovieRecap as recap
         import bot.Gameplay as gp
         import bot.AutoClip as autoclip
@@ -561,7 +561,6 @@ async def route_commands(callback: CallbackQuery):
 
         "autosub": getattr(sub, "autosub_handler", None),
         "autotranslate": getattr(sub, "autotranslate_handler", None),
-        "subedit": getattr(subed, "subedit_start", None)
     }
 
     admin_cmds = {
@@ -577,7 +576,7 @@ async def route_commands(callback: CallbackQuery):
         "mute", "dubbing", "softmux", "hardmux", "softremux", "watermark",
         "extract", "extension", "changeindex", "changemetadata", "mediainfo",
         "trim", "split", "cut", "rotate", "crop", "autocrop", "genss",
-        "gensample", "ext_thumb", "ext_frames", "autosub", "autotranslate", "subedit",
+        "gensample", "ext_thumb", "ext_frames", "autosub", "autotranslate", 
         "leech", "mirror", "addgameplay", "addsfx", "deletegameplay", "recap", "clip",
         "ytupload"
     }
@@ -595,7 +594,7 @@ async def route_commands(callback: CallbackQuery):
 
             if cmd == "autosub":
                 media_type = "Video atau Audio"
-            elif cmd in ["autotranslate", "subedit"]:
+            elif cmd == "autotranslate":
                 media_type = "File Subtitle (.srt / .ass)"
             elif cmd in ["savethumb", "savewatermark"]:
                 media_type = "Gambar / Foto"
