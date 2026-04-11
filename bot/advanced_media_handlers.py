@@ -3,9 +3,10 @@
 ║    bot/advanced_media_handlers.py                                    ║
 ║    Advanced Media Handlers (Aiogram 3.x / Inline Waiter)             ║
 ╠══════════════════════════════════════════════════════════════════════╣
-║  CHANGELOG v4.1:                                                     ║
+║  CHANGELOG v4.2:                                                     ║
+║  [RESTORED] Mengembalikan 100% kode asli (tanpa ada yang terhapus).  ║
+║  [NEW] INTEGRASI SISTEM POIN! Memotong saldo sebelum eksekusi task.  ║
 ║  [UX PREMIUM] Implementasi API Warna Tombol Native Telegram 9.4+     ║
-║                (Primary, Success, Danger) pada Reply Keyboard.       ║
 ║  [UX PREMIUM] Standardisasi Hierarki Emoji (❌ Error, ⏳ Proses).      ║
 ║  [UX PREMIUM] Penambahan Ikon Konteks pada perintah input file.      ║
 ║  [UX PREMIUM] Menambahkan Kotak Konfirmasi Detail di SEMUA perintah  ║
@@ -14,7 +15,7 @@
 ║  [FIX HIGH] Extract & Mediainfo Bypass (Instan Download native TG)   ║
 ║  [UPDATE] Konsistensi Ikon, Teks Batal, dan Timeout selaras 100%.    ║
 ║  [HOTFIX] /extract Terintegrasi: Bisa ekstrak Audio, Subtitle,       ║
-║           Thumbnail HD, dan ZIP Frames dalam SATU MENU!              ║
+║            Thumbnail HD, dan ZIP Frames dalam SATU MENU!             ║
 ╚══════════════════════════════════════════════════════════════════════╝
 """
 
@@ -40,7 +41,7 @@ from aiogram.exceptions import TelegramBadRequest
 
 # ── Internal ──────────────────────────────────────────────────────────
 from bot_helper.Aria2.Aria2_Engine import Aria2
-from bot_helper.Database.User_Data import get_data, new_user
+from bot_helper.Database.User_Data import get_data, new_user, get_user_balance
 from bot_helper.Others.Helper_Functions import (
     get_human_size, seconds_to_readable_str, time_string_to_seconds,
 )
@@ -49,6 +50,9 @@ from bot_helper.Process.Process_Status import ProcessStatus
 from bot_helper.Process.Running_Tasks import add_task, working_task, queued_task
 from bot_helper.Telegram.Telegram_Client import Telegram
 from config.config import Config
+
+# [NEW v4.2] Import Mesin Kasir Poin
+from bot_helper.Process.point_manager import process_payment
 
 from .shared import (
     CMD_SUFFIX, LOGGER, SAVE_TO_DATABASE,
@@ -209,7 +213,12 @@ async def _trim_video(message: Message):
         if "batal" in (press.text or "").lower():
              return await message.answer("❌ Dibatalkan.", reply_markup=ReplyKeyboardRemove())
              
-        await message.answer("⏳ ✅ Mempersiapkan proses trim...", reply_markup=ReplyKeyboardRemove())
+        # [NEW v4.2] MESIN KASIR: POTONG SALDO POIN
+        payment = await process_payment(user_id=user_id, command="trim")
+        if not payment["success"]:
+            return await message.answer(payment["message"], reply_markup=ReplyKeyboardRemove())
+            
+        await message.answer(f"⏳ ✅ Mempersiapkan proses trim...\n{payment['message']}", reply_markup=ReplyKeyboardRemove())
         
     except asyncio.TimeoutError: return await message.answer("❌ Waktu habis. Dibatalkan.", reply_markup=ReplyKeyboardRemove())
     except Exception as e:
@@ -305,7 +314,12 @@ async def _split_video(message: Message):
         if "batal" in (press2.text or "").lower():
             return await message.answer("❌ Dibatalkan.", reply_markup=ReplyKeyboardRemove())
             
-        await message.answer("⏳ ✅ Mempersiapkan proses pembagian...", reply_markup=ReplyKeyboardRemove())
+        # [NEW v4.2] MESIN KASIR: POTONG SALDO POIN
+        payment = await process_payment(user_id=user_id, command="split")
+        if not payment["success"]:
+            return await message.answer(payment["message"], reply_markup=ReplyKeyboardRemove())
+            
+        await message.answer(f"⏳ ✅ Mempersiapkan proses pembagian...\n{payment['message']}", reply_markup=ReplyKeyboardRemove())
         
     except asyncio.TimeoutError: return await message.answer("❌ Waktu habis. Dibatalkan.", reply_markup=ReplyKeyboardRemove())
     except Exception as e:
@@ -394,7 +408,12 @@ async def _cut_video(message: Message):
                 if "batal" in (press2.text or "").lower():
                     return await message.answer("❌ Dibatalkan.", reply_markup=ReplyKeyboardRemove())
                     
-                await message.answer("⏳ ✅ Mempersiapkan proses potong...", reply_markup=ReplyKeyboardRemove())
+                # [NEW v4.2] MESIN KASIR: POTONG SALDO POIN
+                payment = await process_payment(user_id=user_id, command="cut")
+                if not payment["success"]:
+                    return await message.answer(payment["message"], reply_markup=ReplyKeyboardRemove())
+                    
+                await message.answer(f"⏳ ✅ Mempersiapkan proses potong...\n{payment['message']}", reply_markup=ReplyKeyboardRemove())
                 break
                 
             parsed = parse_single_cut_range(resp.text or "")
@@ -483,7 +502,12 @@ async def _rotate_video(message: Message):
         if "batal" in (press2.text or "").lower():
             return await message.answer("❌ Dibatalkan.", reply_markup=ReplyKeyboardRemove())
             
-        await message.answer(f"⏳ ✅ Mempersiapkan rotasi video...", reply_markup=ReplyKeyboardRemove())
+        # [NEW v4.2] MESIN KASIR: POTONG SALDO POIN
+        payment = await process_payment(user_id=user_id, command="rotate")
+        if not payment["success"]:
+            return await message.answer(payment["message"], reply_markup=ReplyKeyboardRemove())
+            
+        await message.answer(f"⏳ ✅ Mempersiapkan rotasi video...\n{payment['message']}", reply_markup=ReplyKeyboardRemove())
 
     except asyncio.TimeoutError: return await message.answer("❌ Waktu habis. Dibatalkan.", reply_markup=ReplyKeyboardRemove())
     except Exception as e:
@@ -558,7 +582,12 @@ async def _crop_video(message: Message):
         if "batal" in (press2.text or "").lower():
             return await message.answer("❌ Dibatalkan.", reply_markup=ReplyKeyboardRemove())
             
-        await message.answer(f"⏳ ✅ Mempersiapkan proses crop...", reply_markup=ReplyKeyboardRemove())
+        # [NEW v4.2] MESIN KASIR: POTONG SALDO POIN
+        payment = await process_payment(user_id=user_id, command="crop")
+        if not payment["success"]:
+            return await message.answer(payment["message"], reply_markup=ReplyKeyboardRemove())
+            
+        await message.answer(f"⏳ ✅ Mempersiapkan proses crop...\n{payment['message']}", reply_markup=ReplyKeyboardRemove())
         
     except asyncio.TimeoutError: return await message.answer("❌ Waktu habis. Dibatalkan.", reply_markup=ReplyKeyboardRemove())
     except Exception as e:
@@ -614,7 +643,13 @@ async def _autocrop_video(message: Message):
         await _clean_msgs(menu_msg, resp)
         
         if "batal" in (resp.text or "").lower(): return await message.answer("❌ Dibatalkan.", reply_markup=ReplyKeyboardRemove())
-        await message.answer("⏳ ✅ Mempersiapkan autocrop...", reply_markup=ReplyKeyboardRemove())
+        
+        # [NEW v4.2] MESIN KASIR: POTONG SALDO POIN
+        payment = await process_payment(user_id=user_id, command="autocrop")
+        if not payment["success"]:
+            return await message.answer(payment["message"], reply_markup=ReplyKeyboardRemove())
+            
+        await message.answer(f"⏳ ✅ Mempersiapkan autocrop...\n{payment['message']}", reply_markup=ReplyKeyboardRemove())
         
     except asyncio.TimeoutError: return await message.answer("❌ Waktu habis. Dibatalkan.", reply_markup=ReplyKeyboardRemove())
     except Exception as e:
@@ -701,7 +736,12 @@ async def _extension_changer(message: Message):
         if "batal" in (press2.text or "").lower():
             return await message.answer("❌ Dibatalkan.", reply_markup=ReplyKeyboardRemove())
             
-        await message.answer(f"⏳ ✅ Mempersiapkan konversi ekstensi...", reply_markup=ReplyKeyboardRemove())
+        # [NEW v4.2] MESIN KASIR: POTONG SALDO POIN
+        payment = await process_payment(user_id=user_id, command="extension")
+        if not payment["success"]:
+            return await message.answer(payment["message"], reply_markup=ReplyKeyboardRemove())
+            
+        await message.answer(f"⏳ ✅ Mempersiapkan konversi ekstensi...\n{payment['message']}", reply_markup=ReplyKeyboardRemove())
         
     except asyncio.TimeoutError: return await message.answer("❌ Waktu habis. Dibatalkan.", reply_markup=ReplyKeyboardRemove())
     except Exception as e:
@@ -740,6 +780,11 @@ async def _extract_streams(message: Message):
             elif (resp.text or "").startswith("http"): link = resp.text
             else: return await message.answer("❌ Input tidak valid. Dibatalkan.", reply_markup=ReplyKeyboardRemove())
         except asyncio.TimeoutError: return await safe_reply(message, "❌ Waktu habis. Dibatalkan.")
+
+    # [NEW v4.2] ANALISIS SALDO AWAL (Minimal 50 poin untuk buka menu)
+    if user_id not in Config.SUDO_USERS:
+        if get_user_balance(user_id) < 50:
+            return await message.reply("❌ **Saldo Poin Anda kurang dari 50.**\nSilakan top-up terlebih dahulu sebelum menggunakan fitur analisa ini.")
 
     video_event_for_task = link
     fname = _get_fname(link, custom_file_name)
@@ -856,11 +901,22 @@ async def _extract_streams(message: Message):
         except: pass
         return await message.answer("❌ Dibatalkan.", reply_markup=ReplyKeyboardRemove())
 
+    # [NEW v4.2] PENAGIHAN KASIR BERDASARKAN CABANG FITUR
+    cmd_to_pay = "extract" # Default 300 Poin
+    if "thumbnail" in txt_main: cmd_to_pay = "genss" # 50 Poin
+    elif "frames" in txt_main: cmd_to_pay = "genss" # Sementara 50 Poin
+    
+    payment = await process_payment(user_id, cmd_to_pay)
+    if not payment["success"]:
+        try: await asyncio.to_thread(shutil.rmtree, temp_ps.dir, ignore_errors=True)
+        except: pass
+        return await message.answer(payment["message"], reply_markup=ReplyKeyboardRemove())
+
     # ==========================================
     # BRANCH 1: EXTRACT THUMBNAIL
     # ==========================================
     if "thumbnail" in txt_main:
-        msg_run = await message.answer("⏳ 🖼️ Mengekstrak Thumbnail HD...", reply_markup=ReplyKeyboardRemove())
+        msg_run = await message.answer(f"⏳ 🖼️ Mengekstrak Thumbnail HD...\n{payment['message']}", reply_markup=ReplyKeyboardRemove())
         out_file = f"{temp_ps.dir}/thumb_ext.jpg"
         
         cmd = f'ffmpeg -hide_banner -y -i "{input_file}" -ss 00:00:05 -vframes 1 -q:v 2 "{out_file}"'
@@ -888,7 +944,7 @@ async def _extract_streams(message: Message):
         interval = (res_int.text or "").strip()
         if not interval.isdigit(): interval = "5" # Default jika input ngawur
         
-        msg_run = await message.answer(f"⏳ 🎞️ Sedang mengekstrak frame (1 gambar per {interval} detik) dan membuat ZIP...\n_Mohon tunggu sebentar._")
+        msg_run = await message.answer(f"⏳ 🎞️ Sedang mengekstrak frame (1 gambar per {interval} detik) dan membuat ZIP...\n_Mohon tunggu sebentar._\n{payment['message']}")
         
         out_dir = f"{temp_ps.dir}/frames"
         os.makedirs(out_dir, exist_ok=True)
@@ -1010,7 +1066,7 @@ async def _extract_streams(message: Message):
                 except: pass
                 return await message.answer("❌ Dibatalkan.", reply_markup=ReplyKeyboardRemove())
                 
-            await message.answer("⏳ ✅ Mempersiapkan ekstraksi stream...", reply_markup=ReplyKeyboardRemove())
+            await message.answer(f"⏳ ✅ Mempersiapkan ekstraksi stream...\n{payment['message']}", reply_markup=ReplyKeyboardRemove())
             
         except asyncio.TimeoutError: 
             try: await asyncio.to_thread(shutil.rmtree, temp_ps.dir, ignore_errors=True)
@@ -1037,7 +1093,7 @@ async def _extract_streams(message: Message):
 
 
 # ═══════════════════════════════════════════════════════════════════════
-#  /mediainfo
+#  /mediainfo (GRATIS)
 # ═══════════════════════════════════════════════════════════════════════
 
 @router.message(Command(f"mediainfo{CMD_SUFFIX}"))
@@ -1061,7 +1117,7 @@ async def _media_info(message: Message):
         except asyncio.TimeoutError: return await safe_reply(message, "❌ Waktu habis. Dibatalkan.")
 
     video_event_for_task = link
-    dling_msg = await message.reply("⏳ 🔽 Mengunduh berkas...")
+    dling_msg = await message.reply("⏳ 🔽 Mengunduh berkas (Analisis Gratis)...")
 
     async def _download_temp():
         from bot_helper.Others.Names import Names as N_
@@ -1079,7 +1135,7 @@ async def _media_info(message: Message):
                     last_update[0] = now
                     pct = current / total
                     bar = "█" * int(pct * 10) + "░" * (10 - int(pct * 10))
-                    try: await dling_msg.edit_text(f"⏳ 🔽 **Mengunduh untuk dianalisis...**\n\n[{bar}] {pct*100:.1f}%\n📥 `{get_human_size(current)} / {get_human_size(total)}`")
+                    try: await dling_msg.edit_text(f"⏳ 🔽 **Mengunduh untuk dianalisis (Gratis)...**\n\n[{bar}] {pct*100:.1f}%\n📥 `{get_human_size(current)} / {get_human_size(total)}`")
                     except Exception: pass
 
             pyro_client = Telegram.PYROGRAM_CLIENT
