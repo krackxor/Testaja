@@ -1,14 +1,14 @@
 """
 ╔══════════════════════════════════════════════════════════════════════╗
-║                    bot/subtitle_handlers.py — v2.2                   ║
+║                    bot/subtitle_handlers.py — v2.3                   ║
 ║        Auto Subtitle (AI Whisper) & Auto Translate Subtitle          ║
 ╠══════════════════════════════════════════════════════════════════════╣
-║  CHANGELOG v2.2:                                                     ║
+║  CHANGELOG v2.3:                                                     ║
+║  [FIX CRITICAL] Mengganti download Aiogram (max 20MB) dengan         ║
+║                 Pyrogram (MTProto) agar support file hingga 2GB      ║
+║                 saat menarik media untuk Auto Subtitle.              ║
+║  [UX] Menambahkan UI Update (Progress Bar) saat mengunduh media.     ║
 ║  [NEW] Integrasi dengan Sistem Kasir (point_manager.py).             ║
-║  [NEW] Memotong Saldo Poin pengguna sebelum AI mulai bekerja.        ║
-║  [FIX CRITICAL] Asyncio.to_thread pada loop Whisper Generator.       ║
-║  [FIX CRITICAL] Asyncio.to_thread pada GoogleTranslator.             ║
-║  [IMPROVE] Bot 100% kebal macet saat AI sedang merender teks.        ║
 ╚══════════════════════════════════════════════════════════════════════╝
 """
 
@@ -106,10 +106,35 @@ async def _core_autosub_logic(message: Message, ui, reply_msg: Message, lang_cod
     srt_path = _tmp(f"{fname}.srt")
     
     try:
-        # 1. Download Media
-        await ui.update("📥 Mengunduh Media...", details="Mengambil file untuk dianalisis...")
-        target_media = reply_msg.video or reply_msg.audio or reply_msg.voice or reply_msg.document
-        await Telegram.AIOGRAM_BOT.download(target_media, destination=media_path)
+        # 1. Download Media (MENGGUNAKAN PYROGRAM ANTI-LIMIT 2GB)
+        await ui.update("📥 Mengunduh Media...", details="Mempersiapkan unduhan via Pyrogram (Anti-Limit)...")
+        last_dl_edit = 0.0
+
+        async def _dl_progress(current: int, total: int):
+            nonlocal last_dl_edit
+            now = time.time()
+            # Update UI setiap 2 detik agar Telegram tidak memblokir bot
+            if now - last_dl_edit >= 2.0 and total > 0:
+                await ui.update(
+                    status="📥 Mengunduh Media...", 
+                    current=current, 
+                    total=total, 
+                    details="Mengambil file untuk dianalisis..."
+                )
+                last_dl_edit = now
+
+        try:
+            # Gunakan reply_msg.message_id karena media-nya ada di pesan yang di-reply
+            pyro_msg = await Telegram.PYROGRAM_CLIENT.get_messages(reply_msg.chat.id, reply_msg.message_id)
+            await Telegram.PYROGRAM_CLIENT.download_media(
+                message=pyro_msg,
+                file_name=media_path,
+                progress=_dl_progress
+            )
+        except Exception as e:
+            await ui.error(f"Gagal mengunduh file via Pyrogram: {e}")
+            return
+
         if not os.path.exists(media_path): raise RuntimeError("Gagal mengunduh berkas media.")
 
         # 2. Inisialisasi AI Whisper di latar belakang
@@ -194,8 +219,32 @@ async def _core_autotranslate_logic(message: Message, ui, reply_msg: Message, ta
     
     try:
         # 1. Download SRT
-        await ui.update("📥 Mengunduh Subtitle...", details="Mengambil file .srt dari Telegram...")
-        await Telegram.AIOGRAM_BOT.download(reply_msg.document, destination=srt_in)
+        await ui.update("📥 Mengunduh Subtitle...", details="Mengambil file .srt dari Telegram (Pyrogram)...")
+        last_dl_edit = 0.0
+
+        async def _dl_progress(current: int, total: int):
+            nonlocal last_dl_edit
+            now = time.time()
+            if now - last_dl_edit >= 2.0 and total > 0:
+                await ui.update(
+                    status="📥 Mengunduh Subtitle...", 
+                    current=current, 
+                    total=total, 
+                    details="Mengambil file .srt dari Telegram..."
+                )
+                last_dl_edit = now
+
+        try:
+            pyro_msg = await Telegram.PYROGRAM_CLIENT.get_messages(reply_msg.chat.id, reply_msg.message_id)
+            await Telegram.PYROGRAM_CLIENT.download_media(
+                message=pyro_msg,
+                file_name=srt_in,
+                progress=_dl_progress
+            )
+        except Exception as e:
+            await ui.error(f"Gagal mengunduh file SRT via Pyrogram: {e}")
+            return
+            
         if not os.path.exists(srt_in): raise RuntimeError("Gagal mengunduh berkas SRT.")
 
         # 2. Parse & Inisialisasi Translator
