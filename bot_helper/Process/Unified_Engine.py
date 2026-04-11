@@ -3,14 +3,10 @@
 ║            bot_helper/Process/Unified_Engine.py                      ║
 ║            Mesin Antrean & UI Terpusat (Studio Khoirul)              ║
 ╠══════════════════════════════════════════════════════════════════════╣
-║  CHANGELOG v4.7:                                                     ║
-║  [NEW] Menambahkan fungsi `prep_phase` untuk laporan UI persiapan    ║
-║        Lore (Trim/Split) beserta sisa antrean klip.                  ║
-║  [NEW] Menanamkan fitur "Indeterminate Animation Loop" agar user     ║
-║        tahu bot tidak macet saat merender data Studio.               ║
-║  [UX]  Full Pure Markdown Support & Admin Bypass Status.             ║
-║  [FIX] Memisahkan memori antrean internal agar tidak terjadi         ║
-║        TypeError pada struktur deque.                                ║
+║  CHANGELOG v5.0 (Synergy Update):                                    ║
+║  [NEW] Mengekspor _ue_ui_objects agar progress bar Studio bisa       ║
+║        dibaca secara real-time oleh perintah /status global.         ║
+║  [UX]  Layout UI disamakan 100% dengan Process_Status.py.            ║
 ╚══════════════════════════════════════════════════════════════════════╝
 """
 
@@ -23,61 +19,41 @@ from config.config import Config
 LOGGER = Config.LOGGER
 _task_semaphore = asyncio.Semaphore(Config.RUNNING_TASK_LIMIT)
 
-# Memori dictionary internal
+# Memori Internal & UI Exporter (Untuk Sinergi dengan Running_Tasks)
 _ue_queued = {}
 _ue_working = {}
+_ue_ui_objects = {}  # MENYIMPAN OBJEK UI AGAR BISA DIBACA GLOBAL
 
-# Konstanta UI
 DIVIDER = "━━━━━━━━━━━━━━━━━━━━"
 
-# ==========================================
-# 1. HELPER FORMATTER
-# ==========================================
 def humanbytes(size):
-    """Format bytes ke ukuran yang mudah dibaca"""
-    if not size or size <= 0: 
-        return "0 B"
+    if not size or size <= 0: return "0 B"
     power = 2**10
     n = 0
     Dic_powerN = {0: 'B', 1: 'KB', 2: 'MB', 3: 'GB', 4: 'TB'}
     while size >= power and n < 4:
-        size /= power
-        n += 1
+        size /= power; n += 1
     return f"{round(size, 2)} {Dic_powerN[n]}"
 
 def TimeFormatter(milliseconds: float) -> str:
-    """Format waktu (ETA) ke bentuk jam, menit, detik"""
-    if not milliseconds or milliseconds <= 0:
-        return "0s"
+    if not milliseconds or milliseconds <= 0: return "0s"
     seconds, milliseconds = divmod(int(milliseconds), 1000)
     minutes, seconds = divmod(seconds, 60)
     hours, minutes = divmod(minutes, 60)
     days, hours = divmod(hours, 24)
-    tmp = ((str(days) + "d, ") if days else "") + \
-          ((str(hours) + "h, ") if hours else "") + \
-          ((str(minutes) + "m, ") if minutes else "") + \
-          ((str(seconds) + "s") if seconds else "")
-    
+    tmp = ((str(days) + "d, ") if days else "") + ((str(hours) + "h, ") if hours else "") + ((str(minutes) + "m, ") if minutes else "") + ((str(seconds) + "s") if seconds else "")
     tmp = tmp.strip()
-    if tmp.endswith(","): 
-        tmp = tmp[:-1]
-    return tmp if tmp else "0s"
+    return tmp[:-1] if tmp.endswith(",") else tmp if tmp else "0s"
 
 def get_progress_bar(current: float, max_val: float, width: int = 10) -> str:
-    """Progress Bar untuk ukuran pasti [████░░░░]"""
-    if max_val <= 0: 
-        return f"[{'░' * width}]"
+    if max_val <= 0: return f"[{'░' * width}]"
     percent = min(max(current / max_val, 0.0), 1.0)
     filled = int(percent * width)
-    empty = width - filled
-    return f"[{'█' * filled}{'░' * empty}]"
+    return f"[{'█' * filled}{'░' * (width - filled)}]"
 
 def is_admin(user_id: int) -> bool:
     return user_id in Config.SUDO_USERS
 
-# ==========================================
-# 2. SISTEM UI (PROGRESS MANAGER & ANIMATOR)
-# ==========================================
 class ProgressUI:
     def __init__(self, message: Message, module_name: str):
         self.message = message
@@ -86,51 +62,37 @@ class ProgressUI:
         self.start_time = time.time()
         self.user_id = message.from_user.id
         self.is_admin_user = is_admin(self.user_id)
-        
-        if message.from_user.username:
-            self.added_by = f"[{message.from_user.first_name}](https://t.me/{message.from_user.username})"
-        else:
-            self.added_by = f"**{message.from_user.first_name}**"
+        if message.from_user.username: self.added_by = f"[{message.from_user.first_name}](https://t.me/{message.from_user.username})"
+        else: self.added_by = f"**{message.from_user.first_name}**"
 
         self._animating = False
         self._anim_task = None
         self._anim_status = "⚙️ Memproses Data..."
         self._anim_details = "Sistem sedang bekerja..."
 
-    async def prep_phase(self, action_text: str = "Mempersiapkan proses pembagian...", remaining: int = 0):
-        """
-        [NEW v4.7] Menampilkan status persiapan klip Lore.
-        """
+    async def prep_phase(self, action_text: str = "Mempersiapkan proses...", remaining: int = 0):
         await self.stop_animation()
-        
-        admin_text = "👑 **Akses Admin:** Bypass sistem poin (Gratis)." if self.is_admin_user else "💎 **Sistem Poin:** Saldo Terpotong."
+        admin_text = "👑 **Akses Admin:** Bypass sistem poin." if self.is_admin_user else "💎 **Sistem Poin:** Saldo Terpotong."
         rem_text = f"⏳ **Belum di proses:** `{remaining}`" if remaining > 0 else "⏳ **Proses sinkronisasi...**"
-        
         text = (
-            f"⏳ ✅ **{action_text}**\n"
+            f"**{action_text}**\n"
             f"📁 `{self.module_name}`\n"
             f"{DIVIDER}\n"
             f"👤 **Aktor:** {self.added_by} | **ID:** `{self.user_id}`\n"
+            f"🚀 **Engine:** `Unified Core`\n"
             f"{admin_text}\n"
             f"{rem_text}\n"
             f"{DIVIDER}\n"
-            f"_Sistem sedang menyiapkan potongan video sesuai naskah..._"
+            f"_Sedang menyiapkan potongan video..._"
         )
-
         if text != self.last_text:
             try:
                 await self.message.edit_text(text, parse_mode="Markdown", disable_web_page_preview=True)
                 self.last_text = text
-            except TelegramBadRequest:
-                pass
+            except TelegramBadRequest: pass
 
     async def _animation_loop(self):
-        frames = [
-            "[█░░░░░░░░░]", "[██░░░░░░░░]", "[███░░░░░░░]", "[████░░░░░░]",
-            "[█████░░░░░]", "[██████░░░░]", "[███████░░░]", "[████████░░]",
-            "[█████████░]", "[██████████]", "[░█████████]", "[░░████████]",
-            "[░░░███████]", "[░░░░██████]", "[░░░░░░████]", "[░░░░░░░░██]"
-        ]
+        frames = ["[█░░░░░░░░░]", "[██░░░░░░░░]", "[███░░░░░░░]", "[████░░░░░░]", "[█████░░░░░]", "[██████░░░░]", "[███████░░░]", "[████████░░]", "[█████████░]", "[██████████]", "[░█████████]", "[░░████████]", "[░░░███████]", "[░░░░██████]", "[░░░░░░████]", "[░░░░░░░░██]"]
         idx = 0
         while self._animating:
             frame = frames[idx % len(frames)]
@@ -169,21 +131,17 @@ class ProgressUI:
         if total > 0:
             await self.stop_animation()
             percent = (current / total * 100)
-            percent_clean = round(min(max(percent, 0), 100), 1)
             bar = get_progress_bar(current, total, width=10)
-            cur_str, tot_str = humanbytes(current), humanbytes(total)
-            speed_str = f"{humanbytes(speed)}/s" if speed > 0 else "0 B/s"
-            eta_str = TimeFormatter(eta * 1000) if eta > 0 else "N/A"
             text = (
                 f"**{status}**\n"
                 f"📁 `{self.module_name}`\n"
-                f"{bar} **{percent_clean}%**\n"
+                f"{bar} **{round(min(max(percent, 0), 100), 1)}%**\n"
                 f"{DIVIDER}\n"
                 f"👤 **Aktor:** {self.added_by} | **ID:** `{self.user_id}`\n"
                 f"🚀 **Engine:** `Unified Core`\n"
-                f"📦 **Data:** `{cur_str} / {tot_str}`\n"
+                f"📦 **Data:** `{humanbytes(current)} / {humanbytes(total)}`\n"
             )
-            if speed > 0: text += f"⚡ **Speed:** `{speed_str}` | ⏱ **ETA:** `{eta_str}`\n"
+            if speed > 0: text += f"⚡ **Speed:** `{humanbytes(speed)}/s` | ⏱ **ETA:** `{TimeFormatter(eta * 1000)}`\n"
             if details: text += f"{DIVIDER}\n_{details}_"
             if text != self.last_text:
                 try:
@@ -199,11 +157,15 @@ class ProgressUI:
             elapsed = TimeFormatter((time.time() - self.start_time) * 1000)
             text = f"{final_text}\n\n⏱️ **Waktu Total:** `{elapsed}`"
             await self.message.edit_text(text, parse_mode="Markdown", disable_web_page_preview=True)
+            self.last_text = text # Simpan untuk history
         except: pass
 
     async def error(self, error_text: str):
         await self.stop_animation()
-        try: await self.message.edit_text(f"❌ **Error Terjadi:**\n`{error_text}`", parse_mode="Markdown")
+        try: 
+            text = f"❌ **Error Terjadi:**\n`{error_text}`"
+            await self.message.edit_text(text, parse_mode="Markdown")
+            self.last_text = text
         except: pass
 
 # ==========================================
@@ -214,9 +176,12 @@ async def execute_unified_task(message: Message, module_name: str, task_function
     task_id = f"UE_{user_id}_{int(time.time())}"
     status_msg = await message.answer(f"🔄 **Menambahkan {module_name} ke antrean...**", parse_mode="Markdown")
     ui = ProgressUI(status_msg, module_name)
+    
     _ue_queued[task_id] = module_name
+    _ue_ui_objects[task_id] = ui # DAFTARKAN KE GLOBAL EXPORTER
     
     await ui.update(f"⏳ Menunggu Giliran", details=f"Posisi antrean: {len(_ue_queued)}")
+    
     async with _task_semaphore:
         _ue_queued.pop(task_id, None)
         _ue_working[task_id] = module_name
@@ -228,3 +193,4 @@ async def execute_unified_task(message: Message, module_name: str, task_function
             await ui.error(str(e))
         finally:
             _ue_working.pop(task_id, None)
+            _ue_ui_objects.pop(task_id, None) # HAPUS DARI GLOBAL EXPORTER SETELAH SELESAI
