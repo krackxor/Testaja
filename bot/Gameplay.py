@@ -6,9 +6,10 @@
 ║  CHANGELOG v5.2:                                                     ║
 ║  [UX PREMIUM] ROMBAK TOTAL ENTRY POINT! Tidak perlu reply TXT lagi.  ║
 ║  [UX PREMIUM] Bot otomatis mendeteksi file .txt yang dikirim dan     ║
-║                memunculkan Dashboard Studio Interaktif (Satu Klik).  ║
+║               memunculkan Dashboard Studio Interaktif (Satu Klik).   ║
 ║  [NEW] INTEGRASI SISTEM POIN! Memotong saldo sebelum render jalan.   ║
 ║  [INTEGRATION] Migrasi total ke bot_helper.Process.Unified_Engine    ║
+║  [FIX] Upload Final menggunakan Pyrogram untuk cegah Timeout Error.  ║
 ╚══════════════════════════════════════════════════════════════════════╝
 """
 
@@ -755,6 +756,10 @@ async def _core_studio_logic(message: Message, ui, st: dict, gameplay_path: str)
             async def process_single_scene(local_idx, global_idx, scene, window, prev_seg_local):
                 nonlocal completed_count
                 async with semaphore:
+                    # [NEW v5.2] Update fungsi prep_phase ke UI yang baru saja kita perbarui di Unified_Engine
+                    sisa = total - completed_count
+                    await ui.prep_phase("Mempersiapkan proses pemotongan...", remaining=sisa)
+
                     current_segment = scene["segment"]
                     out_name = tmp(f"cache_{message.from_user.id}_{safe_title}_{res_mode.replace(':','')}_{global_idx:02d}.mp4")
                     
@@ -819,21 +824,38 @@ async def _core_studio_logic(message: Message, ui, st: dict, gameplay_path: str)
             score = next((int(s["narration"]) for s in scenes if s["type"] == "RATING" and str(s["narration"]).isdigit()), None)
             thumb_path = await asyncio.to_thread(generate_thumbnail, st["title"], score, gameplay_path, None, is_portrait, "short" if is_portrait else "review")
             
-            await Telegram.AIOGRAM_BOT.send_video(
-                chat_id=message.chat.id,
-                video=FSInputFile(merged_path),
-                thumbnail=FSInputFile(thumb_path),
-                caption=f"🎬 **{st['segment_name']} - {st['title']}**\n📐 {res_label}\n✅ Berhasil Dirender!",
-                supports_streaming=True,
-                width=SHORT_W if is_portrait else TARGET_W,
-                height=SHORT_H if is_portrait else TARGET_H
-            )
+            # [FIX CRITICAL v5.2] Menggunakan Pyrogram untuk Upload Hasil Akhir (Mencegah Timeout Error dari Aiogram)
+            try:
+                await Telegram.PYROGRAM_BOT.send_video(
+                    chat_id=message.chat.id,
+                    video=merged_path,
+                    thumb=thumb_path, # Pyrogram argument for thumbnail
+                    caption=f"🎬 **{st['segment_name']} - {st['title']}**\n📐 {res_label}\n✅ Berhasil Dirender!",
+                    supports_streaming=True,
+                    width=SHORT_W if is_portrait else TARGET_W,
+                    height=SHORT_H if is_portrait else TARGET_H
+                )
+            except Exception as e:
+                LOGGER.error(f"Gagal upload Pyrogram: {e}")
+                # Fallback ke Aiogram jika Pyrogram gagal
+                try:
+                    await Telegram.AIOGRAM_BOT.send_video(
+                        chat_id=message.chat.id,
+                        video=FSInputFile(merged_path),
+                        thumbnail=FSInputFile(thumb_path),
+                        caption=f"🎬 **{st['segment_name']} - {st['title']}**\n📐 {res_label}\n✅ Berhasil Dirender!",
+                        supports_streaming=True,
+                        width=SHORT_W if is_portrait else TARGET_W,
+                        height=SHORT_H if is_portrait else TARGET_H,
+                        request_timeout=3600 # Aiogram timeout fix fallback
+                    )
+                except Exception as fallback_e:
+                    await message.answer(f"❌ Gagal mengirim video hasil akhir: {fallback_e}")
             
             # YouTube Upload (Jika aktif)
             if st["yt_enabled"] and YOUTUBE_ENABLED and _HAS_YTUPLOAD and os.path.exists(merged_path):
                 await ui.update(f"🌐 Mengunggah [{res_mode}] ke YouTube...", details=f"Privasi: {st['yt_privacy'].capitalize()}")
                 try:
-                    # Kita panggil API YouTube secara manual (mirip dengan Recap)
                     from googleapiclient.http import MediaFileUpload
                     from bot.YTUpload import _get_youtube_client, YT_CHUNK_SIZE, YT_CATEGORY_ID, YT_TAGS
                     youtube = _get_youtube_client()
@@ -877,7 +899,7 @@ async def _core_studio_logic(message: Message, ui, st: dict, gameplay_path: str)
     txt_path = st.get("txt_path", "")
     cleanup_temp([txt_path] if txt_path else [])
     
-    await ui.finish(f"✅ <b>Produksi Selesai!</b>\n{st['segment_name']} - {st['title']}")
+    await ui.finish(f"✅ **Produksi Selesai!**\n{st['segment_name']} - {st['title']}")
 
 
 # ═══════════════════════════════════════════════════════════════════════
