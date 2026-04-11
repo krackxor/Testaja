@@ -1,9 +1,10 @@
 """
 ╔══════════════════════════════════════════════════════════════════════╗
-║                    bot/AutoClip.py — v5.0                            ║
-║        Auto Clip: Potong video panjang → Shorts/Reels terpisah        ║
+║                    bot/AutoClip.py — v5.1                            ║
+║        Auto Clip: Potong video panjang → Shorts/Reels terpisah       ║
 ╠══════════════════════════════════════════════════════════════════════╣
-║  CHANGELOG v5.0:                                                     ║
+║  CHANGELOG v5.1:                                                     ║
+║  [NEW] INTEGRASI SISTEM POIN! Memotong saldo sebelum render jalan.   ║
 ║  [INTEGRATION] Migrasi total ke bot_helper.Process.Unified_Engine    ║
 ║  [CLEANUP] Menghapus sistem antrean manual (Task/Semaphore manual)   ║
 ║  [UX PREMIUM] Progress Bar tersentralisasi untuk Render & Upload.    ║
@@ -35,6 +36,9 @@ from bot_helper.Process.Unified_Engine import execute_unified_task
 from bot_helper.Telegram.Telegram_Client import Telegram
 from config.config import Config
 from bot.shared import wait_for_message
+
+# [NEW v5.1] Import Mesin Kasir Poin
+from bot_helper.Process.point_manager import process_payment
 
 try:
     from bot.YTUpload import _core_ytupload_logic, YOUTUBE_ENABLED
@@ -93,11 +97,8 @@ def _cleanup(*paths: str) -> None:
             except OSError: pass
 
 def _is_vip(user_id: int) -> bool:
-    if user_id == Config.OWNER_ID or user_id in Config.SUDO_USERS: return True
-    expiry_str = get_data().get(user_id, {}).get("premium_expiry_date")
-    if not expiry_str: return False
-    try: return datetime.now(datetime.fromisoformat(str(expiry_str)).tzinfo) < datetime.fromisoformat(str(expiry_str))
-    except Exception: return False
+    """[DEPRECATED] Diganti oleh process_payment, tapi disisakan untuk check awal"""
+    return True # Pembatas utama sekarang adalah SALDO POIN
 
 def _find_source_video(topic: str) -> Optional[str]:
     search_dirs = ["./gameplay/", "./userdata/gameplay/", "./videos/"]
@@ -263,8 +264,9 @@ async def _core_autoclip_logic(message: Message, ui, reply_msg: Message, topic: 
 @router.message(Command(f"clip{CMD_SUFFIX}"))
 async def autoclip_handler(message: Message, command: CommandObject) -> None:
     user_id = message.from_user.id
-    if not _is_vip(user_id): return await message.reply("👑 **Fitur VIP**")
-
+    
+    # VIP CHECK dibuang, diganti di ujung via process_payment
+    
     if not message.reply_to_message or not message.reply_to_message.document:
         return await message.reply("❌ Balas file `.txt` dengan perintah `/clip NamaVideo`!")
 
@@ -301,7 +303,16 @@ async def autoclip_handler(message: Message, command: CommandObject) -> None:
             yt_enabled = True
             yt_privacy = "public" if "public" in resp_yt.text.lower() else "private"
 
-    await message.answer("⏳ Menyiapkan...", reply_markup=ReplyKeyboardRemove())
+    # [NEW v5.1] MESIN KASIR: POTONG SALDO POIN
+    await message.answer("🔄 Mengecek Saldo Poin...", reply_markup=ReplyKeyboardRemove())
+    
+    # Menggunakan nama fungsi (clip) sebagai ID harga (7000 Poin)
+    payment = await process_payment(user_id=user_id, command="clip")
+    
+    if not payment["success"]:
+        return await message.answer(payment["message"])
+
+    await message.answer(f"⏳ Menyiapkan...\n{payment['message']}", reply_markup=ReplyKeyboardRemove())
     
     # 🚀 EXECUTE
     await execute_unified_task(message, "AUTO CLIP", _core_autoclip_logic, message.reply_to_message, topic, mode, quality, yt_enabled, yt_privacy)
