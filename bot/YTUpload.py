@@ -1,9 +1,10 @@
 """
 ╔══════════════════════════════════════════════════════════════════════╗
-║                    bot/YTUpload.py — v5.0                            ║
+║                    bot/YTUpload.py — v5.1                            ║
 ║        YouTube Upload — Terintegrasi dengan Unified_Engine           ║
 ╠══════════════════════════════════════════════════════════════════════╣
-║  CHANGELOG v5.0:                                                     ║
+║  CHANGELOG v5.1:                                                     ║
+║  [NEW] INTEGRASI SISTEM POIN! Memotong saldo sebelum upload jalan.   ║
 ║  [INTEGRATION] Migrasi total ke bot_helper.Process.Unified_Engine    ║
 ║  [CLEANUP] Menghapus sistem antrean manual (Task/Process_Status lama)║
 ║  [UX PREMIUM] Progress Bar tersentralisasi & real-time ETA.          ║
@@ -31,6 +32,9 @@ from bot_helper.Others.Helper_Functions import get_human_size
 from bot_helper.Process.Unified_Engine import execute_unified_task
 from bot_helper.Telegram.Telegram_Client import Telegram
 from config.config import Config
+
+# [NEW v5.1] Import Mesin Kasir Poin
+from bot_helper.Process.point_manager import process_payment
 
 # Memanggil fitur "Inline Waiter" jika dibutuhkan
 from bot.shared import wait_for_message
@@ -94,31 +98,6 @@ async def _safe_edit(msg: Message, text: str, buttons=None) -> None:
         else: await msg.edit_text(text)
     except TelegramBadRequest: pass
     except Exception: pass
-
-
-# ═══════════════════════════════════════════════════════════════════════
-#  VIP CHECK
-# ═══════════════════════════════════════════════════════════════════════
-
-def _is_vip(user_id: int) -> bool:
-    if user_id == Config.OWNER_ID or user_id in Config.SUDO_USERS: return True
-    expiry_str = get_data().get(user_id, {}).get("premium_expiry_date")
-    if not expiry_str: return False
-    try:
-        expiry = datetime.fromisoformat(str(expiry_str))
-        return datetime.now(expiry.tzinfo) < expiry
-    except (ValueError, TypeError): return False
-
-def _vip_expiry_text(user_id: int) -> str:
-    if user_id == Config.OWNER_ID or user_id in Config.SUDO_USERS: return "♾️ Unlimited (Owner/Sudo)"
-    expiry_str = get_data().get(user_id, {}).get("premium_expiry_date")
-    if not expiry_str: return "❌ Tidak aktif"
-    try:
-        expiry = datetime.fromisoformat(str(expiry_str))
-        now    = datetime.now(expiry.tzinfo)
-        if now >= expiry: return "❌ Sudah kadaluarsa"
-        return f"✅ Aktif — sisa {(expiry - now).days} hari"
-    except Exception: return "❓ Tidak diketahui"
 
 
 # ═══════════════════════════════════════════════════════════════════════
@@ -271,7 +250,13 @@ async def _core_ytupload_logic(message: Message, ui, reply_msg: Message, yt_titl
 # ═══════════════════════════════════════════════════════════════════════
 
 def _build_dashboard(user_id: int, yt_title: str, privacy: str) -> tuple[str, list]:
-    vip_text = _vip_expiry_text(user_id)
+    from bot_helper.Database.User_Data import get_user_balance
+    balance = get_user_balance(user_id)
+    if user_id in Config.SUDO_USERS:
+        vip_text = "♾️ Unlimited (Owner/Sudo)"
+    else:
+        vip_text = f"💎 Saldo: {balance:,} Poin"
+        
     priv_icons = {"private": "🔒", "unlisted": "🔗", "public": "🌍"}
     priv_icon  = priv_icons.get(privacy, "🔒")
     
@@ -281,7 +266,7 @@ def _build_dashboard(user_id: int, yt_title: str, privacy: str) -> tuple[str, li
         f"**📺 KONFIRMASI UPLOAD YOUTUBE**\n\n"
         f"📝 **Judul:** `{clean_title[:40]}{'...' if len(clean_title) > 40 else ''}`\n"
         f"{priv_icon} **Privasi Target:** `{privacy.capitalize()}`\n"
-        f"👑 **Status VIP:** {vip_text}\n\n"
+        f"💳 **Dompet:** {vip_text}\n\n"
         f"Lanjutkan?"
     )
 
@@ -308,9 +293,6 @@ async def ytupload_handler(message: Message, command: CommandObject) -> None:
 
     if not YOUTUBE_ENABLED:
         return await message.reply("❌ **Library Google API belum terinstall!**")
-
-    if not _is_vip(user_id):
-        return await message.reply("👑 **Fitur Eksklusif VIP**\nUpload ke YouTube hanya tersedia untuk member **VIP**.")
 
     if not os.path.exists(TOKEN_FILE):
         return await message.reply("❌ **Token YouTube Tidak Ditemukan!**\nAdmin harus mensetup `token.json` terlebih dahulu.")
@@ -379,8 +361,6 @@ async def yt_go_cb(call: CallbackQuery) -> None:
 
     if call.from_user.id != user_id:
         return await call.answer("❌ Menu ini bukan milik Anda!", show_alert=True)
-    if not _is_vip(user_id):
-        return await call.message.edit_text("❌ Akses VIP kamu sudah habis.")
     if user_id not in _yt_state:
         return await call.message.edit_text("❌ Sesi berakhir.\nSilakan ulangi perintah `/ytupload`")
 
@@ -396,9 +376,18 @@ async def yt_go_cb(call: CallbackQuery) -> None:
     except Exception:
         fname = "video.mp4"
 
+    # [NEW v5.1] MESIN KASIR: POTONG SALDO POIN
+    payment = await process_payment(user_id=user_id, command="ytupload")
+    if not payment["success"]:
+        _yt_state.pop(user_id, None)
+        return await call.message.edit_text(payment["message"])
+
     # Hapus pesan konfirmasi inline (digantikan oleh Unified_Engine nantinya)
     await _clean_msgs(call.message)
     _yt_state.pop(user_id, None)
+    
+    # Beri tahu user bahwa poin terpotong (sementara sebelum Unified UI muncul)
+    temp_msg = await reply_msg.reply(payment["message"])
 
     # 🚀 JALANKAN VIA UNIFIED ENGINE (Ini menyelesaikan segalanya!)
     # Membuat fake_msg agar notifikasi progress mereply ke pesan video aslinya
@@ -409,6 +398,10 @@ async def yt_go_cb(call: CallbackQuery) -> None:
     })
     
     await execute_unified_task(fake_msg, "YOUTUBE UPLOAD", _core_ytupload_logic, reply_msg, yt_title, yt_desc, yt_privacy, fname)
+    
+    # Hapus pesan poin setelah task masuk antrean
+    await asyncio.sleep(2)
+    await _clean_msgs(temp_msg)
 
 
 @router.callback_query(F.data.startswith("yt_cancel_"))
