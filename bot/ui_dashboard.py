@@ -1,7 +1,7 @@
 """
 UI Dashboard Template for STUDIO KHOIRUL (Aiogram 3.x)
-Versi: PROFESSIONAL v6.4 - Pay-As-You-Go Edition
-Update: Integrasi Saldo Poin Real-Time di Dashboard Utama.
+Versi: PROFESSIONAL v6.9 - Final Layout & Rebranding
+Update: Re-layout menu utama, ubah Studio -> Creator, Poin -> Top Up, pindah Format ke Fast Encode sbg Resolusi.
 """
 
 import asyncio
@@ -102,10 +102,6 @@ def get_system_stats() -> dict:
     return stats
 
 def get_vip_badge(user_id: int) -> str:
-    """
-    [NEW v6.4] Mengambil sisa Saldo Poin pengguna secara Real-Time.
-    Jika admin, tampilkan Unlimited.
-    """
     if is_admin(user_id):
         return "<code>👑 Admin (∞)</code>"
     else:
@@ -130,7 +126,7 @@ def get_back_cancel_kb() -> InlineKeyboardMarkup:
     ])
 
 # ==========================================
-# 4. KEYBOARD LAYOUTS (COMPACT EDITION)
+# 4. KEYBOARD LAYOUTS (FINAL EDITION)
 # ==========================================
 
 def kb_start_menu() -> InlineKeyboardMarkup:
@@ -145,35 +141,37 @@ def kb_start_menu() -> InlineKeyboardMarkup:
     ])
 
 def kb_main_menu(is_admin_user: bool = False) -> InlineKeyboardMarkup:
+    """[MODIFIED v6.9] Re-layout sesuai permintaan (Encode->Creator->Download->Aset->Top Up)"""
     buttons = [
         [
-            InlineKeyboardButton(text="🎬 Studio", callback_data="menu_studio", style="primary"),
-            InlineKeyboardButton(text="🎞️ Encode", callback_data="menu_encode", style="primary")
+            InlineKeyboardButton(text="🎞️ Encode", callback_data="menu_encode", style="primary"),
+            InlineKeyboardButton(text="✂️ Editor", callback_data="menu_editor", style="primary")
         ],
         [
-            InlineKeyboardButton(text="✂️ Editor", callback_data="menu_editor", style="primary"),
+            InlineKeyboardButton(text="🎬 Creator", callback_data="menu_studio", style="primary"),
             InlineKeyboardButton(text="🤖 AI & Sub", callback_data="menu_ai", style="primary")
         ],
         [
-            InlineKeyboardButton(text="🎮 Aset", callback_data="menu_assets", style="primary"),
-            InlineKeyboardButton(text="📥 Download", callback_data="menu_download", style="primary")
+            InlineKeyboardButton(text="📥 Download", callback_data="menu_download", style="primary"),
+            InlineKeyboardButton(text="☁️ Cloud", callback_data="menu_cloud", style="primary")
         ],
         [
+            InlineKeyboardButton(text="🎮 Aset", callback_data="menu_assets", style="primary"),
             InlineKeyboardButton(text="⚙️ Setting", callback_data="settings", style="primary"),
-            InlineKeyboardButton(text="💎 Poin", callback_data="menu_vip", style="success") # Label diganti menjadi Poin
+        ],
+        [
+            InlineKeyboardButton(text="💎 Top Up", callback_data="menu_vip", style="success")
         ]
     ]
     if is_admin_user:
         buttons.append([
-            InlineKeyboardButton(text="🔧 Admin", callback_data="menu_admin", style="primary")
+            InlineKeyboardButton(text="🔧 Admin Panel", callback_data="menu_admin", style="primary")
         ])
     buttons.append([
         InlineKeyboardButton(text="❌ Tutup", callback_data="action_close", style="danger")
     ])
     return InlineKeyboardMarkup(inline_keyboard=buttons)
 
-
-# [NEW] Menu Khusus Cloud & Mirroring
 def kb_cloud_mirror() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=[
         [
@@ -185,13 +183,12 @@ def kb_cloud_mirror() -> InlineKeyboardMarkup:
             InlineKeyboardButton(text="📦 Terabox", callback_data="cmd_terabox", style="primary")
         ],
         [
-            InlineKeyboardButton(text="📺 YouTube", callback_data="cmd_ytupload", style="primary"),
+            InlineKeyboardButton(text="📺 YouTube", callback_data="cmd_youtube", style="primary"),
             InlineKeyboardButton(text="🎬 Vimeo", callback_data="cmd_vimeo", style="primary")
         ],
         [InlineKeyboardButton(text="🚀 Rclone Mirror", callback_data="cmd_rclone", style="success")],
         [InlineKeyboardButton(text="↩️ Kembali", callback_data="menu_main", style="danger")]
     ])
-
 
 def kb_ai() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=[
@@ -210,40 +207,50 @@ def kb_studio() -> InlineKeyboardMarkup:
             InlineKeyboardButton(text="🎥 Clip", callback_data="cmd_clip", style="primary")
         ],
         [
-            InlineKeyboardButton(text="🏆 Top Tier", callback_data="cmd_toptier", style="primary"),
-            InlineKeyboardButton(text="📊 Verdict", callback_data="cmd_verdict", style="primary")
+            InlineKeyboardButton(text="🏆 Top Tier", callback_data="info_studio_toptier", style="primary"),
+            InlineKeyboardButton(text="📊 Verdict", callback_data="info_studio_verdict", style="primary")
         ],
         [
-            InlineKeyboardButton(text="📖 Analisis", callback_data="cmd_lore", style="primary"),
-            InlineKeyboardButton(text="🎯 Radar", callback_data="cmd_radar", style="primary")
+            InlineKeyboardButton(text="📖 Analisis", callback_data="info_studio_lore", style="primary"),
+            InlineKeyboardButton(text="🎯 Radar", callback_data="info_studio_radar", style="primary")
         ],
         [
-            InlineKeyboardButton(text="⚡ Patch", callback_data="cmd_patch", style="primary"),
-            InlineKeyboardButton(text="📚 Arsip", callback_data="cmd_archives", style="primary")
+            InlineKeyboardButton(text="⚡ Patch", callback_data="info_studio_patch", style="primary"),
+            InlineKeyboardButton(text="📚 Arsip", callback_data="info_studio_archives", style="primary")
         ],
         [InlineKeyboardButton(text="▶️ Upload YT", callback_data="cmd_ytupload", style="success")],
         [InlineKeyboardButton(text="↩️ Kembali", callback_data="menu_main", style="danger")]
     ])
 
-def kb_encode() -> InlineKeyboardMarkup:
+def kb_encode_main() -> InlineKeyboardMarkup:
+    """[MODIFIED v6.9] Menu Encode Utama yang lebih bersih. Resolusi dipindah."""
     return InlineKeyboardMarkup(inline_keyboard=[
         [
-            InlineKeyboardButton(text="🚀 Fast Encode", callback_data="cmd_encode", style="success"),
+            InlineKeyboardButton(text="🚀 Fast Encode", callback_data="menu_fast_encode", style="success"), 
             InlineKeyboardButton(text="🎛️ Custom", callback_data="cmd_customencode", style="primary")
         ],
+        [
+            InlineKeyboardButton(text="ℹ️ Info Engine", callback_data="info_encode", style="primary")
+        ],
+        [InlineKeyboardButton(text="↩️ Kembali", callback_data="menu_main", style="danger")]
+    ])
+
+def kb_fast_encode_submenu() -> InlineKeyboardMarkup:
+    """[MODIFIED v6.9] Sub-menu khusus Fast Encode + Resolusi (Format)"""
+    return InlineKeyboardMarkup(inline_keyboard=[
         [
             InlineKeyboardButton(text="🎥 Set Video", callback_data="video_settings", style="primary"),
             InlineKeyboardButton(text="🎵 Set Audio", callback_data="audio_settings", style="primary")
         ],
         [
-            InlineKeyboardButton(text="🚜 Format", callback_data="convert_settings", style="primary"),
-            InlineKeyboardButton(text="🏷️ Metadata", callback_data="metadata_settings", style="primary")
+            InlineKeyboardButton(text="🚜 Resolusi", callback_data="convert_settings", style="primary"), # Format pindah kesini jadi Resolusi
+            InlineKeyboardButton(text="©️ Watermark", callback_data="watermark_settings", style="primary")
         ],
         [
-            InlineKeyboardButton(text="©️ Watermark", callback_data="watermark_settings", style="primary"),
-            InlineKeyboardButton(text="ℹ️ Info", callback_data="info_encode", style="primary")
+            InlineKeyboardButton(text="🏷️ Metadata", callback_data="metadata_settings", style="primary")
         ],
-        [InlineKeyboardButton(text="↩️ Kembali", callback_data="menu_main", style="danger")]
+        [InlineKeyboardButton(text="▶️ MULAI FAST ENCODE", callback_data="cmd_encode", style="success")], 
+        [InlineKeyboardButton(text="↩️ Kembali ke Menu Encode", callback_data="menu_encode", style="danger")]
     ])
 
 def kb_editor() -> InlineKeyboardMarkup:
@@ -308,8 +315,8 @@ def kb_assets() -> InlineKeyboardMarkup:
 def kb_download() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=[
         [
-            InlineKeyboardButton(text="📥 Leech", callback_data="cmd_leech", style="primary"),
-            InlineKeyboardButton(text="☁️ Mirror", callback_data="cmd_mirror", style="primary")
+            InlineKeyboardButton(text="📥 Leech URL", callback_data="cmd_leech", style="primary"),
+            InlineKeyboardButton(text="☁️ Mirror URL", callback_data="cmd_mirror", style="primary")
         ],
         [InlineKeyboardButton(text="↩️ Kembali", callback_data="menu_main", style="danger")]
     ])
@@ -335,7 +342,7 @@ def kb_vip() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=[
         [
             InlineKeyboardButton(text="💳 Dompet", callback_data="cmd_myvip", style="primary"),
-            InlineKeyboardButton(text="📜 Mutasi", callback_data="cmd_history", style="primary") # [NEW v6.4] Tombol History
+            InlineKeyboardButton(text="📜 Mutasi", callback_data="cmd_history", style="primary") 
         ],
         [InlineKeyboardButton(text="💎 Top-Up (Verify)", callback_data="cmd_verify", style="success")],
         [InlineKeyboardButton(text="↩️ Kembali", callback_data="menu_main", style="danger")]
@@ -363,7 +370,7 @@ def kb_admin() -> InlineKeyboardMarkup:
         ],
         [
             InlineKeyboardButton(text="👮 Sudo", callback_data="cmd_checksudo", style="primary"),
-            InlineKeyboardButton(text="💎 Top Spender", callback_data="cmd_view_vip", style="primary") # [NEW v6.4] Label diubah
+            InlineKeyboardButton(text="💎 Top Spender", callback_data="cmd_view_vip", style="primary") 
         ],
         [
             InlineKeyboardButton(text="➕ Sudo", callback_data="cmd_addsudo", style="success"),
@@ -413,7 +420,8 @@ async def nav_cloud(callback: CallbackQuery):
 
 @ui_router.callback_query(F.data == "menu_studio")
 async def nav_studio(callback: CallbackQuery):
-    text = create_section_header("🎬", "Studio", "Produksi video otomatis dengan AI, script, dan rendering")
+    # [MODIFIED] Header text diubah dari "Studio" jadi "Creator"
+    text = create_section_header("🎬", "Creator", "Produksi video otomatis dengan AI, script, dan rendering")
     await safe_edit(callback.message, text, kb_studio())
     await callback.answer()
 
@@ -425,8 +433,14 @@ async def nav_ai(callback: CallbackQuery):
 
 @ui_router.callback_query(F.data == "menu_encode")
 async def nav_encode(callback: CallbackQuery):
-    text = create_section_header("🎞️", "Encode & Profil", "Eksekusi encoding video dan atur preferensi kualitas (Video, Audio, Watermark, dan Metadata).")
-    await safe_edit(callback.message, text, kb_encode())
+    text = create_section_header("🎞️", "Encode & Profil", "Pilih metode kompresi video Anda.")
+    await safe_edit(callback.message, text, kb_encode_main())
+    await callback.answer()
+
+@ui_router.callback_query(F.data == "menu_fast_encode")
+async def nav_fast_encode(callback: CallbackQuery):
+    text = create_section_header("🚀", "Fast Encode Studio", "Sebelum memulai Fast Encode, pastikan preferensi Kualitas, Resolusi, dan Metadata Anda sudah benar.\n\nJika sudah siap, klik 'MULAI FAST ENCODE'.")
+    await safe_edit(callback.message, text, kb_fast_encode_submenu())
     await callback.answer()
 
 @ui_router.callback_query(F.data == "menu_editor")
@@ -457,7 +471,7 @@ async def nav_assets(callback: CallbackQuery):
 
 @ui_router.callback_query(F.data == "menu_download")
 async def nav_download(callback: CallbackQuery):
-    text = create_section_header("📥", "Download", "Download file dari URL atau mirror ke cloud storage")
+    text = create_section_header("📥", "Download", "Download file dari URL publik atau ubah menjadi Mirror Rclone")
     await safe_edit(callback.message, text, kb_download())
     await callback.answer()
 
@@ -469,7 +483,8 @@ async def nav_settings(callback: CallbackQuery):
 
 @ui_router.callback_query(F.data == "menu_vip")
 async def nav_vip(callback: CallbackQuery):
-    text = create_section_header("💎", "Dompet Poin", "Kelola saldo poin, mutasi pemakaian, dan top-up (Verifikasi Trakteer)")
+    # [MODIFIED] Header text diubah dari "Dompet Poin" jadi "Top Up & Dompet"
+    text = create_section_header("💎", "Top Up & Dompet", "Kelola saldo poin, mutasi pemakaian, dan top-up (Verifikasi Trakteer)")
     await safe_edit(callback.message, text, kb_vip())
     await callback.answer()
 
@@ -490,22 +505,51 @@ async def info_encode(callback: CallbackQuery):
     info_text = f"""
 <b>╭─ ℹ️ INFO ENCODE ─╮</b>
 
-<b>🚀 Encode Cepat</b>
-Preset optimized untuk kualitas dan ukuran
-• H.264 - kompatibilitas tinggi
-• Kualitas 720p/1080p
-• Bitrate auto-optimize
+<b>🚀 Fast Encode</b>
+Encode otomatis menggunakan profil yang tersimpan di 'Set Video', 'Set Audio', dan 'Resolusi'.
+Pastikan Anda sudah mengaturnya sebelum klik tombol ini.
 
-<b>🎛️ Encode Custom</b>
-Kontrol penuh parameter encoding
-• Pilih codec (H.264/H.265/VP9)
-• Custom bitrate & CRF
-• Audio/subtitle handling
-• Resolution & framerate
+<b>🎛️ Custom Encode</b>
+Anda akan diminta memasukkan teks perintah FFMpeg secara manual secara interaktif. 
+Cocok untuk pengguna mahir.
 
 <b>{BORDER_LIGHT}</b>
 """
-    await safe_edit(callback.message, info_text, get_back_cancel_kb())
+    await safe_edit(callback.message, info_text, InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="↩️ Kembali", callback_data="menu_encode", style="danger")]]))
+    await callback.answer()
+
+@ui_router.callback_query(F.data.startswith("info_studio_"))
+async def info_studio_modes(callback: CallbackQuery):
+    mode = callback.data.split("_")[2]
+    
+    themes = {
+        "toptier": "🏆 **TOP TIER (Emas)**\nCocok untuk video peringkat atau listicle (Contoh: Top 10 Game RPG). Menampilkan badge emas elegan.",
+        "verdict": "📊 **THE VERDICT (Merah)**\nCocok untuk video ulasan akhir atau kesimpulan. Menampilkan kartu skor dan rating bintang.",
+        "lore": "📖 **LORE & CONSPIRACIES (Netflix Red)**\nCocok untuk video cerita mendalam, teori konspirasi, atau penjelasan sejarah game.",
+        "radar": "🎯 **ON THE RADAR (Cyber Cyan)**\nCocok untuk membahas game yang akan rilis, rumor, atau ekspektasi masa depan.",
+        "patch": "⚡ **THE LATEST PATCH (News Red)**\nCocok untuk berita kilat, update game terbaru, atau patch notes.",
+        "archives": "📚 **THE ARCHIVES (Retro Amber)**\nCocok untuk video nostalgia, membahas game lawas, atau sejarah developer."
+    }
+    
+    desc = themes.get(mode, "Mode Produksi Creator")
+    
+    info_text = f"""
+<b>╭─ ℹ️ CARA PAKAI: MODE CREATOR ─╮</b>
+
+{desc}
+
+<b>💡 CARA PENGGUNAAN (ONE-CLICK):</b>
+Anda tidak perlu menekan tombol ini. Sistem kami sudah dibuat sangat pintar!
+
+1. Siapkan naskah (Script) Anda dalam file berformat <code>.txt</code>.
+2. Kirimkan file <code>.txt</code> tersebut langsung ke chat ini.
+3. Bot akan otomatis mendeteksi file tersebut dan memunculkan Menu Creator secara instan!
+
+<b>{BORDER_LIGHT}</b>
+"""
+    await safe_edit(callback.message, info_text, InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="↩️ Kembali ke Creator", callback_data="menu_studio", style="primary")]
+    ]))
     await callback.answer()
 
 # ==========================================
@@ -527,6 +571,7 @@ async def route_commands(callback: CallbackQuery):
         import bot.Gameplay as gp
         import bot.AutoClip as autoclip
         import bot.YTUpload as yt
+        import bot.CloudUploads as cloud 
     except Exception as import_err:
         print(f"[UI ROUTER IMPORT ERROR] {import_err}")
         return await callback.answer("❌ Gagal memuat module handler.", show_alert=True)
@@ -552,13 +597,7 @@ async def route_commands(callback: CallbackQuery):
         "recap": getattr(recap, "recap_handler", None),
         "clip": getattr(autoclip, "autoclip_handler", None),
         "ytupload": getattr(yt, "ytupload_handler", None),
-
-        "verdict": getattr(gp, "master_studio_handler", None),
-        "toptier": getattr(gp, "master_studio_handler", None),
-        "archives": getattr(gp, "master_studio_handler", None),
-        "lore": getattr(gp, "master_studio_handler", None),
-        "radar": getattr(gp, "master_studio_handler", None),
-        "patch": getattr(gp, "master_studio_handler", None),
+        "youtube": getattr(cloud, "cmd_youtube_alias", None), 
 
         "encode": getattr(med, "_encode_video", None),
         "customencode": getattr(med, "_custom_encode_video", None),
@@ -596,13 +635,20 @@ async def route_commands(callback: CallbackQuery):
 
         "verify": getattr(vip, "_verify_payment", None),
         "myvip": getattr(vip, "_my_vip_status", None),
-        "history": getattr(vip, "_my_usage_history", None), # [NEW v6.4] Handler History
+        "history": getattr(vip, "_my_usage_history", None), 
         "add_vip": getattr(vip, "_add_vip_manual", None),
         "delete_vip": getattr(vip, "_delete_vip_manual", None),
         "view_vip": getattr(vip, "_view_vip_list", None),
 
         "autosub": getattr(sub, "autosub_handler", None),
         "autotranslate": getattr(sub, "autotranslate_handler", None),
+        
+        "gofile": getattr(cloud, "cmd_gofile", None),
+        "pixeldrain": getattr(cloud, "cmd_pixeldrain", None),
+        "buzzheavier": getattr(cloud, "cmd_buzzheavier", None),
+        "terabox": getattr(cloud, "cmd_terabox", None),
+        "vimeo": getattr(cloud, "cmd_vimeo", None),
+        "rclone": getattr(cloud, "cmd_rclone", None),
     }
 
     admin_cmds = {
@@ -620,7 +666,7 @@ async def route_commands(callback: CallbackQuery):
         "trim", "split", "cut", "rotate", "crop", "autocrop", "genss",
         "gensample", "ext_thumb", "ext_frames", "autosub", "autotranslate", 
         "leech", "mirror", "addgameplay", "addsfx", "deletegameplay", "recap", "clip",
-        "ytupload"
+        "ytupload", "gofile", "pixeldrain", "buzzheavier", "terabox", "vimeo", "rclone", "youtube"
     }
 
     if cmd in admin_cmds and not is_admin(user_id) and cmd not in ["status", "verify", "myvip", "history"]:
@@ -640,6 +686,10 @@ async def route_commands(callback: CallbackQuery):
                 media_type = "File Subtitle (.srt / .ass)"
             elif cmd in ["savethumb", "savewatermark"]:
                 media_type = "Gambar / Foto"
+            elif cmd in ["gofile", "pixeldrain", "buzzheavier", "terabox", "vimeo", "rclone", "youtube", "ytupload"]:
+                media_type = "File / Video / Dokumen"
+            elif cmd in ["recap", "clip"]:
+                media_type = "File Naskah (.txt)"
             else:
                 media_type = "Media (Video/Audio/Srt/Gambar)"
 
