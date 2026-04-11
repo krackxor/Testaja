@@ -1,7 +1,7 @@
 """
 UI Dashboard Template for STUDIO KHOIRUL (Aiogram 3.x)
-Versi: PROFESSIONAL v6.3 - Compact Menu Edition
-Update: Memendekkan teks tombol agar tidak terpotong di layar HP.
+Versi: PROFESSIONAL v6.4 - Pay-As-You-Go Edition
+Update: Integrasi Saldo Poin Real-Time di Dashboard Utama.
 """
 
 import asyncio
@@ -102,7 +102,19 @@ def get_system_stats() -> dict:
     return stats
 
 def get_vip_badge(user_id: int) -> str:
-    return "<code>👑 VIP</code>"
+    """
+    [NEW v6.4] Mengambil sisa Saldo Poin pengguna secara Real-Time.
+    Jika admin, tampilkan Unlimited.
+    """
+    if is_admin(user_id):
+        return "<code>👑 Admin (∞)</code>"
+    else:
+        try:
+            from bot_helper.Database.User_Data import get_user_balance
+            pts = get_user_balance(user_id)
+            return f"<code>💎 {pts:,} Pts</code>"
+        except Exception:
+            return "<code>💎 0 Pts</code>"
 
 def get_queue_count() -> int:
     try:
@@ -148,7 +160,7 @@ def kb_main_menu(is_admin_user: bool = False) -> InlineKeyboardMarkup:
         ],
         [
             InlineKeyboardButton(text="⚙️ Setting", callback_data="settings", style="primary"),
-            InlineKeyboardButton(text="👑 VIP", callback_data="menu_vip", style="success")
+            InlineKeyboardButton(text="💎 Poin", callback_data="menu_vip", style="success") # Label diganti menjadi Poin
         ]
     ]
     if is_admin_user:
@@ -301,10 +313,10 @@ def kb_settings() -> InlineKeyboardMarkup:
 def kb_vip() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=[
         [
-            InlineKeyboardButton(text="👑 Status", callback_data="cmd_myvip", style="primary"),
-            InlineKeyboardButton(text="ℹ️ Info", callback_data="cmd_vip_info", style="primary")
+            InlineKeyboardButton(text="💳 Dompet", callback_data="cmd_myvip", style="primary"),
+            InlineKeyboardButton(text="📜 Mutasi", callback_data="cmd_history", style="primary") # [NEW v6.4] Tombol History
         ],
-        [InlineKeyboardButton(text="💳 Verifikasi", callback_data="cmd_verify", style="success")],
+        [InlineKeyboardButton(text="💎 Top-Up (Verify)", callback_data="cmd_verify", style="success")],
         [InlineKeyboardButton(text="↩️ Kembali", callback_data="menu_main", style="danger")]
     ])
 
@@ -330,15 +342,15 @@ def kb_admin() -> InlineKeyboardMarkup:
         ],
         [
             InlineKeyboardButton(text="👮 Sudo", callback_data="cmd_checksudo", style="primary"),
-            InlineKeyboardButton(text="👑 VIPs", callback_data="cmd_view_vip", style="primary")
+            InlineKeyboardButton(text="💎 Top Spender", callback_data="cmd_view_vip", style="primary") # [NEW v6.4] Label diubah
         ],
         [
             InlineKeyboardButton(text="➕ Sudo", callback_data="cmd_addsudo", style="success"),
             InlineKeyboardButton(text="➖ Sudo", callback_data="cmd_delsudo", style="danger")
         ],
         [
-            InlineKeyboardButton(text="➕ VIP", callback_data="cmd_add_vip", style="success"),
-            InlineKeyboardButton(text="➖ VIP", callback_data="cmd_delete_vip", style="danger")
+            InlineKeyboardButton(text="➕ Poin", callback_data="cmd_add_vip", style="success"),
+            InlineKeyboardButton(text="➖ Poin", callback_data="cmd_delete_vip", style="danger")
         ],
         [
             InlineKeyboardButton(text="🔄 Restart", callback_data="cmd_restart", style="primary"),
@@ -430,7 +442,7 @@ async def nav_settings(callback: CallbackQuery):
 
 @ui_router.callback_query(F.data == "menu_vip")
 async def nav_vip(callback: CallbackQuery):
-    text = create_section_header("👑", "VIP", "Status membership, verifikasi pembayaran, dan benefit VIP")
+    text = create_section_header("💎", "Dompet Poin", "Kelola saldo poin, mutasi pemakaian, dan top-up (Verifikasi Trakteer)")
     await safe_edit(callback.message, text, kb_vip())
     await callback.answer()
 
@@ -548,6 +560,8 @@ async def route_commands(callback: CallbackQuery):
         "autocrop": getattr(adv, "_autocrop_video", None),
         "genss": getattr(adv, "_gen_screenshots", None) or getattr(med, "_gen_screenshots", None),
         "gensample": getattr(adv, "_gen_video_sample", None) or getattr(med, "_gen_video_sample", None),
+        "ext_thumb": getattr(adv, "_extract_thumbnail", None),
+        "ext_frames": getattr(adv, "_extract_frames_zip", None),
 
         "leech": getattr(med, "_leech_file", None),
         "mirror": getattr(med, "_mirror_file", None),
@@ -555,6 +569,7 @@ async def route_commands(callback: CallbackQuery):
 
         "verify": getattr(vip, "_verify_payment", None),
         "myvip": getattr(vip, "_my_vip_status", None),
+        "history": getattr(vip, "_my_usage_history", None), # [NEW v6.4] Handler History
         "add_vip": getattr(vip, "_add_vip_manual", None),
         "delete_vip": getattr(vip, "_delete_vip_manual", None),
         "view_vip": getattr(vip, "_view_vip_list", None),
@@ -567,7 +582,7 @@ async def route_commands(callback: CallbackQuery):
         "speedtest", "restart", "renew", "log", "logs", "resetdb",
         "checksudo", "time", "stats", "add_vip", "delete_vip",
         "view_vip", "addsudo", "delsudo", "changeconfig", "clearconfigs",
-        "saveconfig", "savewatermark", "savethumb", "status", "verify", "myvip",
+        "saveconfig", "savewatermark", "savethumb", "status", "verify", "myvip", "history",
         "listgameplay"
     }
 
@@ -581,8 +596,8 @@ async def route_commands(callback: CallbackQuery):
         "ytupload"
     }
 
-    if cmd in admin_cmds and not is_admin(user_id) and cmd not in ["status", "verify", "myvip"]:
-        return await callback.answer("⛔ Akses admin only", show_alert=True)
+    if cmd in admin_cmds and not is_admin(user_id) and cmd not in ["status", "verify", "myvip", "history"]:
+        return await callback.answer("⛔ Akses ditolak", show_alert=True)
 
     try:
         handler = handlers.get(cmd)
