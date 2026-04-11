@@ -1,19 +1,7 @@
-"""
-╔══════════════════════════════════════════════════════════════════════╗
-║            bot_helper/Process/Unified_Engine.py                      ║
-║            Mesin Antrean & UI Terpusat (Studio Khoirul)              ║
-╠══════════════════════════════════════════════════════════════════════╣
-║  CHANGELOG v5.0 (Synergy Update):                                    ║
-║  [NEW] Mengekspor _ue_ui_objects agar progress bar Studio bisa       ║
-║        dibaca secara real-time oleh perintah /status global.         ║
-║  [UX]  Layout UI disamakan 100% dengan Process_Status.py.            ║
-╚══════════════════════════════════════════════════════════════════════╝
-"""
-
 import asyncio
 import time
 from aiogram.types import Message
-from aiogram.exceptions import TelegramBadRequest
+from aiogram.exceptions import TelegramBadRequest, TelegramRetryAfter
 from config.config import Config
 
 LOGGER = Config.LOGGER
@@ -60,15 +48,44 @@ class ProgressUI:
         self.module_name = module_name
         self.last_text = ""
         self.start_time = time.time()
+        
+        # [NEW] Anti-Flood Control
+        self.last_update_time = 0
+        self.update_interval = 3.0  # Safe limit Telegram: Edit max 1 kali per 3 detik
+        
         self.user_id = message.from_user.id
         self.is_admin_user = is_admin(self.user_id)
-        if message.from_user.username: self.added_by = f"[{message.from_user.first_name}](https://t.me/{message.from_user.username})"
-        else: self.added_by = f"**{message.from_user.first_name}**"
+        if message.from_user.username: 
+            self.added_by = f"[{message.from_user.first_name}](https://t.me/{message.from_user.username})"
+        else: 
+            self.added_by = f"**{message.from_user.first_name}**"
 
         self._animating = False
         self._anim_task = None
         self._anim_status = "⚙️ Memproses Data..."
         self._anim_details = "Sistem sedang bekerja..."
+
+    # [NEW] Centralized Safe Edit Module
+    async def _safe_edit(self, text: str, force: bool = False):
+        if text == self.last_text:
+            return
+        
+        now = time.time()
+        # Cegah update terlalu cepat kecuali dipaksa (force) untuk status Finish/Error
+        if not force and (now - self.last_update_time < self.update_interval):
+            return
+
+        try:
+            await self.message.edit_text(text, parse_mode="Markdown", disable_web_page_preview=True)
+            self.last_text = text
+            self.last_update_time = time.time()
+        except TelegramRetryAfter as e:
+            # Jika tetap terkena limit, bot akan otomatis pause UI ini selama batas waktu Telegram
+            await asyncio.sleep(e.retry_after)
+        except TelegramBadRequest:
+            pass  # Biasanya karena Message is not modified, aman diabaikan
+        except Exception as e:
+            LOGGER.error(f"UI Edit Error pada {self.module_name}: {e}")
 
     async def prep_phase(self, action_text: str = "Mempersiapkan proses...", remaining: int = 0):
         await self.stop_animation()
@@ -83,13 +100,9 @@ class ProgressUI:
             f"{admin_text}\n"
             f"{rem_text}\n"
             f"{DIVIDER}\n"
-            f"_Sedang menyiapkan potongan video..._"
+            f"_Sedang menyiapkan proses..._"
         )
-        if text != self.last_text:
-            try:
-                await self.message.edit_text(text, parse_mode="Markdown", disable_web_page_preview=True)
-                self.last_text = text
-            except TelegramBadRequest: pass
+        await self._safe_edit(text, force=True)
 
     async def _animation_loop(self):
         frames = ["[█░░░░░░░░░]", "[██░░░░░░░░]", "[███░░░░░░░]", "[████░░░░░░]", "[█████░░░░░]", "[██████░░░░]", "[███████░░░]", "[████████░░]", "[█████████░]", "[██████████]", "[░█████████]", "[░░████████]", "[░░░███████]", "[░░░░██████]", "[░░░░░░████]", "[░░░░░░░░██]"]
@@ -107,12 +120,9 @@ class ProgressUI:
                 f"{DIVIDER}\n"
                 f"_{self._anim_details}_"
             )
-            if text != self.last_text:
-                try:
-                    await self.message.edit_text(text, parse_mode="Markdown", disable_web_page_preview=True)
-                    self.last_text = text
-                except TelegramBadRequest: pass
-            await asyncio.sleep(1)
+            await self._safe_edit(text)
+            # Tidur sesuai update interval, jangan 1 detik
+            await asyncio.sleep(self.update_interval)
 
     async def start_animation(self, status: str, details: str = ""):
         self._anim_status = status
@@ -143,30 +153,23 @@ class ProgressUI:
             )
             if speed > 0: text += f"⚡ **Speed:** `{humanbytes(speed)}/s` | ⏱ **ETA:** `{TimeFormatter(eta * 1000)}`\n"
             if details: text += f"{DIVIDER}\n_{details}_"
-            if text != self.last_text:
-                try:
-                    await self.message.edit_text(text, parse_mode="Markdown", disable_web_page_preview=True)
-                    self.last_text = text
-                except TelegramBadRequest: pass 
+            
+            await self._safe_edit(text)
         else:
             await self.start_animation(status, details)
 
     async def finish(self, final_text: str = "✅ **Proses Selesai!**"):
         await self.stop_animation()
-        try:
-            elapsed = TimeFormatter((time.time() - self.start_time) * 1000)
-            text = f"{final_text}\n\n⏱️ **Waktu Total:** `{elapsed}`"
-            await self.message.edit_text(text, parse_mode="Markdown", disable_web_page_preview=True)
-            self.last_text = text # Simpan untuk history
-        except: pass
+        elapsed = TimeFormatter((time.time() - self.start_time) * 1000)
+        text = f"{final_text}\n\n⏱️ **Waktu Total:** `{elapsed}`"
+        # Gunakan force=True agar status selesai dipastikan terkirim tanpa ter-throttle
+        await self._safe_edit(text, force=True)
 
     async def error(self, error_text: str):
         await self.stop_animation()
-        try: 
-            text = f"❌ **Error Terjadi:**\n`{error_text}`"
-            await self.message.edit_text(text, parse_mode="Markdown")
-            self.last_text = text
-        except: pass
+        text = f"❌ **Error Terjadi:**\n`{error_text}`"
+        # Gunakan force=True agar pesan error selalu tampil seketika
+        await self._safe_edit(text, force=True)
 
 # ==========================================
 # 3. FUNGSI PENGIKAT (THE WRAPPER)
@@ -185,7 +188,7 @@ async def execute_unified_task(message: Message, module_name: str, task_function
     async with _task_semaphore:
         _ue_queued.pop(task_id, None)
         _ue_working[task_id] = module_name
-        await ui.update("⚙️ Mengeksekusi Modul...", details="Sistem sedang menganalisis data naskah...")
+        await ui.update("⚙️ Mengeksekusi Modul...", details="Sistem sedang menganalisis data...")
         try:
             await task_function(message, ui, *args, **kwargs)
         except Exception as e:
