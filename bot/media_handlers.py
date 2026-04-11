@@ -1,22 +1,13 @@
 """
 ╔══════════════════════════════════════════════════════════════════════╗
-║       bot_helper/Handlers/media_handlers.py — v4.1                   ║
-║       Media Processing Command Handlers (Aiogram 3.x)                ║
+║        bot_helper/Handlers/media_handlers.py — v4.2                  ║
+║        Media Processing Command Handlers (PAY-AS-YOU-GO)             ║
 ╠══════════════════════════════════════════════════════════════════════╣
-║  CHANGELOG v4.1:                                                     ║
+║  CHANGELOG v4.2:                                                     ║
+║  [NEW] INTEGRASI SISTEM POIN! Memotong saldo sebelum render.         ║
+║  [NEW] process_payment disisipkan di semua fungsi berat (Encode,     ║
+║        Mux, Compress, dll). Jika saldo kurang, proses batal.         ║
 ║  [UX PREMIUM] Implementasi API Warna Tombol Native Telegram 9.4+     ║
-║                (Primary, Success, Danger) di semua menu inline.      ║
-║  [UX PREMIUM] Standardisasi Hierarki Emoji (❌ Error, ⏳ Proses).      ║
-║  [UX PREMIUM] Sinkronisasi ikon Watermark (©️) dengan Dashboard UI.  ║
-║  [FIX] Memisahkan /compress agar lebih instan (tanpa dub/sub).       ║
-║  [FIX] /watermark kini menggunakan tombol Skip yang aman dari error. ║
-║  [NEW] /softmux & /softremux kini mendukung penambahan file Audio!   ║
-║  [NEW PREMIUM] /convert kini 100% FULL TOMBOL! Mendukung Multi-Select║
-║  [HOTFIX] /changeindex menggunakan FULL TOMBOL (Interactive Builder) ║
-║  [HOTFIX] /genss dan /gensample kini FULL TOMBOL dan lepas dari      ║
-║            pengaturan global!                                        ║
-║  [NEW FEATURES] Mengintegrasikan /mute, /speed, /dubbing, /ext_thumb,║
-║            dan /ext_frames!                                          ║
 ║  [NEW PREMIUM] /customencode dengan Fast Queue System Multi-Inputs!  ║
 ╚══════════════════════════════════════════════════════════════════════╝
 """
@@ -54,6 +45,9 @@ from .shared import (
     get_username, safe_reply, submit_task, update_status_message,
     user_auth_checker, vip_check, wait_for_message
 )
+
+# [NEW v4.2] Import Mesin Kasir
+from bot_helper.Process.point_manager import process_payment
 
 owner_id = Config.OWNER_ID
 router = Router()
@@ -158,6 +152,13 @@ async def _generic_video_handler(message: Message, process_name: str, cmd_name: 
         if ne and ne not in ["cancelled", "stopped"]: link = await get_url_from_message(ne)
         else: return
 
+    # [NEW v4.2] MESIN KASIR
+    payment = await process_payment(user_id, cmd_name)
+    if not payment["success"]:
+        return await message.answer(payment["message"])
+    else:
+        await message.answer(payment["message"])
+
     ps = ProcessStatus(user_id, chat_id, get_username(message), message.from_user.first_name, message, process_name, custom_file_name)
     await get_thumbnail(ps, [f"/{cmd_name}{CMD_SUFFIX}", "pass"], 120)
     task = build_task(ps, link)
@@ -234,7 +235,14 @@ async def _encode_video(message: Message):
     if not press or "batal" in (press.text or "").lower():
          return await message.answer("❌ Dibatalkan.", reply_markup=ReplyKeyboardRemove())
          
-    await message.answer("⏳ ✅ Mempersiapkan proses encode...", reply_markup=ReplyKeyboardRemove())
+    # [NEW v4.2] MESIN KASIR: POTONG SALDO POIN
+    await message.answer("🔄 Mengecek Saldo Poin...", reply_markup=ReplyKeyboardRemove())
+    payment = await process_payment(user_id=user_id, command="encode")
+    
+    if not payment["success"]:
+        return await message.answer(payment["message"])
+    else:
+        await message.answer(payment["message"])
 
     ps = ProcessStatus(user_id, chat_id, get_username(message), message.from_user.first_name, message, "encode", custom_file_name)
     if sub_path: ps.append_subtitles(sub_path)
@@ -285,7 +293,14 @@ async def _compress_video(message: Message):
     if not press or "batal" in (press.text or "").lower():
          return await message.answer("❌ Dibatalkan.", reply_markup=ReplyKeyboardRemove())
          
-    await message.answer("⏳ ✅ Mempersiapkan proses compress...", reply_markup=ReplyKeyboardRemove())
+    # [NEW v4.2] MESIN KASIR: POTONG SALDO POIN
+    await message.answer("🔄 Mengecek Saldo Poin...", reply_markup=ReplyKeyboardRemove())
+    payment = await process_payment(user_id=user_id, command="compress")
+    
+    if not payment["success"]:
+        return await message.answer(payment["message"])
+    else:
+        await message.answer(payment["message"])
 
     ps = ProcessStatus(user_id, chat_id, get_username(message), message.from_user.first_name, message, Names.compress, custom_file_name)
 
@@ -392,10 +407,17 @@ async def _convert_video(message: Message):
     if not press or "batal" in (press.text or "").lower():
          return await message.answer("❌ Dibatalkan.", reply_markup=ReplyKeyboardRemove())
 
+    # [NEW v4.2] MESIN KASIR: POTONG SALDO POIN
+    await message.answer("🔄 Mengecek Saldo Poin...", reply_markup=ReplyKeyboardRemove())
+    payment = await process_payment(user_id=user_id, command="convert")
+    
+    if not payment["success"]:
+        return await message.answer(payment["message"])
+    else:
+        await message.answer(payment["message"])
+
     await saveconfig(user_id, "convert", "convert_list", sorted_res, SAVE_TO_DATABASE)
          
-    await message.answer(f"⏳ ✅ Mengantrekan proses konversi massa ({res_str})...", reply_markup=ReplyKeyboardRemove())
-
     ps = ProcessStatus(user_id, chat_id, get_username(message), message.from_user.first_name, message, Names.convert, custom_file_name)
     ps.convert_quality = str(sorted_res[0])
     ps.convert_list = sorted_res 
@@ -434,10 +456,8 @@ async def _custom_encode_video(message: Message):
     link = _sanitize_link_for_db(link)
     fname = _get_fname(link, custom_file_name)
 
-    # 1. Bikin Instance Status lebih awal untuk memprediksi Folder Download
     ps = ProcessStatus(user_id, chat_id, get_username(message), message.from_user.first_name, message, Names.custom_encode, custom_file_name)
 
-    # 2. Pengumpulan Daftar File Tambahan (Tanpa Download)
     extra_msgs = []
     extra_names = []
     idx = 1
@@ -476,7 +496,6 @@ async def _custom_encode_video(message: Message):
             await message.answer("⚠️ Maksimal 20 file tambahan telah tercapai.")
             break 
             
-    # 3. Menampilkan Peta Input & Path Absolut (Prediksi Akurat)
     import os
     map_info = "🎬 `Input 0` = Video Utama\n"
     for i, name in enumerate(extra_names, 1):
@@ -486,7 +505,6 @@ async def _custom_encode_video(message: Message):
         else:
             map_info += f"📎 `Input {i}` = {name}\n"
 
-    # 4. Fase Penginputan Command
     ask_cmd = await message.reply(
         f"🎛️ **Kirim Parameter FFmpeg Kustom Anda.**\n\n"
         f"**Peta Input Anda:**\n{map_info}\n"
@@ -510,7 +528,6 @@ async def _custom_encode_video(message: Message):
         del ps
         return await message.answer(f"❌ Format penulisan salah (cek tanda kutip Anda): {e}", reply_markup=ReplyKeyboardRemove())
 
-    # 5. Konfirmasi Akhir
     kb_conf = _make_reply_kb(["✅ Eksekusi", "❌ Batal"], 2)
     conf_txt = (
         f"**🎛️ KONFIRMASI CUSTOM ENCODE**\n\n"
@@ -527,18 +544,22 @@ async def _custom_encode_video(message: Message):
          del ps
          return await message.answer("❌ Dibatalkan.", reply_markup=ReplyKeyboardRemove())
          
-    await message.answer("⏳ ✅ Memasukkan ke antrean. Semua file akan diunduh & diproses otomatis...", reply_markup=ReplyKeyboardRemove())
+    # [NEW v4.2] MESIN KASIR: POTONG SALDO POIN
+    await message.answer("🔄 Mengecek Saldo Poin...", reply_markup=ReplyKeyboardRemove())
+    payment = await process_payment(user_id=user_id, command="customencode")
+    
+    if not payment["success"]:
+        del ps
+        return await message.answer(payment["message"])
+    else:
+        await message.answer(payment["message"])
 
     ps.custom_ffmpeg_cmd = custom_args 
     ps.custom_watermark = {"enabled": False} 
 
     await get_thumbnail(ps, [f"/customencode{CMD_SUFFIX}", "pass"], 120)
     
-    # 6. PENGEKSEKUSIAN ANTREAN DOWNLOAD MASSAL
-    # Build Task memasukkan Video Utama ke urutan pertama
     task = build_task(ps, link)
-    
-    # Tambahkan sisa File Tambahan ke dalam antrean download di belakangnya!
     from bot_helper.Aria2.Aria2_Engine import Aria2
     for emsg in extra_msgs:
         url = await get_url_from_message(emsg)
@@ -660,8 +681,16 @@ async def _add_watermark_interactive(message: Message):
     if not press or "batal" in (press.text or "").lower():
          return await message.answer("❌ Dibatalkan.", reply_markup=ReplyKeyboardRemove())
          
-    await message.answer("⏳ ✅ Mempersiapkan proses watermark...", reply_markup=ReplyKeyboardRemove())
+    # [NEW v4.2] MESIN KASIR: POTONG SALDO POIN
+    await message.answer("🔄 Mengecek Saldo Poin...", reply_markup=ReplyKeyboardRemove())
+    payment = await process_payment(user_id=user_id, command="watermark")
     
+    if not payment["success"]:
+        del ps
+        return await message.answer(payment["message"])
+    else:
+        await message.answer(payment["message"])
+         
     ps.custom_watermark = custom_wm
 
     await get_thumbnail(ps, [f"/watermark{CMD_SUFFIX}", "pass"], 120)
@@ -723,7 +752,15 @@ async def _merge_videos(message: Message):
         del ps
         return await message.answer("❌ Minimal 2 Berkas Diperlukan untuk Menggabungkan.", reply_markup=ReplyKeyboardRemove())
 
-    await message.answer("⏳ ✅ Mempersiapkan proses penggabungan...", reply_markup=ReplyKeyboardRemove())
+    # [NEW v4.2] MESIN KASIR: POTONG SALDO POIN
+    await message.answer("🔄 Mengecek Saldo Poin...", reply_markup=ReplyKeyboardRemove())
+    payment = await process_payment(user_id=user_id, command="merge")
+    
+    if not payment["success"]:
+        del ps
+        return await message.answer(payment["message"])
+    else:
+        await message.answer(payment["message"])
 
     await get_thumbnail(ps, [f"/merge{CMD_SUFFIX}", "pass"], 120)
     ps.custom_watermark = {"enabled": False}
@@ -839,9 +876,18 @@ async def _subtitle_mux_handler(message: Message, process_name: str, cmd_name: s
     await _clean_msgs(conf_msg, press)
     
     if not press or "batal" in (press.text or "").lower():
+         del ps
          return await message.answer("❌ Dibatalkan.", reply_markup=ReplyKeyboardRemove())
          
-    await message.answer("⏳ ✅ Mempersiapkan proses...", reply_markup=ReplyKeyboardRemove())
+    # [NEW v4.2] MESIN KASIR: POTONG SALDO POIN
+    await message.answer("🔄 Mengecek Saldo Poin...", reply_markup=ReplyKeyboardRemove())
+    payment = await process_payment(user_id=user_id, command=cmd_name)
+    
+    if not payment["success"]:
+        del ps
+        return await message.answer(payment["message"])
+    else:
+        await message.answer(payment["message"])
 
     await get_thumbnail(ps, [f"/{cmd_name}{CMD_SUFFIX}", "pass"], 120)
     ps.custom_watermark = {"enabled": False} 
@@ -918,7 +964,14 @@ async def _gen_video_sample(message: Message):
     if not press or "batal" in (press.text or "").lower():
         return await message.answer("❌ Dibatalkan.", reply_markup=ReplyKeyboardRemove())
         
-    await message.answer("⏳ ✅ Mempersiapkan proses pembuatan sampel...", reply_markup=ReplyKeyboardRemove())
+    # [NEW v4.2] MESIN KASIR: POTONG SALDO POIN
+    await message.answer("🔄 Mengecek Saldo Poin...", reply_markup=ReplyKeyboardRemove())
+    payment = await process_payment(user_id=user_id, command="gensample")
+    
+    if not payment["success"]:
+        return await message.answer(payment["message"])
+    else:
+        await message.answer(payment["message"])
 
     ps = ProcessStatus(user_id, chat_id, get_username(message), message.from_user.first_name, message, Names.gensample, custom_file_name)
     ps.custom_sample_duration = sample_duration # Inject durasi custom
@@ -978,7 +1031,14 @@ async def _gen_screenshots(message: Message):
     if not press2 or "batal" in (press2.text or "").lower():
         return await message.answer("❌ Dibatalkan.", reply_markup=ReplyKeyboardRemove())
         
-    await message.answer("⏳ ✅ Mempersiapkan proses...", reply_markup=ReplyKeyboardRemove())
+    # [NEW v4.2] MESIN KASIR: POTONG SALDO POIN
+    await message.answer("🔄 Mengecek Saldo Poin...", reply_markup=ReplyKeyboardRemove())
+    payment = await process_payment(user_id=user_id, command="genss")
+    
+    if not payment["success"]:
+        return await message.answer(payment["message"])
+    else:
+        await message.answer(payment["message"])
 
     ps = ProcessStatus(user_id, chat_id, get_username(message), message.from_user.first_name, message, Names.genss, custom_file_name)
     ps.custom_ss_no = ss_num # Inject jumlah screenshot custom
@@ -995,19 +1055,7 @@ async def _gen_screenshots(message: Message):
 
 @router.message(Command(f"mute{CMD_SUFFIX}"))
 async def _mute_video(message: Message):
-    if not await vip_check(message): return
-    user_id, chat_id = message.from_user.id, message.chat.id
-    link, custom_file_name = await get_link(message)
-    if not link: return await safe_reply(message, f"❌ Kirim video/URL lalu balas dengan perintah /mute{CMD_SUFFIX}")
-
-    ps = ProcessStatus(user_id, chat_id, get_username(message), message.from_user.first_name, message, "mute", custom_file_name)
-    ps.custom_watermark = {"enabled": False}
-    ps.audio_settings = {"enabled": False} 
-    await get_thumbnail(ps, [f"/mute{CMD_SUFFIX}", "pass"], 120)
-    
-    await message.answer("⏳ 🔇 Memproses Mute Video (Menghapus Audio)...")
-    task = build_task(ps, link)
-    await submit_task(task)
+    await _generic_video_handler(message, "mute", "mute")
 
 @router.message(Command(f"dubbing{CMD_SUFFIX}"))
 async def _dubbing_video(message: Message):
@@ -1024,6 +1072,15 @@ async def _dubbing_video(message: Message):
     if not aud_msg or not (aud_msg.audio or aud_msg.document):
         return await message.answer("❌ Audio tidak valid. Dibatalkan.", reply_markup=ReplyKeyboardRemove())
         
+    # [NEW v4.2] MESIN KASIR: POTONG SALDO POIN
+    await message.answer("🔄 Mengecek Saldo Poin...", reply_markup=ReplyKeyboardRemove())
+    payment = await process_payment(user_id=user_id, command="dubbing")
+    
+    if not payment["success"]:
+        return await message.answer(payment["message"])
+    else:
+        await message.answer(payment["message"])
+        
     aud_doc = aud_msg.audio or aud_msg.document
     create_direc(f"./temp/dubs_{user_id}")
     aud_path = f"./temp/dubs_{user_id}/{aud_doc.file_name or 'dub.mp3'}"
@@ -1033,7 +1090,6 @@ async def _dubbing_video(message: Message):
     ps.custom_dub_audio = aud_path 
     ps.custom_watermark = {"enabled": False}
     
-    await message.answer("⏳ 🎙️ Memproses Dubbing (Suara Asli Dihapus, Suara Baru Dimasukkan)...")
     await get_thumbnail(ps, [f"/dubbing{CMD_SUFFIX}", "pass"], 120)
     task = build_task(ps, link)
     await submit_task(task)
@@ -1054,6 +1110,15 @@ async def _speed_video(message: Message):
     txt = (resp.text or "").lower()
     if not txt or "batal" in txt: return await message.answer("❌ Dibatalkan.", reply_markup=ReplyKeyboardRemove())
     
+    # [NEW v4.2] MESIN KASIR: POTONG SALDO POIN
+    await message.answer("🔄 Mengecek Saldo Poin...", reply_markup=ReplyKeyboardRemove())
+    payment = await process_payment(user_id=user_id, command="speed")
+    
+    if not payment["success"]:
+        return await message.answer(payment["message"])
+    else:
+        await message.answer(payment["message"])
+    
     speed_factor = 2.0 if "2.0" in txt else 1.5 if "1.5" in txt else 0.5
     v_pts = 1 / speed_factor
     
@@ -1062,7 +1127,6 @@ async def _speed_video(message: Message):
     ps.audio_filters = [f"atempo={speed_factor}"]
     ps.custom_watermark = {"enabled": False}
 
-    await message.answer(f"⏳ ⚡ Memproses perubahan kecepatan menjadi {speed_factor}x...")
     await get_thumbnail(ps, [f"/speed{CMD_SUFFIX}", "pass"], 120)
     task = build_task(ps, link)
     await submit_task(task)
@@ -1074,6 +1138,11 @@ async def _speed_video(message: Message):
 
 @router.message(Command(f"ext_thumb{CMD_SUFFIX}"))
 async def _extract_thumbnail(message: Message):
+    # [NEW v4.2] MESIN KASIR: POTONG SALDO POIN
+    payment = await process_payment(user_id=message.from_user.id, command="genss") # Pakai harga genss (50 poin)
+    if not payment["success"]:
+        return await message.answer(payment["message"])
+        
     if not await vip_check(message): return
     link, _ = await get_link(message)
     if not link: return await safe_reply(message, "❌ Kirim/Balas video lalu gunakan command ini.")
@@ -1123,6 +1192,11 @@ async def _extract_frames_zip(message: Message):
     interval = (res.text or "").strip()
     if not interval.isdigit(): interval = "5" 
     
+    # [NEW v4.2] MESIN KASIR: POTONG SALDO POIN
+    payment = await process_payment(user_id=message.from_user.id, command="genss") # Pakai harga genss (50 poin)
+    if not payment["success"]:
+        return await message.answer(payment["message"])
+    
     msg = await message.answer(f"⏳ 🎞️ Sedang mengekstrak frame (1 gambar per {interval} detik) dan membuat ZIP...\n_Mohon tunggu sebentar._")
     user_id = message.from_user.id
     
@@ -1160,7 +1234,7 @@ async def _extract_frames_zip(message: Message):
     await msg.delete()
 
 # ═══════════════════════════════════════════════════════════════════════
-#  LEECH / MIRROR
+#  LEECH / MIRROR (PER MB PRICING)
 # ═══════════════════════════════════════════════════════════════════════
 
 async def _leech_mirror_handler(message: Message, process_name: str, cmd_name: str):
@@ -1175,6 +1249,16 @@ async def _leech_mirror_handler(message: Message, process_name: str, cmd_name: s
         ne = await ask_url(message, chat_id, user_id, [f"/{cmd_name}{CMD_SUFFIX}", "stop"], "🔗 Kirim Tautan", 120, False)
         if ne and ne not in ["cancelled", "stopped"]: link = await get_url_from_message(ne)
         else: return
+
+    # [NEW v4.2] MESIN KASIR: POTONG SALDO POIN
+    # Untuk URL, file_size_mb dipatok default 1000MB (3000 Poin) karena kita belum tahu ukuran aslinya.
+    # Jika ingin sistem akurat per MB, harus dipotong nanti di Aria2_Engine.py. 
+    # Sementara ini, kita potong default flat rate untuk URL leeching.
+    payment = await process_payment(user_id, cmd_name, file_size_mb=1000) 
+    if not payment["success"]:
+        return await message.answer(payment["message"])
+    else:
+        await message.answer(payment["message"])
 
     ps = ProcessStatus(user_id, chat_id, get_username(message), message.from_user.first_name, message, process_name, custom_file_name)
     await get_thumbnail(ps, [f"/{cmd_name}{CMD_SUFFIX}", "pass"], 120)
