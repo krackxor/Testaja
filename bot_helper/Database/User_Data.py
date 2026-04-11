@@ -1,16 +1,14 @@
 """
 ╔══════════════════════════════════════════════════════════════════════╗
-║            bot_helper/Database/User_Data.py — v4.3                   ║
+║            bot_helper/Database/User_Data.py — v4.3.1                 ║
 ║            Encoder1 Bot — PAY-AS-YOU-GO EDITION                      ║
 ╠══════════════════════════════════════════════════════════════════════╣
-║  CHANGELOG v4.3:                                                     ║
+║  CHANGELOG v4.3.1:                                                   ║
+║  [NEW]  Menambahkan 'usage_history' ke struktur default.             ║
+║  [NEW]  Fungsi add_usage_history untuk mencatat mutasi poin.         ║
 ║  [NEW]  Migrasi dari sistem 'VIP Expiry Date' menjadi 'Sistem Poin'. ║
-║  [NEW]  Menambahkan 'balance_points' (Saldo Poin) ke default user.   ║
 ║  [NEW]  Fungsi get_user_balance, add_user_balance, deduct_user_balance ║
 ║  [FIX]  Menghapus key usang (premium_expiry_date, total_vip_duration)║
-║         agar database lebih bersih.                                  ║
-║  [FIX]  Import List, Dict, Optional untuk Python 3.11 Typing.        ║
-║  [FIX]  Thread-safe write operations dengan _DATA_LOCK               ║
 ╚══════════════════════════════════════════════════════════════════════╝
 """
 
@@ -18,6 +16,7 @@
 import asyncio
 import copy
 import json
+from datetime import datetime
 from typing import Any, List, Dict, Optional
 
 # ── Internal ──────────────────────────────────────────────────────────
@@ -126,8 +125,9 @@ def _get_default_user_data() -> dict:
         "tgdownload": "Pyrogram", "tgupload": "Pyrogram",
         "multi_tasks": False, "upload_all": True, "custom_metadata": False,
         
-        # [NEW v4.3] Sistem Dompet Saldo (Point System)
+        # [NEW] Sistem Dompet Saldo & Riwayat
         "balance_points": 0,
+        "usage_history": [],
     }
 
     return {
@@ -146,7 +146,7 @@ def get_active_settings(user_id: int) -> dict:
 
 
 # ═══════════════════════════════════════════════════════════════════════
-#  SISTEM SALDO POIN (PAY-AS-YOU-GO)
+#  SISTEM SALDO POIN & RIWAYAT (PAY-AS-YOU-GO)
 # ═══════════════════════════════════════════════════════════════════════
 
 def get_user_balance(user_id: int) -> int:
@@ -167,10 +167,7 @@ async def add_user_balance(user_id: int, amount: int, dbsave: bool = True) -> bo
     return True
 
 async def deduct_user_balance(user_id: int, amount: int, dbsave: bool = True) -> bool:
-    """
-    Memotong saldo poin user.
-    Return False jika saldo tidak cukup (Aman dari minus).
-    """
+    """Memotong saldo poin user. Return False jika saldo tidak cukup."""
     if user_id not in DATA:
         await new_user(user_id, dbsave)
         
@@ -179,6 +176,28 @@ async def deduct_user_balance(user_id: int, amount: int, dbsave: bool = True) ->
         if current < amount:
             return False # Saldo kurang!
         DATA[user_id]["balance_points"] = current - amount
+        
+    if dbsave:
+        return await _save_to_db({user_id: DATA[user_id]})
+    return True
+
+async def add_usage_history(user_id: int, action: str, cost: int, dbsave: bool = True) -> bool:
+    """Mencatat riwayat pemakaian poin pengguna (Maksimal 20 transaksi)."""
+    if user_id not in DATA:
+        await new_user(user_id, dbsave)
+        
+    record = {
+        "date": datetime.now().strftime("%d %b %H:%M"),
+        "action": action,
+        "cost": cost
+    }
+    
+    async with _DATA_LOCK:
+        if "usage_history" not in DATA[user_id]:
+            DATA[user_id]["usage_history"] = []
+            
+        DATA[user_id]["usage_history"].insert(0, record)
+        DATA[user_id]["usage_history"] = DATA[user_id]["usage_history"][:20] # Keep last 20
         
     if dbsave:
         return await _save_to_db({user_id: DATA[user_id]})
@@ -239,7 +258,6 @@ async def ensure_user_data_structure(user_id: int) -> None:
     user_data    = DATA[user_id]
     changes      = []
 
-    # [FIX v4.3] Tambahkan premium_expiry_date dan total_vip_duration ke daftar hapus
     obsolete_keys = ["softmux", "softremux", "is_premium", "premium_expiry_date", "total_vip_duration"]
 
     async with _DATA_LOCK:
