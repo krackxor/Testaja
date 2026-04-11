@@ -1,17 +1,3 @@
-"""
-╔══════════════════════════════════════════════════════════════════════╗
-║                 bot/subtitle_editor.py — v3.1 (STUDIO ULTIMATE)      ║
-║       Subtitle Editor: QC, Undo, Split/Merge, & Find/Replace         ║
-╠══════════════════════════════════════════════════════════════════════╣
-║  CHANGELOG v3.1:                                                     ║
-║  [NEW] Integrasi dengan point_manager (Sistem Saldo Pay-As-You-Go).  ║
-║  [NEW] Memotong saldo (500 Poin) saat user menekan 'Translate All'.  ║
-║  [NEW] Menyiapkan gate kasir di tombol 'Kompilasi' (Future-proof).   ║
-║  [NEW] Fitur Undo/Redo (Memori History) untuk aksi destruktif.       ║
-║  [NEW] Quality Control (QC & Auto-Fix) mendeteksi overlap/durasi.    ║
-╚══════════════════════════════════════════════════════════════════════╝
-"""
-
 import asyncio
 import os
 import pysrt
@@ -35,7 +21,7 @@ from bot_helper.Database.User_Data import (
 )
 from bot_helper.Others.SrtParser import parse_srt_to_db
 from bot_helper.Others.SrtCompiler import compile_db_to_srt
-from bot.shared import wait_for_message, CMD_SUFFIX, LOGGER
+from bot.shared import wait_for_message, CMD_SUFFIX, LOGGER, Telegram # [FIX] Telegram ditambahkan ke import
 
 # [NEW v3.1] Import Mesin Kasir
 from bot_helper.Process.point_manager import process_payment
@@ -70,8 +56,16 @@ async def reindex_lines(user_id: int):
     """Menyusun ulang nomor urut (index) baris berdasarkan waktu start"""
     db = get_db()
     lines = await db.db["subtitle_temp"].find({"user_id": user_id}).sort([("start", 1)]).to_list(length=None)
+    
+    # [OPTIMIZATION] Bulk Write untuk Re-Indexing
+    from pymongo import UpdateOne
+    bulk_ops = []
     for i, line in enumerate(lines, start=1):
-        await db.db["subtitle_temp"].update_one({"_id": line["_id"]}, {"$set": {"index": i}})
+        if line.get("index") != i:  # Hanya update jika index berubah
+            bulk_ops.append(UpdateOne({"_id": line["_id"]}, {"$set": {"index": i}}))
+    
+    if bulk_ops:
+        await db.db["subtitle_temp"].bulk_write(bulk_ops)
 
 
 # ═══════════════════════════════════════════════════════════════════════
@@ -126,21 +120,21 @@ def get_editor_kb(lines, current_page, total_pages, user_id, target_lang, has_un
     kb.append(tools_row)
 
     kb.append([
-        InlineKeyboardButton(text="⏳ Resync All", callback_data=f"sub_rsall_{user_id}", style="primary"),
-        InlineKeyboardButton(text="🌐 Trans All", callback_data=f"sub_trall_{user_id}", style="primary")
+        InlineKeyboardButton(text="⏳ Resync All", callback_data=f"sub_rsall_{user_id}"),
+        InlineKeyboardButton(text="🌐 Trans All", callback_data=f"sub_trall_{user_id}")
     ])
     kb.append([
-        InlineKeyboardButton(text="💾 Simpan Proyek", callback_data=f"sub_save_{user_id}", style="success"),
-        InlineKeyboardButton(text="✅ Kompilasi SRT", callback_data=f"sub_compile_{user_id}", style="success")
+        InlineKeyboardButton(text="💾 Simpan Proyek", callback_data=f"sub_save_{user_id}"),
+        InlineKeyboardButton(text="✅ Kompilasi SRT", callback_data=f"sub_compile_{user_id}")
     ])
-    kb.append([InlineKeyboardButton(text="❌ Keluar Editor", callback_data=f"sub_main_{user_id}", style="danger")])
+    kb.append([InlineKeyboardButton(text="❌ Keluar Editor", callback_data=f"sub_main_{user_id}")])
     return InlineKeyboardMarkup(inline_keyboard=kb)
 
 def get_focus_kb(user_id, line_index, current_page):
     return InlineKeyboardMarkup(inline_keyboard=[
         [
-            InlineKeyboardButton(text="📝 Edit Teks", callback_data=f"sub_edit_txt_{user_id}_{line_index}", style="primary"),
-            InlineKeyboardButton(text="🌐 Terjemahkan", callback_data=f"sub_edit_tr_{user_id}_{line_index}", style="primary")
+            InlineKeyboardButton(text="📝 Edit Teks", callback_data=f"sub_edit_txt_{user_id}_{line_index}"),
+            InlineKeyboardButton(text="🌐 Terjemahkan", callback_data=f"sub_edit_tr_{user_id}_{line_index}")
         ],
         [
             InlineKeyboardButton(text="⏪ -0.5s", callback_data=f"sub_adj_{user_id}_{line_index}_-500"),
@@ -151,8 +145,8 @@ def get_focus_kb(user_id, line_index, current_page):
             InlineKeyboardButton(text="🔗 Merge Bawah", callback_data=f"sub_merge_{user_id}_{line_index}")
         ],
         [
-            InlineKeyboardButton(text="🗑️ Hapus Baris", callback_data=f"sub_del_{user_id}_{line_index}", style="danger"),
-            InlineKeyboardButton(text="↩️ Kembali", callback_data=f"sub_pg_{user_id}_{current_page}", style="danger")
+            InlineKeyboardButton(text="🗑️ Hapus Baris", callback_data=f"sub_del_{user_id}_{line_index}"),
+            InlineKeyboardButton(text="↩️ Kembali", callback_data=f"sub_pg_{user_id}_{current_page}")
         ]
     ])
 
@@ -309,6 +303,9 @@ async def handle_qc_autofix(call: CallbackQuery):
         lines = await db.db["subtitle_temp"].find({"user_id": user_id}).sort([("start", 1)]).to_list(length=None)
         
         fixed_count = 0
+        from pymongo import UpdateOne # [OPTIMIZATION] Bulk Write
+        bulk_ops = []
+
         for i in range(len(lines)):
             changed = False
             st = pysrt.SubRipTime.from_string(str(lines[i]["start"]).replace('.', ','))
@@ -327,13 +324,18 @@ async def handle_qc_autofix(call: CallbackQuery):
                     changed = True
                     
             if changed:
-                await db.db["subtitle_temp"].update_one(
-                    {"_id": lines[i]["_id"]},
-                    {"$set": {"start": str(st).replace(',', '.'), "end": str(et).replace(',', '.')}}
+                bulk_ops.append(
+                    UpdateOne(
+                        {"_id": lines[i]["_id"]},
+                        {"$set": {"start": str(st).replace(',', '.'), "end": str(et).replace(',', '.')}}
+                    )
                 )
                 fixed_count += 1
                 lines[i]["start"], lines[i]["end"] = str(st), str(et) # Update array memory
         
+        if bulk_ops:
+            await db.db["subtitle_temp"].bulk_write(bulk_ops)
+
         lines_pg = await get_subtitle_page(user_id, page=1, limit=5)
         total = await get_total_sub_lines(user_id)
         pages = (total // 5) + (1 if total % 5 > 0 else 0)
@@ -374,13 +376,19 @@ async def handle_find_replace(call: CallbackQuery):
         db = get_db()
         lines = await db.db["subtitle_temp"].find({"user_id": user_id}).to_list(length=None)
         count = 0
+        from pymongo import UpdateOne # [OPTIMIZATION] Bulk Write
+        bulk_ops = []
+
         for line in lines:
             txt = str(line.get("text", ""))
             if old_word in txt:
                 new_txt = txt.replace(old_word, new_word)
-                await db.db["subtitle_temp"].update_one({"_id": line["_id"]}, {"$set": {"text": new_txt}})
+                bulk_ops.append(UpdateOne({"_id": line["_id"]}, {"$set": {"text": new_txt}}))
                 count += 1
                 
+        if bulk_ops:
+             await db.db["subtitle_temp"].bulk_write(bulk_ops)
+
         temp = await call.message.answer(f"✅ Berhasil mengganti kata di {count} baris!", reply_markup=ReplyKeyboardRemove())
         await asyncio.sleep(2)
         await temp.delete()
@@ -628,11 +636,24 @@ async def handle_translate_all(call: CallbackQuery):
     all_lines = await db.db["subtitle_temp"].find({"user_id": user_id}).to_list(length=None)
     translator = GoogleTranslator(source='auto', target=lang)
     count = 0
+    
+    from pymongo import UpdateOne # [OPTIMIZATION] Bulk Write
+    bulk_ops = []
+
     for line in all_lines:
-        translated = await asyncio.to_thread(translator.translate, str(line.get("text", "")))
-        await db.db["subtitle_temp"].update_one({"_id": line["_id"]}, {"$set": {"text": translated}})
-        count += 1
-        if count % 10 == 0: await asyncio.sleep(0.5) 
+        # [FIX] Eksekusi translasi massal harus di-batch agar tidak diblokir Google API
+        try:
+            translated = await asyncio.to_thread(translator.translate, str(line.get("text", "")))
+            bulk_ops.append(UpdateOne({"_id": line["_id"]}, {"$set": {"text": translated}}))
+            count += 1
+            if count % 10 == 0: 
+                await asyncio.sleep(1) # [FIX] Tambah delay untuk menghindari rate limit Google Translate API
+        except Exception as e:
+             LOGGER.error(f"Translation Error on line {line.get('index')}: {e}")
+             
+    if bulk_ops:
+         await db.db["subtitle_temp"].bulk_write(bulk_ops)
+         
     await status_msg.edit_text(f"✅ <b>Berhasil menerjemahkan {count} baris!</b>", parse_mode="HTML")
 
 @router.callback_query(F.data.startswith("sub_rsall_"))
@@ -656,14 +677,27 @@ async def handle_resync_all(call: CallbackQuery):
     db = get_db()
     all_lines = await db.db["subtitle_temp"].find({"user_id": user_id}).to_list(length=None)
     count = 0
+    
+    from pymongo import UpdateOne # [OPTIMIZATION] Bulk Write
+    bulk_ops = []
+
     for line in all_lines:
         st = pysrt.SubRipTime.from_string(str(line.get("start", "00:00:00,000")).replace('.', ','))
         et = pysrt.SubRipTime.from_string(str(line.get("end", "00:00:00,000")).replace('.', ','))
         st.shift(milliseconds=ms_shift)
         et.shift(milliseconds=ms_shift)
-        await db.db["subtitle_temp"].update_one({"_id": line["_id"]}, {"$set": {"start": str(st).replace(',', '.'), "end": str(et).replace(',', '.')}})
+        
+        bulk_ops.append(
+            UpdateOne(
+                {"_id": line["_id"]}, 
+                {"$set": {"start": str(st).replace(',', '.'), "end": str(et).replace(',', '.')}}
+            )
+        )
         count += 1
-        if count % 50 == 0: await asyncio.sleep(0.05)
+        
+    if bulk_ops:
+         await db.db["subtitle_temp"].bulk_write(bulk_ops)
+         
     await status_msg.edit_text(f"✅ <b>Berhasil Resync {count} baris!</b>", parse_mode="HTML")
 
 @router.callback_query(F.data.startswith("sub_del_"))
