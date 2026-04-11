@@ -3,18 +3,17 @@
 ║            bot_helper/Process/Unified_Engine.py                      ║
 ║            Mesin Antrean & UI Terpusat (Studio Khoirul)              ║
 ╠══════════════════════════════════════════════════════════════════════╣
-║  CHANGELOG v4.2:                                                     ║
-║  [UX REFINED] Tampilan UI dirombak menggunakan garis pemisah (Divider)║
-║               agar identik dengan gaya visual Process_Status.py.     ║
+║  CHANGELOG v4.3:                                                     ║
+║  [UX REFINED] Mengubah seluruh pelaporan UI menggunakan format       ║
+║               Markdown murni (**tebal**, `kode`) agar identik dengan ║
+║               gaya visual Process_Status.py (No HTML leaking).       ║
 ║  [FIX CRITICAL] Memisahkan memori antrean _ue_queued & _ue_working   ║
 ║                 agar tidak bertabrakan dengan tipe data `deque`.     ║
-║  [FIX]   Memperbaiki bug formatting angka/waktu pada Progress Bar.   ║
 ╚══════════════════════════════════════════════════════════════════════╝
 """
 
 import asyncio
 import time
-import math
 from aiogram.types import Message
 from aiogram.exceptions import TelegramBadRequest
 from config.config import Config
@@ -73,31 +72,31 @@ def get_progress_bar(current: float, max_val: float, width: int = 10) -> str:
     empty = width - filled
     return f"[{'█' * filled}{'░' * empty}]"
 
-def escape_html(text: str) -> str:
-    """Mencegah Telegram memunculkan error unparsed HTML entity."""
-    return str(text).replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
-
 # ==========================================
 # 2. SISTEM UI (PROGRESS MANAGER)
 # ==========================================
 class ProgressUI:
     def __init__(self, message: Message, module_name: str):
         self.message = message
-        self.module_name = escape_html(module_name)
+        self.module_name = module_name
         self.last_text = ""
         self.start_time = time.time()
         self.user_id = message.from_user.id
-        self.added_by = f"<a href='https://t.me/{message.from_user.username}'>{message.from_user.first_name}</a>" if message.from_user.username else f"<b>{message.from_user.first_name}</b>"
+        
+        # [FIX] Konversi HTML link ke Markdown Telegram
+        if message.from_user.username:
+            self.added_by = f"[{message.from_user.first_name}](https://t.me/{message.from_user.username})"
+        else:
+            self.added_by = f"**{message.from_user.first_name}**"
 
     async def update(self, status: str, current: float = 0, total: float = 0, speed: float = 0, eta: float = 0, details: str = ""):
         """
-        Update UI dengan parameter lengkap dan visual yang konsisten dengan Process_Status.
+        Update UI dengan parameter lengkap dan visual yang konsisten dengan Process_Status 
+        (Menggunakan Markdown Murni).
         """
-        safe_status = escape_html(status)
-        safe_details = escape_html(details)
         
-        text = f"<b>{safe_status}</b>\n"
-        text += f"📁 <code>{self.module_name}</code>\n"
+        text = f"**{status}**\n"
+        text += f"📁 `{self.module_name}`\n"
         
         # Hanya tampilkan bar & persentase jika total > 0
         if total > 0:
@@ -110,43 +109,43 @@ class ProgressUI:
             speed_str = f"{humanbytes(speed)}/s" if speed > 0 else "0 B/s"
             eta_str = TimeFormatter(eta * 1000) if eta > 0 else "N/A"
 
-            text += f"{bar} <b>{percent_clean}%</b>\n"
+            text += f"{bar} **{percent_clean}%**\n"
             text += f"{DIVIDER}\n"
-            text += f"👤 <b>Aktor:</b> {self.added_by} | <b>ID:</b> <code>{self.user_id}</code>\n"
-            text += f"🚀 <b>Engine:</b> <code>Unified Core</code>\n"
-            text += f"📦 <b>Data:</b> <code>{cur_str} / {tot_str}</code>\n"
+            text += f"👤 **Aktor:** {self.added_by} | **ID:** `{self.user_id}`\n"
+            text += f"🚀 **Engine:** `Unified Core`\n"
+            text += f"📦 **Data:** `{cur_str} / {tot_str}`\n"
             if speed > 0:
-                text += f"⚡ <b>Speed:</b> <code>{speed_str}</code> | ⏱ <b>ETA:</b> <code>{eta_str}</code>\n"
+                text += f"⚡ **Speed:** `{speed_str}` | ⏱ **ETA:** `{eta_str}`\n"
         else:
             # Mode Indeterminate (misal: saat render video di Studio)
-            text += f"⏳ <b>Memproses Data...</b>\n"
+            text += f"⏳ **Memproses Data...**\n"
             text += f"{DIVIDER}\n"
-            text += f"👤 <b>Aktor:</b> {self.added_by} | <b>ID:</b> <code>{self.user_id}</code>\n"
-            text += f"🚀 <b>Engine:</b> <code>Unified Core</code>\n"
+            text += f"👤 **Aktor:** {self.added_by} | **ID:** `{self.user_id}`\n"
+            text += f"🚀 **Engine:** `Unified Core`\n"
 
         if details:
             text += f"{DIVIDER}\n"
-            text += f"<i>{safe_details}</i>"
+            text += f"_{details}_"
 
         if text != self.last_text:
             try:
-                await self.message.edit_text(text, parse_mode="HTML", disable_web_page_preview=True)
+                # [FIX] parse_mode diganti ke Markdown
+                await self.message.edit_text(text, parse_mode="Markdown", disable_web_page_preview=True)
                 self.last_text = text
             except TelegramBadRequest:
                 pass 
 
-    async def finish(self, final_text: str = "✅ <b>Proses Selesai!</b>"):
+    async def finish(self, final_text: str = "✅ **Proses Selesai!**"):
         try:
             elapsed = TimeFormatter((time.time() - self.start_time) * 1000)
-            text = f"{final_text}\n\n⏱️ <b>Waktu Total:</b> <code>{elapsed}</code>"
-            await self.message.edit_text(text, parse_mode="HTML", disable_web_page_preview=True)
+            text = f"{final_text}\n\n⏱️ **Waktu Total:** `{elapsed}`"
+            await self.message.edit_text(text, parse_mode="Markdown", disable_web_page_preview=True)
         except: 
             pass
 
     async def error(self, error_text: str):
         try:
-            safe_error = escape_html(str(error_text))
-            await self.message.edit_text(f"❌ <b>Error Terjadi:</b>\n<code>{safe_error}</code>", parse_mode="HTML")
+            await self.message.edit_text(f"❌ **Error Terjadi:**\n`{error_text}`", parse_mode="Markdown")
         except: 
             pass
 
@@ -157,7 +156,7 @@ async def execute_unified_task(message: Message, module_name: str, task_function
     user_id = message.from_user.id
     task_id = f"{user_id}_{int(time.time())}"
     
-    status_msg = await message.answer(f"🔄 <b>Menambahkan {escape_html(module_name)} ke antrean...</b>", parse_mode="HTML")
+    status_msg = await message.answer(f"🔄 **Menambahkan {module_name} ke antrean...**", parse_mode="Markdown")
     ui = ProgressUI(status_msg, module_name)
 
     # [FIX] Masukkan ke antrean internal Unified Engine
