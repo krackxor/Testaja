@@ -1,12 +1,3 @@
-Tentu, Mas Khoirul! Kita perlu memperbarui *database* harga di "Mesin Kasir" agar sistem poin Anda bisa memotong saldo pengguna saat mereka menggunakan fitur Cloud Upload yang baru saja kita tambahkan (`/gofile`, `/pixeldrain`, dll).
-
-### 💡 Apa yang Berubah di Versi 1.4 ini?
-1. **Penambahan Harga Cloud**: Memasukkan `gofile`, `pixeldrain`, `buzzheavier`, `terabox`, `vimeo`, dan `rclone` ke dalam `PRICE_LIST`.
-2. **Kategori Baru**: Saya membuatkan kategori khusus di komentar (Tier 6) agar daftar harga Anda tetap rapi dan mudah diatur kelak.
-
-Berikut adalah **`bot_helper/Process/point_manager.py` — Versi 1.4**. Silakan timpa seluruh isinya:
-
-```python
 """
 ╔══════════════════════════════════════════════════════════════════════╗
 ║    bot_helper/Process/point_manager.py — v1.4 (KASIR STUDIO FINAL)   ║
@@ -160,4 +151,3 @@ async def process_payment(user_id: int, command: str, file_size_mb: float = 0) -
             "cost": cost, 
             "message": "❌ Transaksi gagal (Terjadi kesalahan sinkronisasi sistem)."
         }
-```
