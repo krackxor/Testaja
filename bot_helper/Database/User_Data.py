@@ -1,10 +1,10 @@
 """
 ╔══════════════════════════════════════════════════════════════════════╗
-║            bot_helper/Database/User_Data.py — v4.3.1                 ║
+║            bot_helper/Database/User_Data.py — v4.3.2                 ║
 ║            Encoder1 Bot — PAY-AS-YOU-GO EDITION                      ║
 ╠══════════════════════════════════════════════════════════════════════╣
-║  CHANGELOG v4.3.1:                                                   ║
-║  [NEW]  Menambahkan 'usage_history' ke struktur default.             ║
+║  CHANGELOG v4.3.2:                                                   ║
+║  [NEW]  Menambahkan 'cloud_keys' ke struktur default.                ║
 ║  [NEW]  Fungsi add_usage_history untuk mencatat mutasi poin.         ║
 ║  [NEW]  Migrasi dari sistem 'VIP Expiry Date' menjadi 'Sistem Poin'. ║
 ║  [NEW]  Fungsi get_user_balance, add_user_balance, deduct_user_balance ║
@@ -128,6 +128,13 @@ def _get_default_user_data() -> dict:
         # [NEW] Sistem Dompet Saldo & Riwayat
         "balance_points": 0,
         "usage_history": [],
+        
+        # [NEW v4.3.2] Cloud API Keys (Per-User Private Storage)
+        "cloud_keys": {
+            "gofile": "",
+            "pixeldrain": "",
+            "buzzheavier": ""
+        }
     }
 
     return {
@@ -167,7 +174,10 @@ async def add_user_balance(user_id: int, amount: int, dbsave: bool = True) -> bo
     return True
 
 async def deduct_user_balance(user_id: int, amount: int, dbsave: bool = True) -> bool:
-    """Memotong saldo poin user. Return False jika saldo tidak cukup."""
+    """
+    Memotong saldo poin user.
+    Return False jika saldo tidak cukup (Aman dari minus).
+    """
     if user_id not in DATA:
         await new_user(user_id, dbsave)
         
@@ -182,7 +192,7 @@ async def deduct_user_balance(user_id: int, amount: int, dbsave: bool = True) ->
     return True
 
 async def add_usage_history(user_id: int, action: str, cost: int, dbsave: bool = True) -> bool:
-    """Mencatat riwayat pemakaian poin pengguna (Maksimal 20 transaksi)."""
+    """Mencatat riwayat pemakaian poin pengguna (Maksimal 20 transaksi terakhir agar DB tidak berat)."""
     if user_id not in DATA:
         await new_user(user_id, dbsave)
         
@@ -196,8 +206,10 @@ async def add_usage_history(user_id: int, action: str, cost: int, dbsave: bool =
         if "usage_history" not in DATA[user_id]:
             DATA[user_id]["usage_history"] = []
             
+        # Masukkan data baru di urutan paling atas (index 0)
         DATA[user_id]["usage_history"].insert(0, record)
-        DATA[user_id]["usage_history"] = DATA[user_id]["usage_history"][:20] # Keep last 20
+        # Batasi hanya menyimpan 20 transaksi terakhir agar database MongoDB tidak membengkak
+        DATA[user_id]["usage_history"] = DATA[user_id]["usage_history"][:20]
         
     if dbsave:
         return await _save_to_db({user_id: DATA[user_id]})
@@ -290,6 +302,12 @@ async def ensure_user_data_structure(user_id: int) -> None:
                                     if deep_key not in user_data[key][sub_key]:
                                         user_data[key][sub_key][deep_key] = copy.deepcopy(deep_default)
                                         changes.append(f"ADD {key}.{sub_key}.{deep_key}")
+                                        
+                        # [FIX v4.3.2] Update struktur dalam dict terdalam (seperti cloud_keys)
+                        elif key == "cloud_keys" and isinstance(sub_default, str):
+                             if sub_key not in user_data[key]:
+                                user_data[key][sub_key] = ""
+                                changes.append(f"ADD {key}.{sub_key}")
 
     if changes:
         LOGGER.info(
