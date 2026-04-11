@@ -1,9 +1,10 @@
 """
 ╔══════════════════════════════════════════════════════════════════════╗
 ║            bot_helper/Process/Running_Process.py                     ║
-║            Encoder1 Bot — v3.4                                       ║
+║            Encoder1 Bot — v3.5 (SaaS Routing Edition)                ║
 ╠══════════════════════════════════════════════════════════════════════╣
-║  CHANGELOG v3.4:                                                     ║
+║  CHANGELOG v3.5:                                                     ║
+║  [NEW]   Menambahkan routing fallback untuk modul Studio & Cloud.    ║
 ║  [FIX HIGH] check_running_process tanpa lock → pakai lock            ║
 ║  [FIX]      list → set (O(1) lookup vs O(n) linear scan)             ║
 ║  [FIX]      check sync tapi append/remove async → konsisten          ║
@@ -15,9 +16,12 @@
 ╚══════════════════════════════════════════════════════════════════════╝
 """
 
+import logging
 from asyncio import Lock
 from typing import Any
 from bot_helper.Others.Names import Names
+
+LOGGER = logging.getLogger(__name__)
 
 # ── State ──────────────────────────────────────────────────────────────
 # [FIX] set bukan list — O(1) lookup, thread-safer untuk concurrent access
@@ -47,6 +51,7 @@ async def append_running_process(process_id: Any) -> bool:
         if process_id in _running_processes:
             return False
         _running_processes.add(process_id)
+        LOGGER.debug(f"➕ Process ID ditambahkan: {process_id}")
         return True
 
 
@@ -60,6 +65,7 @@ async def remove_running_process(process_id: Any) -> bool:
         if process_id not in _running_processes:
             return False
         _running_processes.discard(process_id)
+        LOGGER.debug(f"➖ Process ID dihapus: {process_id}")
         return True
 
 
@@ -83,6 +89,7 @@ async def clear_all_processes() -> int:
     async with _lock:
         count = len(_running_processes)
         _running_processes.clear()
+        LOGGER.info(f"🧹 CLEAR ALL PROCESSES: {count} proses dihentikan.")
         return count
 
 
@@ -95,13 +102,16 @@ async def start_running_process(ps):
     Fungsi 'Polisi Lalu Lintas'.
     Mengarahkan tugas berdasarkan Names ke dalam fungsi FFmpeg_Processes yang tepat.
     """
-    process = ps.process_type
+    process = getattr(ps, "process_type", None)
+
+    if not process:
+        return False
 
     if process == Names.compress:
         from bot_helper.FFMPEG.FFMPEG_Processes import start_compress_convert_process
         return await start_compress_convert_process(ps)
         
-    # [NEW v3.2 & v3.4] Menggabungkan Convert, Encode, Mute, Speed, Dubbing, dan Custom Encode ke dalam SATU handler utama
+    # Menggabungkan Convert, Encode, Mute, Speed, Dubbing, dan Custom Encode ke dalam SATU handler utama
     elif process in [Names.convert, Names.encode, Names.mute, Names.speed, Names.dubbing, Names.custom_encode]:
         from bot_helper.FFMPEG.FFMPEG_Processes import start_compress_convert_process
         return await start_compress_convert_process(ps)
@@ -169,5 +179,10 @@ async def start_running_process(ps):
     elif process == Names.mediainfo:
         from bot_helper.FFMPEG.FFMPEG_Processes import start_mediainfo_process
         return await start_mediainfo_process(ps)
+        
+    # [NEW v3.5] Fallback untuk Unified Engine Types (Jika sewaktu-waktu di-routing ke sini)
+    elif process in ["studio", "cloud_upload", "recap"]:
+        LOGGER.info(f"🔄 Routing process_type '{process}' dialihkan ke Unified_Engine bypass.")
+        return True
 
     return False
