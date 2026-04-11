@@ -1,15 +1,17 @@
 """
 ╔══════════════════════════════════════════════════════════════════════╗
-║    bot/Gameplay.py — v5.2 (ONE-CLICK STUDIO EDITION)                 ║
+║    bot/Gameplay.py — v5.3 (ONE-CLICK STUDIO EDITION)                 ║
 ║    Studio Khoirul: Core Engine Video Production Bot (Pay-As-You-Go)  ║
 ╠══════════════════════════════════════════════════════════════════════╣
-║  CHANGELOG v5.2:                                                     ║
+║  CHANGELOG v5.3:                                                     ║
 ║  [UX PREMIUM] ROMBAK TOTAL ENTRY POINT! Tidak perlu reply TXT lagi.  ║
 ║  [UX PREMIUM] Bot otomatis mendeteksi file .txt yang dikirim dan     ║
 ║               memunculkan Dashboard Studio Interaktif (Satu Klik).   ║
 ║  [NEW] INTEGRASI SISTEM POIN! Memotong saldo sebelum render jalan.   ║
 ║  [INTEGRATION] Migrasi total ke bot_helper.Process.Unified_Engine    ║
-║  [FIX] Upload Final menggunakan Pyrogram untuk cegah Timeout Error.  ║
+║  [FIX CRITICAL] Memperbaiki AttributeError: ganti Telegram.          ║
+║                 PYROGRAM_BOT menjadi Telegram.PYROGRAM_CLIENT untuk  ║
+║                 upload final yang aman dari timeout.                 ║
 ╚══════════════════════════════════════════════════════════════════════╝
 """
 
@@ -756,7 +758,7 @@ async def _core_studio_logic(message: Message, ui, st: dict, gameplay_path: str)
             async def process_single_scene(local_idx, global_idx, scene, window, prev_seg_local):
                 nonlocal completed_count
                 async with semaphore:
-                    # [NEW v5.2] Update fungsi prep_phase ke UI yang baru saja kita perbarui di Unified_Engine
+                    # Update fungsi prep_phase ke UI di Unified_Engine
                     sisa = total - completed_count
                     await ui.prep_phase("Mempersiapkan proses pemotongan...", remaining=sisa)
 
@@ -824,12 +826,12 @@ async def _core_studio_logic(message: Message, ui, st: dict, gameplay_path: str)
             score = next((int(s["narration"]) for s in scenes if s["type"] == "RATING" and str(s["narration"]).isdigit()), None)
             thumb_path = await asyncio.to_thread(generate_thumbnail, st["title"], score, gameplay_path, None, is_portrait, "short" if is_portrait else "review")
             
-            # [FIX CRITICAL v5.2] Menggunakan Pyrogram untuk Upload Hasil Akhir (Mencegah Timeout Error dari Aiogram)
+            # [FIX CRITICAL v5.3] Menggunakan Telegram.PYROGRAM_CLIENT
             try:
-                await Telegram.PYROGRAM_BOT.send_video(
+                await Telegram.PYROGRAM_CLIENT.send_video(
                     chat_id=message.chat.id,
                     video=merged_path,
-                    thumb=thumb_path, # Pyrogram argument for thumbnail
+                    thumb=thumb_path, 
                     caption=f"🎬 **{st['segment_name']} - {st['title']}**\n📐 {res_label}\n✅ Berhasil Dirender!",
                     supports_streaming=True,
                     width=SHORT_W if is_portrait else TARGET_W,
@@ -847,7 +849,7 @@ async def _core_studio_logic(message: Message, ui, st: dict, gameplay_path: str)
                         supports_streaming=True,
                         width=SHORT_W if is_portrait else TARGET_W,
                         height=SHORT_H if is_portrait else TARGET_H,
-                        request_timeout=3600 # Aiogram timeout fix fallback
+                        request_timeout=3600 
                     )
                 except Exception as fallback_e:
                     await message.answer(f"❌ Gagal mengirim video hasil akhir: {fallback_e}")
