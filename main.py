@@ -1,17 +1,16 @@
 """
 ╔══════════════════════════════════════════════════════════════════════╗
-║                    main.py — v3.5 (Unified Engine Edition)           ║
-║         Encoder1 Bot — v3.5 (Studio Khoirul Premium Update)          ║
+║                    main.py — v3.6 (Unified Engine Edition)           ║
+║        Encoder1 Bot — v3.6 (Studio Khoirul Premium Update)           ║
 ╠══════════════════════════════════════════════════════════════════════╣
-║  CHANGELOG v3.5:                                                     ║
+║  CHANGELOG v3.6:                                                     ║
+║  [NEW] Mendaftarkan router `bot.CloudUploads` (Modul Leech/Mirror).  ║
 ║  [FIX CRITICAL] Reorder Routers: Memindahkan `bot.callbacks` ke      ║
 ║                 urutan PALING BAWAH untuk mencegah masalah           ║
 ║                 'Router Black Hole' (Tombol macet/stuck).            ║
 ║  [NEW] Integrasi bot_helper.Process.Unified_Engine                   ║
 ║  [FIX] Inisialisasi antrean Semaphore global saat startup.           ║
-║  [FIX] Sinkronisasi data antrean Dashboard dengan Engine.            ║
 ║  [IMPROVE] Middleware Waiter Catcher diprioritaskan paling awal.     ║
-║  [IMPROVE] Logika Auto-Router cerdas (Deteksi router & ui_router).   ║
 ╚══════════════════════════════════════════════════════════════════════╝
 """
 
@@ -61,6 +60,7 @@ import bot.Gameplay
 import bot.AutoClip
 import bot.MovieRecap
 import bot.YTUpload
+import bot.CloudUploads # [NEW v3.6] Modul Cloud Upload & Mirror
 import bot.subtitle_handlers
 import bot.subtitle_editor 
 import bot.ui_dashboard 
@@ -154,8 +154,8 @@ async def main():
         bot.ui_dashboard,   # Dashboard didahulukan
         bot.admin_handlers, bot.vip_handlers, bot.media_handlers,
         bot.advanced_media_handlers, bot.Gameplay, bot.AutoClip, 
-        bot.MovieRecap, bot.YTUpload, bot.subtitle_handlers, 
-        bot.subtitle_editor, 
+        bot.MovieRecap, bot.YTUpload, bot.CloudUploads, # [NEW] Tersisip dengan aman
+        bot.subtitle_handlers, bot.subtitle_editor, 
         bot.callbacks       # <-- CALLBACKS HARUS PALING BAWAH
     ]
     
