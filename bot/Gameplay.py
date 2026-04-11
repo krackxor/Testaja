@@ -1,9 +1,10 @@
 """
 ╔══════════════════════════════════════════════════════════════════════╗
-║    bot/Gameplay.py — v5.0 (NETFLIX LORE EDITION - INTERNATIONAL)     ║
-║    Studio Khoirul: Core Engine Video Production Bot (Aiogram 3.x)    ║
+║    bot/Gameplay.py — v5.1 (NETFLIX LORE EDITION - INTERNATIONAL)     ║
+║    Studio Khoirul: Core Engine Video Production Bot (Pay-As-You-Go)  ║
 ╠══════════════════════════════════════════════════════════════════════╣
-║  CHANGELOG v5.0:                                                     ║
+║  CHANGELOG v5.1:                                                     ║
+║  [NEW] INTEGRASI SISTEM POIN! Memotong saldo sebelum render jalan.   ║
 ║  [INTEGRATION] Migrasi total ke bot_helper.Process.Unified_Engine    ║
 ║  [CLEANUP] Menghapus sistem semaphore dan QueueStats manual          ║
 ║  [UX PREMIUM] Progress Bar real-time di-handle oleh Unified UI       ║
@@ -54,6 +55,9 @@ from bot_helper.Process.Unified_Engine import execute_unified_task
 from bot_helper.Telegram.Telegram_Client import Telegram
 from config.config import Config
 from bot.shared import wait_for_message, CMD_SUFFIX
+
+# [NEW v5.1] Import Mesin Kasir Poin
+from bot_helper.Process.point_manager import process_payment
 
 try:
     from bot.YTUpload import _core_ytupload_logic, YOUTUBE_ENABLED, _is_vip as _yt_is_vip
@@ -154,13 +158,8 @@ def get_dynamic_semaphore():
 # ═══════════════════════════════════════════════════════════════════════
 
 def _is_vip(user_id: int) -> bool:
-    if user_id == Config.OWNER_ID or user_id in Config.SUDO_USERS: return True
-    try: return _yt_is_vip(user_id)
-    except Exception: pass
-    expiry_str = get_data().get(user_id, {}).get("premium_expiry_date")
-    if not expiry_str: return False
-    try: return datetime.now(datetime.fromisoformat(str(expiry_str)).tzinfo) < datetime.fromisoformat(str(expiry_str))
-    except: return False
+    """[DEPRECATED] Diganti oleh process_payment, tapi disisakan untuk check awal"""
+    return True # Semua orang bisa masuk ke menu, pembatas utamanya adalah SALDO POIN.
 
 def _dash(icon: str, title: str, rows: list) -> str: return f"{icon} **{title}**\n`{'─'*30}`\n" + "\n".join(f"  {lbl:<13}{val}" for lbl, val in rows) + f"\n`{'─'*30}`"
 def _st(step: str, detail: str = "") -> str: return f"⏳ {step}" + (f"\n`{detail}`" if detail else "")
@@ -185,6 +184,36 @@ def cleanup_temp(files: list):
 def safe_filename(name: str, ext: str = ".mp4") -> str:
     clean = re.sub(r'[^\w\-_. ]', '_', name).strip()
     return clean if clean.lower().endswith(ext) else clean + ext
+
+async def download_with_progress(message: Message, reply_msg: Message, dest: str, label: str = "Video", status_msg: Message = None) -> bool:
+    target_media = reply_msg.video or reply_msg.document or reply_msg.audio
+    if not target_media: return False
+    
+    last_dl_edit = 0.0
+    async def _dl_progress(current: int, total: int):
+        nonlocal last_dl_edit
+        now = time.time()
+        if now - last_dl_edit >= 2.0 and status_msg:
+            pct = current / total if total else 0
+            bar = "█" * int(pct * 10) + "░" * (10 - int(pct * 10))
+            try: await status_msg.edit_text(f"⏳ 🔽 **Mengunduh {label}...**\n\n[{bar}] {pct*100:.1f}%\n📥 `{get_human_size(current)} / {get_human_size(total)}`")
+            except Exception: pass
+            last_dl_edit = now
+
+    pyro_client = Telegram.PYROGRAM_CLIENT
+    downloaded = False
+    if pyro_client:
+        try:
+            pyro_msg = await pyro_client.get_messages(reply_msg.chat.id, reply_msg.message_id)
+            await pyro_client.download_media(message=pyro_msg, file_name=dest, progress=_dl_progress)
+            downloaded = True
+        except Exception as e:
+            LOGGER.error(f"Pyrogram temp dl error: {e}")
+    
+    if not downloaded:
+        await Telegram.AIOGRAM_BOT.download(target_media, destination=dest)
+        
+    return os.path.exists(dest)
 
 
 # ═══════════════════════════════════════════════════════════════════════
@@ -871,7 +900,8 @@ STUDIO_COMMANDS = {
 async def master_studio_handler(message: Message) -> None:
     user_id = message.from_user.id
     chat_id = message.chat.id
-    if not _is_vip(user_id): return await message.reply("👑 **Fitur VIP** — Program Studio Khoirul hanya untuk member premium.")
+    
+    # VIP CHECK sudah dibuang, diganti di ujung konfirmasi via process_payment
     
     raw_command = message.text.split()[0].replace("/", "")
     if CMD_SUFFIX and raw_command.endswith(CMD_SUFFIX):
@@ -983,7 +1013,17 @@ async def master_studio_handler(message: Message) -> None:
         cleanup_temp([txt_path])
         return await message.answer("❌ Dibatalkan.", reply_markup=ReplyKeyboardRemove())
         
-    await message.answer("⏳ ✅ Menyiapkan Mesin Produksi...", reply_markup=ReplyKeyboardRemove())
+    # [NEW v5.1] MESIN KASIR: POTONG SALDO POIN
+    await message.answer("🔄 Mengecek Saldo Poin...", reply_markup=ReplyKeyboardRemove())
+    
+    # Menggunakan nama fungsi sebagai perintah yang dicari oleh Mesin Kasir (7000 Poin)
+    payment = await process_payment(user_id=user_id, command=command_used)
+    
+    if not payment["success"]:
+        cleanup_temp([txt_path])
+        return await message.answer(payment["message"])
+
+    await message.answer(f"⏳ ✅ Menyiapkan Mesin Produksi...\n{payment['message']}", reply_markup=ReplyKeyboardRemove())
     
     if gameplay_reply:
         gp_path = tmp(f"studio_gp_{int(time.time())}.mp4")
@@ -1008,7 +1048,9 @@ async def master_studio_handler(message: Message) -> None:
 
 @router.message(Command(f"addsfx{CMD_SUFFIX}"))
 async def addsfx_handler(message: Message, command: CommandObject) -> None:
-    if not _is_vip(message.from_user.id): return
+    # Hanya untuk admin, tidak dipotong poin
+    if message.from_user.id not in Config.SUDO_USERS and message.from_user.id != Config.OWNER_ID: 
+        return
     raw_text = (command.args or "").strip()
     if not raw_text: return await message.reply(f"❌ **Format:** Balas file MP3/Audio -> `/addsfx{CMD_SUFFIX} sfx_impact`")
     
