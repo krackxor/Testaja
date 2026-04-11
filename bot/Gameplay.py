@@ -1,17 +1,15 @@
 """
 ╔══════════════════════════════════════════════════════════════════════╗
-║    bot/Gameplay.py — v5.3 (ONE-CLICK STUDIO EDITION)                 ║
+║    bot/Gameplay.py — v5.4 (ONE-CLICK STUDIO EDITION)                 ║
 ║    Studio Khoirul: Core Engine Video Production Bot (Pay-As-You-Go)  ║
 ╠══════════════════════════════════════════════════════════════════════╣
-║  CHANGELOG v5.3:                                                     ║
-║  [UX PREMIUM] ROMBAK TOTAL ENTRY POINT! Tidak perlu reply TXT lagi.  ║
+║  CHANGELOG v5.4:                                                     ║
+║  [FIX CRITICAL] Memasang Progress Bar pada Pyrogram upload agar      ║
+║                 animasi tidak stuck di "Menyiapkan thumbnail HD..."  ║
 ║  [UX PREMIUM] Bot otomatis mendeteksi file .txt yang dikirim dan     ║
 ║               memunculkan Dashboard Studio Interaktif (Satu Klik).   ║
 ║  [NEW] INTEGRASI SISTEM POIN! Memotong saldo sebelum render jalan.   ║
 ║  [INTEGRATION] Migrasi total ke bot_helper.Process.Unified_Engine    ║
-║  [FIX CRITICAL] Memperbaiki AttributeError: ganti Telegram.          ║
-║                 PYROGRAM_BOT menjadi Telegram.PYROGRAM_CLIENT untuk  ║
-║                 upload final yang aman dari timeout.                 ║
 ╚══════════════════════════════════════════════════════════════════════╝
 """
 
@@ -826,7 +824,23 @@ async def _core_studio_logic(message: Message, ui, st: dict, gameplay_path: str)
             score = next((int(s["narration"]) for s in scenes if s["type"] == "RATING" and str(s["narration"]).isdigit()), None)
             thumb_path = await asyncio.to_thread(generate_thumbnail, st["title"], score, gameplay_path, None, is_portrait, "short" if is_portrait else "review")
             
-            # [FIX CRITICAL v5.3] Menggunakan Telegram.PYROGRAM_CLIENT
+            # --- TAMBAHKAN PROGRESS BAR UPLOAD PYROGRAM ---
+            last_up_edit = 0.0
+            async def _up_progress(current: int, total: int):
+                nonlocal last_up_edit
+                now = time.time()
+                # Update UI setiap 2 detik agar Telegram tidak memblokir karena spam
+                if now - last_up_edit >= 2.0 and total > 0:
+                    # Ini akan mematikan animasi looping dan mengubahnya jadi bar persentase asli
+                    await ui.update(
+                        status=f"📤 Upload Telegram [{res_mode}]", 
+                        current=current, 
+                        total=total, 
+                        details="Mengirim video hasil render ke chat Anda..."
+                    )
+                    last_up_edit = now
+
+            # [FIX CRITICAL v5.4] Menggunakan Telegram.PYROGRAM_CLIENT dengan Progress Bar
             try:
                 await Telegram.PYROGRAM_CLIENT.send_video(
                     chat_id=message.chat.id,
@@ -835,7 +849,8 @@ async def _core_studio_logic(message: Message, ui, st: dict, gameplay_path: str)
                     caption=f"🎬 **{st['segment_name']} - {st['title']}**\n📐 {res_label}\n✅ Berhasil Dirender!",
                     supports_streaming=True,
                     width=SHORT_W if is_portrait else TARGET_W,
-                    height=SHORT_H if is_portrait else TARGET_H
+                    height=SHORT_H if is_portrait else TARGET_H,
+                    progress=_up_progress # <--- INILAH KUNCI AGAR LAYAR TIDAK STUCK
                 )
             except Exception as e:
                 LOGGER.error(f"Gagal upload Pyrogram: {e}")
