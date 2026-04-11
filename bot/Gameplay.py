@@ -1,13 +1,14 @@
 """
 ╔══════════════════════════════════════════════════════════════════════╗
-║    bot/Gameplay.py — v5.1 (NETFLIX LORE EDITION - INTERNATIONAL)     ║
+║    bot/Gameplay.py — v5.2 (ONE-CLICK STUDIO EDITION)                 ║
 ║    Studio Khoirul: Core Engine Video Production Bot (Pay-As-You-Go)  ║
 ╠══════════════════════════════════════════════════════════════════════╣
-║  CHANGELOG v5.1:                                                     ║
+║  CHANGELOG v5.2:                                                     ║
+║  [UX PREMIUM] ROMBAK TOTAL ENTRY POINT! Tidak perlu reply TXT lagi.  ║
+║  [UX PREMIUM] Bot otomatis mendeteksi file .txt yang dikirim dan     ║
+║                memunculkan Dashboard Studio Interaktif (Satu Klik).  ║
 ║  [NEW] INTEGRASI SISTEM POIN! Memotong saldo sebelum render jalan.   ║
 ║  [INTEGRATION] Migrasi total ke bot_helper.Process.Unified_Engine    ║
-║  [CLEANUP] Menghapus sistem semaphore dan QueueStats manual          ║
-║  [UX PREMIUM] Progress Bar real-time di-handle oleh Unified UI       ║
 ╚══════════════════════════════════════════════════════════════════════╝
 """
 
@@ -56,7 +57,7 @@ from bot_helper.Telegram.Telegram_Client import Telegram
 from config.config import Config
 from bot.shared import wait_for_message, CMD_SUFFIX
 
-# [NEW v5.1] Import Mesin Kasir Poin
+# [NEW] Import Mesin Kasir Poin
 from bot_helper.Process.point_manager import process_payment
 
 try:
@@ -121,6 +122,9 @@ RADAR_CYAN, RADAR_ORANGE, PATCH_RED, PATCH_YELLOW = (0, 255, 255), (255, 140, 0)
 
 for _d in [GAMEPLAY_DIR, TEMP_DIR, THUMB_DIR, "./audio"]: os.makedirs(_d, exist_ok=True)
 
+# State sementara per user untuk menyimpan file script .txt yang baru dikirim
+_studio_session: dict = {}
+
 
 # ═══════════════════════════════════════════════════════════════════════
 #  UI & CLEANUP HELPERS
@@ -152,14 +156,6 @@ def get_dynamic_semaphore():
         else: return 3                
     except:
         return 2
-
-# ═══════════════════════════════════════════════════════════════════════
-#  CORE UTILS & NOTIFIERS
-# ═══════════════════════════════════════════════════════════════════════
-
-def _is_vip(user_id: int) -> bool:
-    """[DEPRECATED] Diganti oleh process_payment, tapi disisakan untuk check awal"""
-    return True # Semua orang bisa masuk ke menu, pembatas utamanya adalah SALDO POIN.
 
 def _dash(icon: str, title: str, rows: list) -> str: return f"{icon} **{title}**\n`{'─'*30}`\n" + "\n".join(f"  {lbl:<13}{val}" for lbl, val in rows) + f"\n`{'─'*30}`"
 def _st(step: str, detail: str = "") -> str: return f"⏳ {step}" + (f"\n`{detail}`" if detail else "")
@@ -893,71 +889,93 @@ STUDIO_COMMANDS = {
     "lore": "LORE & CONSPIRACIES", "radar": "ON THE RADAR", "patch": "THE LATEST PATCH"
 }
 
-@router.message(Command(
-    f"verdict{CMD_SUFFIX}", f"toptier{CMD_SUFFIX}", f"archives{CMD_SUFFIX}", 
-    f"lore{CMD_SUFFIX}", f"radar{CMD_SUFFIX}", f"patch{CMD_SUFFIX}"
-))
-async def master_studio_handler(message: Message) -> None:
+@router.message(F.document & F.document.file_name.endswith('.txt'))
+async def auto_detect_txt_handler(message: Message) -> None:
+    """Auto-detect file .txt dan memunculkan Dashboard Studio"""
     user_id = message.from_user.id
-    chat_id = message.chat.id
     
-    # VIP CHECK sudah dibuang, diganti di ujung konfirmasi via process_payment
+    # Save session data temporary
+    _studio_session[user_id] = {
+        "txt_msg": message,
+        "document": message.document
+    }
     
-    raw_command = message.text.split()[0].replace("/", "")
-    if CMD_SUFFIX and raw_command.endswith(CMD_SUFFIX):
-        command_used = raw_command[:-len(CMD_SUFFIX)].lower()
-    else:
-        command_used = raw_command.lower()
-        
-    segment_name = STUDIO_COMMANDS.get(command_used, "STUDIO KHOIRUL")
-    txt_path, gameplay_reply = None, None
+    kb = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="🎬 The Verdict (Merah)", callback_data="studio_verdict", style="primary"),
+         InlineKeyboardButton(text="🏆 Top Tier (Emas)", callback_data="studio_toptier", style="primary")],
+        [InlineKeyboardButton(text="📜 The Archives (Retro)", callback_data="studio_archives", style="primary"),
+         InlineKeyboardButton(text="🧠 Lore (Netflix)", callback_data="studio_lore", style="primary")],
+        [InlineKeyboardButton(text="📡 Radar (Cyan)", callback_data="studio_radar", style="primary"),
+         InlineKeyboardButton(text="🗞️ Patch (Berita)", callback_data="studio_patch", style="primary")],
+        [InlineKeyboardButton(text="❌ Batal", callback_data="studio_cancel", style="danger")]
+    ])
     
-    async def _try_txt(msg: Message):
-        if msg and msg.document and ((msg.document.file_name or "").endswith(".txt") or "text" in (msg.document.mime_type or "")):
-            p = tmp(f"studio_{int(time.time())}.txt"); await Telegram.AIOGRAM_BOT.download(msg.document, destination=p); return p
-        return None
+    await message.reply(
+        "📄 **Naskah Studio (.txt) Terdeteksi!**\n\n"
+        "Silakan pilih Mode Produksi yang Anda inginkan untuk naskah ini:",
+        reply_markup=kb
+    )
+
+@router.callback_query(F.data.startswith("studio_"))
+async def studio_dashboard_cb(call: CallbackQuery) -> None:
+    user_id = call.from_user.id
+    chat_id = call.message.chat.id
+    action = call.data.replace("studio_", "")
+    
+    if action == "cancel":
+        _studio_session.pop(user_id, None)
+        return await call.message.edit_text("❌ Proses dibatalkan.")
         
-    txt_path = await _try_txt(message)
-    if message.reply_to_message:
-        rm = message.reply_to_message
-        if not txt_path: txt_path = await _try_txt(rm)
-        if rm and _is_video_msg(rm): gameplay_reply = rm
+    if user_id not in _studio_session:
+        return await call.answer("❌ Sesi telah berakhir. Silakan kirim ulang file .txt Anda.", show_alert=True)
         
-    if not txt_path: return await message.reply(f"❌ Balas file `.txt` naskahmu dengan perintah `/{command_used}{CMD_SUFFIX}`")
+    session_data = _studio_session.pop(user_id)
+    txt_msg = session_data["txt_msg"]
+    
+    segment_name = STUDIO_COMMANDS.get(action, "STUDIO KHOIRUL")
+    command_used = action
+    
+    await call.message.delete() # Hapus dashboard inline
+    
+    txt_path = tmp(f"studio_{int(time.time())}.txt")
+    await Telegram.AIOGRAM_BOT.download(session_data["document"], destination=txt_path)
+    
     try: data = parse_studio_txt(txt_path)
-    except ValueError as e: cleanup_temp([txt_path]); return await message.reply(f"❌ **Error Format TXT:**\n{str(e)}")
+    except ValueError as e: 
+        cleanup_temp([txt_path])
+        return await call.message.answer(f"❌ **Error Format TXT:**\n{str(e)}")
     
     await ensure_user_data_structure(user_id)
     
     # --- WIZARD START ---
     # Step 1: Resolusi
     kb_res = _make_reply_kb(["🖥 16:9", "📱 9:16", "🖥📱 Keduanya", "❌ Batal"], 3)
-    msg_res = await message.reply("📐 **Pilih Resolusi Video:**", reply_markup=kb_res)
+    msg_res = await call.message.answer("📐 **Pilih Resolusi Video:**", reply_markup=kb_res)
     resp_res = await wait_for_message(chat_id, user_id, 60)
     await _clean_msgs(msg_res, resp_res)
     
     if not resp_res:
         cleanup_temp([txt_path])
-        return await message.answer("❌ Waktu habis. Dibatalkan.", reply_markup=ReplyKeyboardRemove())
+        return await call.message.answer("❌ Waktu habis. Dibatalkan.", reply_markup=ReplyKeyboardRemove())
     if "batal" in (resp_res.text or "").lower():
         cleanup_temp([txt_path])
-        return await message.answer("❌ Dibatalkan.", reply_markup=ReplyKeyboardRemove())
+        return await call.message.answer("❌ Dibatalkan.", reply_markup=ReplyKeyboardRemove())
     
     res_txt = (resp_res.text or "").lower()
     res_mode = "both" if "keduanya" in res_txt else "9:16" if "9:16" in res_txt else "16:9"
     
     # Step 2: Subtitle
     kb_sub = _make_reply_kb(["✅ ON", "❌ OFF", "❌ Batal"], 3)
-    msg_sub = await message.reply("💬 **Gunakan Subtitle Bergerak?**", reply_markup=kb_sub)
+    msg_sub = await call.message.answer("💬 **Gunakan Subtitle Bergerak?**", reply_markup=kb_sub)
     resp_sub = await wait_for_message(chat_id, user_id, 60)
     await _clean_msgs(msg_sub, resp_sub)
     
     if not resp_sub:
         cleanup_temp([txt_path])
-        return await message.answer("❌ Waktu habis. Dibatalkan.", reply_markup=ReplyKeyboardRemove())
+        return await call.message.answer("❌ Waktu habis. Dibatalkan.", reply_markup=ReplyKeyboardRemove())
     if "batal" in (resp_sub.text or "").lower():
         cleanup_temp([txt_path])
-        return await message.answer("❌ Dibatalkan.", reply_markup=ReplyKeyboardRemove())
+        return await call.message.answer("❌ Dibatalkan.", reply_markup=ReplyKeyboardRemove())
         
     subs_on = True if "on" in (resp_sub.text or "").lower() else False
     
@@ -965,16 +983,16 @@ async def master_studio_handler(message: Message) -> None:
     yt_enabled, yt_privacy = False, "private"
     if YOUTUBE_ENABLED and _HAS_YTUPLOAD:
         kb_yt = _make_reply_kb(["⏭️ Skip", "🌍 Public", "🔗 Unlisted", "🔒 Private", "❌ Batal"], 3)
-        msg_yt = await message.reply("📺 **Upload ke YouTube Otomatis?**", reply_markup=kb_yt)
+        msg_yt = await call.message.answer("📺 **Upload ke YouTube Otomatis?**", reply_markup=kb_yt)
         resp_yt = await wait_for_message(chat_id, user_id, 60)
         await _clean_msgs(msg_yt, resp_yt)
         
         if not resp_yt:
             cleanup_temp([txt_path])
-            return await message.answer("❌ Waktu habis. Dibatalkan.", reply_markup=ReplyKeyboardRemove())
+            return await call.message.answer("❌ Waktu habis. Dibatalkan.", reply_markup=ReplyKeyboardRemove())
         if "batal" in (resp_yt.text or "").lower():
             cleanup_temp([txt_path])
-            return await message.answer("❌ Dibatalkan.", reply_markup=ReplyKeyboardRemove())
+            return await call.message.answer("❌ Dibatalkan.", reply_markup=ReplyKeyboardRemove())
             
         yt_txt = (resp_yt.text or "").lower()
         yt_enabled = "skip" not in yt_txt
@@ -984,7 +1002,7 @@ async def master_studio_handler(message: Message) -> None:
     st = {
         "segment_name": segment_name, "title": data["title"], "description": data["description"], 
         "score": data["score"], "scenes": data["scenes"], "txt_path": txt_path, 
-        "gameplay_reply": gameplay_reply, "resolution": res_mode, "subtitles": subs_on, 
+        "gameplay_reply": None, "resolution": res_mode, "subtitles": subs_on, 
         "yt_enabled": yt_enabled, "yt_privacy": yt_privacy
     }
     
@@ -1002,44 +1020,35 @@ async def master_studio_handler(message: Message) -> None:
         "Lanjutkan?"
     )
     kb_conf = _make_reply_kb(["✅ Render", "❌ Batal"], 2)
-    msg_conf = await message.reply(conf_txt, reply_markup=kb_conf)
+    msg_conf = await call.message.answer(conf_txt, reply_markup=kb_conf)
     resp_conf = await wait_for_message(chat_id, user_id, 60)
     await _clean_msgs(msg_conf, resp_conf)
     
     if not resp_conf:
         cleanup_temp([txt_path])
-        return await message.answer("❌ Waktu habis. Dibatalkan.", reply_markup=ReplyKeyboardRemove())
+        return await call.message.answer("❌ Waktu habis. Dibatalkan.", reply_markup=ReplyKeyboardRemove())
     if "batal" in (resp_conf.text or "").lower():
         cleanup_temp([txt_path])
-        return await message.answer("❌ Dibatalkan.", reply_markup=ReplyKeyboardRemove())
+        return await call.message.answer("❌ Dibatalkan.", reply_markup=ReplyKeyboardRemove())
         
-    # [NEW v5.1] MESIN KASIR: POTONG SALDO POIN
-    await message.answer("🔄 Mengecek Saldo Poin...", reply_markup=ReplyKeyboardRemove())
+    # [NEW v5.2] MESIN KASIR: POTONG SALDO POIN
+    await call.message.answer("🔄 Mengecek Saldo Poin...", reply_markup=ReplyKeyboardRemove())
     
-    # Menggunakan nama fungsi sebagai perintah yang dicari oleh Mesin Kasir (7000 Poin)
     payment = await process_payment(user_id=user_id, command=command_used)
     
     if not payment["success"]:
         cleanup_temp([txt_path])
-        return await message.answer(payment["message"])
+        return await call.message.answer(payment["message"])
 
-    await message.answer(f"⏳ ✅ Menyiapkan Mesin Produksi...\n{payment['message']}", reply_markup=ReplyKeyboardRemove())
+    await call.message.answer(f"⏳ ✅ Menyiapkan Mesin Produksi...\n{payment['message']}", reply_markup=ReplyKeyboardRemove())
     
-    if gameplay_reply:
-        gp_path = tmp(f"studio_gp_{int(time.time())}.mp4")
-        status_tmp = await message.answer("⏳ Mengunduh video gameplay...")
-        if not await download_with_progress(message, gameplay_reply, gp_path, label="gameplay", status_msg=status_tmp): 
-            cleanup_temp([txt_path])
-            return await _safe_edit(status_tmp, "❌ Gagal download gameplay")
-        await _clean_msgs(status_tmp)
-    else:
-        gp_path = await asyncio.to_thread(find_gameplay_for_game, st["title"])
-        if not gp_path: 
-            cleanup_temp([txt_path])
-            return await message.answer(f"❌ Gameplay untuk `{st['title']}` tidak ditemukan di server!\nGunakan `/addgameplay{CMD_SUFFIX}`.")
+    gp_path = await asyncio.to_thread(find_gameplay_for_game, st["title"])
+    if not gp_path: 
+        cleanup_temp([txt_path])
+        return await call.message.answer(f"❌ Gameplay untuk `{st['title']}` tidak ditemukan di server!\nGunakan `/addgameplay{CMD_SUFFIX}`.")
 
     # 🚀 JALANKAN VIA UNIFIED ENGINE
-    await execute_unified_task(message, f"PRODUKSI STUDIO ({segment_name})", _core_studio_logic, st, gp_path)
+    await execute_unified_task(txt_msg, f"PRODUKSI STUDIO ({segment_name})", _core_studio_logic, st, gp_path)
 
 
 # ═══════════════════════════════════════════════════════════════════════
@@ -1142,7 +1151,7 @@ async def help_handler(message: Message) -> None:
         [InlineKeyboardButton(text="🎮 Gameplay", callback_data="help_gameplay", style="primary"), InlineKeyboardButton(text="🎬 Produksi", callback_data="help_produksi", style="primary")], 
         [InlineKeyboardButton(text="🛠 Tools", callback_data="help_tools", style="primary"), InlineKeyboardButton(text="⚙️ Settings", callback_data="help_settings", style="primary")]
     ])
-    await message.answer(_dash("📖","STUDIO KHOIRUL — Panduan",[("","─── 🎮 MEDIA ───"),(f"/addgameplay{CMD_SUFFIX}", "Balas video → simpan gameplay"),(f"/addsfx{CMD_SUFFIX}", "Balas MP3 → simpan SFX"),(f"/listgameplay{CMD_SUFFIX}","Lihat semua gameplay"),("","─── 🎬 PRODUKSI UNIVERSAL ───"),(f"/verdict{CMD_SUFFIX}",  "Ulasan (Cinematic Red)"),(f"/toptier{CMD_SUFFIX}",  "Peringkat (Arcade Gold)"),(f"/archives{CMD_SUFFIX}", "Sejarah (Retro Amber)"),(f"/lore{CMD_SUFFIX}",      "Teori & Fakta (Netflix Red)"),(f"/radar{CMD_SUFFIX}",    "Game Baru (Cyber Cyan)"),(f"/patch{CMD_SUFFIX}",    "Berita Kilat (News Red)"),("","─── ⚙️ LAINNYA ───"),(f"/settings{CMD_SUFFIX}","Konfigurasi bot"),(f"/help{CMD_SUFFIX}",   "Panduan ini")]), reply_markup=btns)
+    await message.answer(_dash("📖","STUDIO KHOIRUL — Panduan",[("","─── 🎮 MEDIA ───"),(f"/addgameplay{CMD_SUFFIX}", "Balas video → simpan gameplay"),(f"/addsfx{CMD_SUFFIX}", "Balas MP3 → simpan SFX"),(f"/listgameplay{CMD_SUFFIX}","Lihat semua gameplay"),("","─── 🎬 PRODUKSI UNIVERSAL ───"),("Kirim file .txt", "Otomatis memunculkan Menu Studio Khoirul"),("","─── ⚙️ LAINNYA ───"),(f"/settings{CMD_SUFFIX}","Konfigurasi bot"),(f"/help{CMD_SUFFIX}",   "Panduan ini")]), reply_markup=btns)
 
 @router.callback_query(F.data == "help_gameplay")
 async def help_gameplay_cb(call: CallbackQuery) -> None: 
