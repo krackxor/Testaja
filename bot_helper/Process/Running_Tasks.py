@@ -740,23 +740,30 @@ async def start_task(task: dict) -> None:
 #  STARTUP HELPERS
 # ═══════════════════════════════════════════════════════════════════════
 
+def get_user_task_stats(user_id: int) -> dict:
+    """
+    Mengambil statistik tugas spesifik untuk satu user.
+    Berguna untuk tampilan Dashboard personal.
+    """
+    active = [t for t in working_task if t.get("process_status").user_id == user_id]
+    queued = [t for t in queued_task if t.get("process_status").user_id == user_id]
+    
+    return {
+        "active_count": len(active),
+        "queued_count": len(queued),
+        "total": len(active) + len(queued),
+        "details": active + queued
+    }
+
+# Update fungsi clear_all_trash agar lebih bersih saat startup
 async def clear_all_trash_on_startup():
-    """
-    Fungsi ini memindai direktori download dan membersihkannya saat bot di-restart.
-    """
-    try:
-        d_dir = getattr(Config, 'DOWNLOAD_DIR', './downloads')
-        if os.path.exists(d_dir):
-            LOGGER.info("🧹 Membersihkan sisa file di direktori kerja (Startup Cleanup)...")
-            for item in os.listdir(d_dir):
-                item_path = os.path.join(d_dir, item)
-                try:
-                    if os.path.isdir(item_path):
-                        shutil.rmtree(item_path)
-                    else:
-                        os.remove(item_path)
-                except Exception as e:
-                    LOGGER.warning(f"⚠️ Gagal menghapus {item_path}: {e}")
-            LOGGER.info("✨ Pembersihan selesai.")
-    except Exception as e:
-        LOGGER.error(f"Error saat startup cleanup: {e}")
+    """Membersihkan folder temp dari sisa crash sebelumnya."""
+    trash_dirs = ["./temp/", "./gameplay/temp/", "./userdata/temp/"]
+    for d in trash_dirs:
+        if os.path.exists(d):
+            try:
+                shutil.rmtree(d)
+                os.makedirs(d)
+                LOGGER.info(f"🧹 Folder {d} dibersihkan.")
+            except Exception as e:
+                LOGGER.error(f"❌ Gagal bersihkan {d}: {e}")
