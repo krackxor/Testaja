@@ -1,9 +1,11 @@
 """
 ╔══════════════════════════════════════════════════════════════════════╗
-║                    bot/subtitle_handlers.py — v2.1                   ║
+║                    bot/subtitle_handlers.py — v2.2                   ║
 ║        Auto Subtitle (AI Whisper) & Auto Translate Subtitle          ║
 ╠══════════════════════════════════════════════════════════════════════╣
-║  CHANGELOG v2.1:                                                     ║
+║  CHANGELOG v2.2:                                                     ║
+║  [NEW] Integrasi dengan Sistem Kasir (point_manager.py).             ║
+║  [NEW] Memotong Saldo Poin pengguna sebelum AI mulai bekerja.        ║
 ║  [FIX CRITICAL] Asyncio.to_thread pada loop Whisper Generator.       ║
 ║  [FIX CRITICAL] Asyncio.to_thread pada GoogleTranslator.             ║
 ║  [IMPROVE] Bot 100% kebal macet saat AI sedang merender teks.        ║
@@ -28,6 +30,9 @@ from bot_helper.Telegram.Telegram_Client import Telegram
 from bot_helper.Process.Unified_Engine import execute_unified_task
 from config.config import Config
 from bot.shared import wait_for_message, CMD_SUFFIX
+
+# [NEW v2.2] Import Mesin Kasir
+from bot_helper.Process.point_manager import process_payment
 
 # ── Dynamic Imports (Pencegah Error jika library belum diinstall) ──
 try:
@@ -86,11 +91,9 @@ def _cleanup(*paths: str) -> None:
             except OSError: pass
 
 def _is_vip(user_id: int) -> bool:
+    """[DEPRECATED] Fungsi lama untuk cek hari, dibiarkan sementara namun akan di-override oleh Sistem Poin."""
     if user_id == Config.OWNER_ID or user_id in Config.SUDO_USERS: return True
-    expiry_str = get_data().get(user_id, {}).get("premium_expiry_date")
-    if not expiry_str: return False
-    try: return datetime.now(datetime.fromisoformat(str(expiry_str)).tzinfo) < datetime.fromisoformat(str(expiry_str))
-    except Exception: return False
+    return True # Semua orang kini dianggap VIP, pembatasnya adalah SALDO POIN.
 
 
 # ═══════════════════════════════════════════════════════════════════════
@@ -128,7 +131,7 @@ async def _core_autosub_logic(message: Message, ui, reply_msg: Message, lang_cod
         
         while True:
             try:
-                # [CRITICAL FIX]: Mengambil chunk audio selanjutnya di latar belakang (Tidak memblokir loop)
+                # Mengambil chunk audio selanjutnya di latar belakang (Tidak memblokir loop)
                 segment = await asyncio.to_thread(next, segments_gen)
             except StopIteration:
                 break # Transkripsi selesai
@@ -205,7 +208,7 @@ async def _core_autotranslate_logic(message: Message, ui, reply_msg: Message, ta
 
         # 3. Proses Translate Secara Async
         for i, sub in enumerate(subs, start=1):
-            # [CRITICAL FIX]: Translasi dilakukan di background thread
+            # Translasi dilakukan di background thread
             sub.text = await asyncio.to_thread(translator.translate, sub.text)
             
             # Beri napas event loop agar bot tidak macet (sangat penting untuk SRT > 500 baris)
@@ -255,9 +258,6 @@ async def autosub_handler(message: Message) -> None:
     if not HAS_WHISPER or not HAS_TRANSLATOR:
         return await message.reply("❌ **Library AI belum terinstall!**\nJalankan di server: `pip install pysrt deep-translator faster-whisper`")
 
-    if not _is_vip(user_id):
-        return await message.reply("👑 **Fitur Eksklusif VIP**\nAuto Subtitle AI membutuhkan CPU tinggi. Fitur ini hanya untuk member Premium.")
-
     reply_msg = message.reply_to_message
     if not reply_msg or not (reply_msg.video or reply_msg.audio or reply_msg.voice or reply_msg.document):
         return await message.reply("❌ **Cara Pakai:**\nBalas (reply) sebuah Video atau Audio dengan perintah `/autosub{CMD_SUFFIX}`")
@@ -306,8 +306,15 @@ async def autosub_handler(message: Message) -> None:
     if not resp_conf or "batal" in (resp_conf.text or "").lower():
         return await message.answer("❌ Dibatalkan.", reply_markup=ReplyKeyboardRemove())
 
-    # Hapus keyboard menu
-    await message.answer("✅ Mengonfirmasi pesanan...", reply_markup=ReplyKeyboardRemove())
+    # [NEW v2.2] MESIN KASIR: POTONG SALDO POIN
+    await message.answer("🔄 Mengecek Saldo Poin...", reply_markup=ReplyKeyboardRemove())
+    payment = await process_payment(user_id=user_id, command="autosub")
+    
+    if not payment["success"]:
+        return await message.answer(payment["message"])
+    else:
+        # Jika berhasil potong poin, kirim pesan sukses potong saldo (bisa otomatis terhapus nanti)
+        temp_msg = await message.answer(payment["message"])
 
     # 🚀 JALANKAN VIA UNIFIED ENGINE
     target_media = reply_msg.video or reply_msg.document or reply_msg.audio
@@ -324,9 +331,6 @@ async def autotranslate_handler(message: Message) -> None:
     
     if not HAS_TRANSLATOR or not HAS_WHISPER:
         return await message.reply("❌ **Library AI belum terinstall!**\nJalankan di server: `pip install pysrt deep-translator faster-whisper`")
-
-    if not _is_vip(user_id):
-        return await message.reply("👑 **Fitur Eksklusif VIP**\nFitur ini hanya untuk member Premium.")
 
     reply_msg = message.reply_to_message
     if not reply_msg or not reply_msg.document or not reply_msg.document.file_name.endswith(('.srt', '.ass')):
@@ -386,7 +390,15 @@ async def autotranslate_handler(message: Message) -> None:
     if not resp_conf or "batal" in (resp_conf.text or "").lower():
         return await message.answer("❌ Dibatalkan.", reply_markup=ReplyKeyboardRemove())
 
-    await message.answer("✅ Mengonfirmasi pesanan...", reply_markup=ReplyKeyboardRemove())
+    # [NEW v2.2] MESIN KASIR: POTONG SALDO POIN
+    await message.answer("🔄 Mengecek Saldo Poin...", reply_markup=ReplyKeyboardRemove())
+    payment = await process_payment(user_id=user_id, command="autotranslate")
+    
+    if not payment["success"]:
+        return await message.answer(payment["message"])
+    else:
+        # Jika berhasil potong poin, kirim pesan sukses potong saldo (bisa otomatis terhapus nanti)
+        temp_msg = await message.answer(payment["message"])
 
     # 🚀 JALANKAN VIA UNIFIED ENGINE
     fname = reply_msg.document.file_name.rsplit(".", 1)[0]
