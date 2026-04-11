@@ -4,6 +4,7 @@
 ║            Callback Query Handler (Aiogram 3.x)                      ║
 ╠══════════════════════════════════════════════════════════════════════╣
 ║  FIXES dari versi lama:                                              ║
+║  [NEW v4.2] Penambahan tombol "Dompet Poin" di Menu Settings Utama.  ║
 ║  [UX PREMIUM] Implementasi API Warna Tombol Native Telegram 9.4+     ║
 ║                (Primary, Success, Danger) di seluruh Dashboard.      ║
 ║  [UX PREMIUM] Standardisasi Hierarki Emoji (❌ Error, ⏳ Proses).      ║
@@ -34,6 +35,7 @@ from aiogram.exceptions import TelegramBadRequest
 from bot_helper.Database.User_Data import (
     _get_default_user_data, ensure_user_data_structure,
     get_data, new_user, resetdatabase, saveconfig, saveoptions,
+    get_user_balance # [NEW] Import untuk cek saldo poin
 )
 from bot_helper.Others.Helper_Functions import (
     delete_all, export_env_file, get_config, get_env_dict,
@@ -1043,7 +1045,7 @@ async def callback(call: CallbackQuery):
     user_id = call.from_user.id
 
     # [UX PATCH] Putus animasi "Loading" di tombol secara instan untuk menu navigasi
-    nav_commands = {"settings", "settings_media", "settings_bot", "close_settings", "profile_main", "profile_manage", "profile_quick"}
+    nav_commands = {"settings", "settings_media", "settings_bot", "close_settings", "profile_main", "profile_manage", "profile_quick", "point_wallet"}
     if txt in nav_commands or txt.endswith("_settings") or txt.endswith("_info"):
         try: await call.answer()
         except: pass
@@ -1058,9 +1060,10 @@ async def callback(call: CallbackQuery):
                 msg,
                 reply_markup=InlineKeyboardMarkup(inline_keyboard=[
                     [InlineKeyboardButton(text="👤 Profil", callback_data="profile_main", style="primary"),
-                     InlineKeyboardButton(text="💾 Save Rclone Config", callback_data="cmd_saveconfig", style="success")],
-                    [InlineKeyboardButton(text="©️ Set Watermark Default", callback_data="cmd_savewatermark", style="success"),
-                     InlineKeyboardButton(text="🖼️ Set Thumb Default", callback_data="cmd_savethumb", style="success")],
+                     InlineKeyboardButton(text="💳 Cek Dompet Poin", callback_data="point_wallet", style="success")], # [NEW v4.2] Tombol Dompet
+                    [InlineKeyboardButton(text="💾 Save Rclone Config", callback_data="cmd_saveconfig", style="primary")],
+                    [InlineKeyboardButton(text="©️ Set Watermark Default", callback_data="cmd_savewatermark", style="primary"),
+                     InlineKeyboardButton(text="🖼️ Set Thumb Default", callback_data="cmd_savethumb", style="primary")],
                     [InlineKeyboardButton(text="🎬 Pengolahan Media", callback_data="settings_media", style="primary"),
                      InlineKeyboardButton(text="🤖 Umum & Tampilan", callback_data="settings_bot", style="primary")],
                     [InlineKeyboardButton(text="↩️ Kembali ke Menu Utama", callback_data="menu_main", style="danger")],
@@ -1095,6 +1098,35 @@ async def callback(call: CallbackQuery):
 
         elif txt == "close_settings":
             await call.message.delete()
+            
+        # ── [NEW v4.2] Cek Dompet Poin ──────────────────────────────
+        elif txt == "point_wallet":
+            balance = get_user_balance(user_id)
+            history = get_data().get(user_id, {}).get("usage_history", [])
+            
+            if not history:
+                hist_txt = "*(Belum ada transaksi)*"
+            else:
+                hist_txt = ""
+                for idx, record in enumerate(history[:5], 1): # Tampilkan 5 terakhir
+                    hist_txt += f"`{record.get('date')} | -{record.get('cost')} Poin`\n"
+                    
+            msg_text = (
+                "💳 **DOMPET POIN (PAY-AS-YOU-GO)**\n"
+                "━━━━━━━━━━━━━━━━━━━━\n"
+                f"💎 **Saldo Anda:** `{balance:,} Poin`\n\n"
+                "**Riwayat Terakhir:**\n"
+                f"{hist_txt}\n"
+                "━━━━━━━━━━━━━━━━━━━━\n"
+                "_Gunakan perintah /verify untuk Top-up atau /history untuk melihat daftar lengkap._"
+            )
+            
+            await call.message.edit_text(
+                msg_text,
+                reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+                    [InlineKeyboardButton(text="↩️ Kembali ke Pengaturan", callback_data="settings", style="danger")],
+                ])
+            )
 
         # ── Profile Management ───────────────────────────────────────
         elif txt.startswith("profile_"):
