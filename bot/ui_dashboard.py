@@ -172,6 +172,27 @@ def kb_main_menu(is_admin_user: bool = False) -> InlineKeyboardMarkup:
     ])
     return InlineKeyboardMarkup(inline_keyboard=buttons)
 
+
+# [NEW] Menu Khusus Cloud & Mirroring
+def kb_cloud_mirror() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [
+            InlineKeyboardButton(text="📁 GoFile", callback_data="cmd_gofile", style="primary"),
+            InlineKeyboardButton(text="🔗 Pixeldrain", callback_data="cmd_pixeldrain", style="primary")
+        ],
+        [
+            InlineKeyboardButton(text="🐝 Buzzheavier", callback_data="cmd_buzzheavier", style="primary"),
+            InlineKeyboardButton(text="📦 Terabox", callback_data="cmd_terabox", style="primary")
+        ],
+        [
+            InlineKeyboardButton(text="📺 YouTube", callback_data="cmd_ytupload", style="primary"),
+            InlineKeyboardButton(text="🎬 Vimeo", callback_data="cmd_vimeo", style="primary")
+        ],
+        [InlineKeyboardButton(text="🚀 Rclone Mirror", callback_data="cmd_rclone", style="success")],
+        [InlineKeyboardButton(text="↩️ Kembali", callback_data="menu_main", style="danger")]
+    ])
+
+
 def kb_ai() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="🧠 Auto Sub", callback_data="cmd_autosub", style="primary")],
@@ -382,6 +403,12 @@ async def nav_main(callback: CallbackQuery):
         BORDER_LIGHT=BORDER_LIGHT
     )
     await safe_edit(callback.message, text, kb_main_menu(admin_status))
+    await callback.answer()
+
+@ui_router.callback_query(F.data == "menu_cloud")
+async def nav_cloud(callback: CallbackQuery):
+    text = create_section_header("☁️", "Cloud & Mirroring", "Unggah file Anda ke berbagai provider cloud secara instan tanpa memakan kuota lokal.")
+    await safe_edit(callback.message, text, kb_cloud_mirror())
     await callback.answer()
 
 @ui_router.callback_query(F.data == "menu_studio")
