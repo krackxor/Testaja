@@ -1,19 +1,16 @@
 """
 ╔══════════════════════════════════════════════════════════════════════╗
-║    bot_helper/Handlers/vip_handlers.py — v4.1                        ║
-║    VIP Management & Trakteer Payment Verification (Aiogram)          ║
+║    bot_helper/Handlers/vip_handlers.py — v5.1 (PAY-AS-YOU-GO FINAL)  ║
+║    Sistem Top-Up Poin & Trakteer Payment Verification                ║
 ╠══════════════════════════════════════════════════════════════════════╣
-║  Commands: /verify /myvip /add_vip /delete_vip /view_vip             ║
+║  Commands: /verify /myvip /history /add_vip /delete_vip /view_vip    ║
 ╠══════════════════════════════════════════════════════════════════════╣
-║  CHANGELOG v4.1:                                                     ║
-║  [UX PREMIUM] Implementasi API Warna Tombol Native Telegram 9.4+     ║
-║                (Primary, Success, Danger) pada Reply Keyboard.       ║
-║  [UX PREMIUM] Standardisasi Hierarki Emoji (❌ Error, ⏳ Proses).      ║
-║  [UX PREMIUM] Menerapkan Auto-Delete agar chat tetap bersih.         ║
-║  [UX PREMIUM] Penataan pesan info dengan Box Konfirmasi yang rapi.   ║
-║  [FIX HIGH] Menambahkan import 'exists' yang hilang.                 ║
-║  [FIX HIGH] Implementasi CMD_SUFFIX pada semua Command filter        ║
-║  [NEW] Migrasi total ke Aiogram Router & Message objects             ║
+║  CHANGELOG v5.1:                                                     ║
+║  [NEW] Merombak logika dari "Sistem Hari/Bulan" menjadi "Poin".      ║
+║  [NEW] 1 Rupiah Donasi = 1 Poin (Otomatis deteksi dari Trakteer).    ║
+║  [NEW] Menambahkan perintah /history untuk melihat riwayat mutasi.   ║
+║  [FIX] Command admin diubah agar menambah/mengurangi Poin.           ║
+║  [FIX] Aman dari manipulasi data (Thread-Safe integration).          ║
 ╚══════════════════════════════════════════════════════════════════════╝
 """
 
@@ -24,7 +21,7 @@ from os import remove
 from os.path import exists
 
 # ── Third Party ───────────────────────────────────────────────────────
-import requests
+import aiohttp
 from aiogram import Router
 from aiogram.types import (
     Message, FSInputFile, ReplyKeyboardMarkup, KeyboardButton, ReplyKeyboardRemove
@@ -35,7 +32,7 @@ from aiogram.filters import Command
 from bot_helper.Database.DB_Handler import get_db
 from bot_helper.Database.User_Data import (
     ensure_user_data_structure, get_data,
-    get_fresh_user_data, new_user, saveoptions,
+    get_user_balance, add_user_balance, deduct_user_balance
 )
 from bot_helper.Telegram.Telegram_Client import Telegram
 from config.config import Config
@@ -49,13 +46,13 @@ from .shared import (
 # Inisialisasi Router Aiogram
 router = Router()
 
-# ── Konstanta VIP ─────────────────────────────────────────────────────
-VIP_PRICE_PER_MONTH      = 15_000    # Rp
+# ── Konstanta Poin ────────────────────────────────────────────────────
 ACTIVATION_WINDOW_HOURS  = 48        # Jam batas aktivasi setelah donasi
+MINIMUM_TOPUP_RP         = 5_000     # Minimal Top-up Rp 5.000
 
 
 # ═══════════════════════════════════════════════════════════════════════
-#  HELPERS & UI (COLOR BUTTONS ENABLED)
+#  HELPERS & UI
 # ═══════════════════════════════════════════════════════════════════════
 
 async def _clean_msgs(*msgs):
@@ -66,11 +63,10 @@ async def _clean_msgs(*msgs):
             except Exception: pass
 
 def _make_reply_kb(options: list, row_width: int = 2) -> ReplyKeyboardMarkup:
-    """Membuat Reply Keyboard dengan mudah dan warna otomatis (Native Telegram)."""
+    """Membuat Reply Keyboard dengan warna Native Telegram."""
     kb = []
     row = []
     for opt in options:
-        # Auto-Color Logic berdasarkan teks/emoji tombol
         if "Batal" in opt or "❌" in opt:
             btn_style = "danger"
         elif "Ya" in opt or "✅" in opt:
@@ -87,39 +83,9 @@ def _make_reply_kb(options: list, row_width: int = 2) -> ReplyKeyboardMarkup:
         kb.append(row)
     return ReplyKeyboardMarkup(keyboard=kb, resize_keyboard=True, one_time_keyboard=True)
 
-def parse_duration(duration_str: str) -> int:
-    """Konversi string durasi '30d' / '2m' / '1y' ke hari."""
-    s = duration_str.strip().lower()
-    try:
-        if s.endswith("d"):   return int(s[:-1])
-        if s.endswith("m"):   return int(s[:-1]) * 30
-        if s.endswith("y"):   return int(s[:-1]) * 365
-        if s.isdigit():       return int(s)
-    except ValueError:
-        pass
-    return 30   # default
-
-
-def _extend_vip(user_id: int, duration_days: int) -> datetime:
-    """
-    Hitung tanggal kedaluwarsa VIP baru.
-    Jika user sudah VIP aktif, tambahkan dari tanggal kedaluwarsa lama.
-    """
-    start = datetime.now()
-    user_data = get_data().get(user_id, {})
-    expiry_str = user_data.get("premium_expiry_date")
-    if expiry_str:
-        try:
-            current_expiry = datetime.fromisoformat(str(expiry_str))
-            if current_expiry > start:
-                start = current_expiry
-        except (ValueError, TypeError):
-            pass
-    return start + timedelta(days=duration_days)
-
 
 # ═══════════════════════════════════════════════════════════════════════
-#  /verify — Verifikasi Pembayaran Trakteer
+#  /verify — Verifikasi Pembayaran Trakteer (Konversi ke POIN)
 # ═══════════════════════════════════════════════════════════════════════
 
 @router.message(Command(f"verify{CMD_SUFFIX}"))
@@ -130,7 +96,7 @@ async def _verify_payment(message: Message):
     await ensure_user_data_structure(user_id)
 
     kb = _make_reply_kb(["❌ Batal"], 1)
-    ask_txt = "💳 **VERIFIKASI TRAKTEER**\n\nSetelah berdonasi di Trakteer, silakan kirimkan (Ketik) **Order ID** Anda di sini:"
+    ask_txt = "💳 **VERIFIKASI TOP-UP (TRAKTEER)**\n\nSilakan kirimkan (Ketik) **Order ID** Anda setelah berdonasi:"
     ask_msg = await message.reply(ask_txt, reply_markup=kb)
     
     resp = await wait_for_message(chat_id, user_id, 120)
@@ -154,22 +120,26 @@ async def _verify_payment(message: Message):
         return await message.answer("❌ Order ID ini sudah pernah diklaim sebelumnya.", reply_markup=ReplyKeyboardRemove())
 
     verif_msg = await message.answer("⏳ 🔎 Sedang memverifikasi Order ID ke Trakteer...", reply_markup=ReplyKeyboardRemove())
+    
     try:
-        resp = await asyncio.to_thread(
-            requests.get,
-            "https://api.trakteer.id/v1/public/supports",
-            headers={"Accept": "application/json", "key": api_key},
-            params={"include": "order_id"},
-            timeout=15,
-        )
-        resp.raise_for_status()
-        data = resp.json()
-    except requests.exceptions.HTTPError as e:
-        code = e.response.status_code
-        msg_text = "❌ API Key Trakteer salah (Unauthorized)." if code == 401 else f"❌ HTTP Error {code}."
-        LOGGER.error(f"Trakteer HTTP error: {e}")
-        return await verif_msg.edit_text(msg_text)
-    except requests.exceptions.RequestException as e:
+        async with aiohttp.ClientSession() as session:
+            async with session.get(
+                "https://api.trakteer.id/v1/public/supports",
+                headers={"Accept": "application/json", "key": api_key},
+                params={"include": "order_id"}, 
+                timeout=15
+            ) as api_resp:
+                
+                if api_resp.status == 401:
+                    return await verif_msg.edit_text("❌ API Key Trakteer salah (Unauthorized).")
+                elif api_resp.status != 200:
+                    return await verif_msg.edit_text(f"❌ HTTP Error {api_resp.status}.")
+                    
+                data = await api_resp.json()
+                
+    except asyncio.TimeoutError:
+        return await verif_msg.edit_text("❌ Gagal terhubung: Trakteer Server Timeout.")
+    except Exception as e:
         LOGGER.error(f"Trakteer connection error: {e}")
         return await verif_msg.edit_text(f"❌ Gagal terhubung ke Trakteer: `{e}`")
 
@@ -184,7 +154,7 @@ async def _verify_payment(message: Message):
             break
 
     if not target:
-        return await verif_msg.edit_text("❌ Order ID tidak ditemukan di Trakteer. Pastikan ID diketik dengan benar.")
+        return await verif_msg.edit_text("❌ Order ID tidak ditemukan di Trakteer. (Pastikan Order ID benar).")
 
     # Validasi status pembayaran
     if target.get("status", "success") != "success":
@@ -200,16 +170,14 @@ async def _verify_payment(message: Message):
         days = int(ACTIVATION_WINDOW_HOURS / 24)
         return await verif_msg.edit_text(f"❌ Order ID hangus. Tidak diklaim dalam **{days} hari** setelah donasi.")
 
-    # Hitung durasi
-    amount = target.get("amount", 0)
-    if amount < VIP_PRICE_PER_MONTH:
-        return await verif_msg.edit_text(f"❌ Jumlah donasi (Rp {amount:,}) kurang dari harga minimum (Rp {VIP_PRICE_PER_MONTH:,}/bulan).")
+    # Hitung Poin (Rp 1 = 1 Poin)
+    amount_rp = int(target.get("amount", 0))
+    if amount_rp < MINIMUM_TOPUP_RP:
+        return await verif_msg.edit_text(f"❌ Jumlah Top-up (Rp {amount_rp:,}) kurang dari minimum (Rp {MINIMUM_TOPUP_RP:,}).")
 
-    months        = int(amount // VIP_PRICE_PER_MONTH)
-    duration_days = months * 30
-    new_expiry    = _extend_vip(user_id, duration_days)
-
-    await saveoptions(user_id, "premium_expiry_date", new_expiry.isoformat(), SAVE_TO_DATABASE)
+    # Tambahkan Saldo ke Database
+    await add_user_balance(user_id, amount_rp, SAVE_TO_DATABASE)
+    new_balance = get_user_balance(user_id)
 
     # Simpan claimed_order_id
     claimed_ids.append(order_id)
@@ -219,65 +187,83 @@ async def _verify_payment(message: Message):
         if db_instance:
             await db_instance.save_data(all_data)
 
-    expiry_fmt = new_expiry.strftime("%d %B %Y, %H:%M WIB")
     box_txt = (
-        f"✅ 👑 **VERIFIKASI BERHASIL!**\n\n"
+        f"✅ 💎 **TOP-UP POIN BERHASIL!**\n\n"
         f"🎉 Terima kasih atas dukungan Anda!\n"
-        f"├ Tambahan Waktu: **{months} Bulan** (`{duration_days} Hari`)\n"
-        f"└ Berakhir Pada: **{expiry_fmt}**"
+        f"├ Nominal Donasi: **Rp {amount_rp:,}**\n"
+        f"├ Saldo Didapat: **+{amount_rp:,} Poin**\n"
+        f"└ Total Saldo Anda: **{new_balance:,} Poin**"
     )
     await verif_msg.edit_text(box_txt)
 
 
 # ═══════════════════════════════════════════════════════════════════════
-#  /myvip — Cek Status VIP Sendiri
+#  /myvip — Cek Saldo Poin (Dompet)
 # ═══════════════════════════════════════════════════════════════════════
 
 @router.message(Command(f"myvip{CMD_SUFFIX}"))
 async def _my_vip_status(message: Message):
     user_id = message.from_user.id
     await ensure_user_data_structure(user_id)
-    user_data  = await get_fresh_user_data(user_id)
-    expiry_str = user_data.get("premium_expiry_date")
-    is_vip     = False
-    expiry     = None
+    
+    current_balance = get_user_balance(user_id)
 
-    if expiry_str:
-        try:
-            expiry = datetime.fromisoformat(str(expiry_str))
-            if expiry > datetime.now():
-                is_vip = True
-        except (ValueError, TypeError):
-            pass
-
-    if is_vip:
-        remaining = expiry - datetime.now()
-        days  = remaining.days
-        hours = remaining.seconds // 3600
-        await message.reply(
-            "╭─── • **Kartu Anggota VIP** • ───╮\n"
-            "│\n"
-            f"├  **Status:** `Premium (VIP) 🟢`\n"
-            f"├  **Aktif Hingga:** `{expiry.strftime('%d %B %Y, %H:%M WIB')}`\n"
-            f"├  **Sisa Waktu:** `{days} hari, {hours} jam`\n"
-            "│\n"
-            "╰─╼ • Nikmati semua fitur premium • ╾─╯"
-        )
-    else:
-        await message.reply(
-            "╭─── • **Status Keanggotaan** • ───╮\n"
-            "│\n"
-            "├  **Status:** `Pengguna Reguler ⚪`\n"
-            "│\n"
-            "├  Ingin akses penuh? Lakukan donasi\n"
-            f"│  dan gunakan `/verify{CMD_SUFFIX}` untuk upgrade VIP!\n"
-            "│\n"
-            "╰─╼ • Upgrade untuk fitur premium • ╾─╯"
-        )
+    await message.reply(
+        "╭─── • **DOMPET STUDIO KHOIRUL** • ───╮\n"
+        "│\n"
+        f"├  **Status:** `Premium Pay-As-You-Go 🟢`\n"
+        f"├  **Sisa Saldo:** `{current_balance:,} Poin`\n"
+        "│\n"
+        "├  Saldo Poin tidak akan pernah hangus\n"
+        f"│  (Gunakan `/verify{CMD_SUFFIX}` untuk Top-up)\n"
+        "│\n"
+        "╰─╼ • Nikmati semua fitur premium • ╾─╯"
+    )
 
 
 # ═══════════════════════════════════════════════════════════════════════
-#  /add_vip — Tambah VIP Manual (Owner)
+#  /history — Cek Mutasi & Riwayat Pemakaian Poin
+# ═══════════════════════════════════════════════════════════════════════
+
+@router.message(Command(f"history{CMD_SUFFIX}"))
+async def _my_usage_history(message: Message):
+    user_id = message.from_user.id
+    await ensure_user_data_structure(user_id)
+    
+    all_data = get_data()
+    user_data = all_data.get(user_id, {})
+    
+    history = user_data.get("usage_history", [])
+    current_balance = user_data.get("balance_points", 0)
+    
+    if not history:
+        return await message.reply(
+            "📜 **RIWAYAT PEMAKAIAN POIN**\n"
+            "━━━━━━━━━━━━━━━━━━━━\n"
+            "Belum ada catatan transaksi.\n"
+            f"💳 Saldo Anda saat ini: `{current_balance:,} Poin`"
+        )
+        
+    lines = [
+        "📜 **RIWAYAT PEMAKAIAN (MUTASI)**",
+        "━━━━━━━━━━━━━━━━━━━━\n"
+    ]
+    
+    for idx, record in enumerate(history, 1):
+        date = record.get("date", "Unknown")
+        action = record.get("action", "SYSTEM")
+        cost = record.get("cost", 0)
+        lines.append(f"**{idx}. {action}**")
+        lines.append(f"   └ 🗓 `{date}` | 💎 `- {cost:,} Poin`")
+        
+    lines.append("\n━━━━━━━━━━━━━━━━━━━━")
+    lines.append(f"💳 **Sisa Saldo:** `{current_balance:,} Poin`")
+    
+    await message.reply("\n".join(lines))
+
+
+# ═══════════════════════════════════════════════════════════════════════
+#  /add_vip — Tambah Poin Manual (Owner)
 # ═══════════════════════════════════════════════════════════════════════
 
 @router.message(Command(f"add_vip{CMD_SUFFIX}"))
@@ -286,39 +272,36 @@ async def _add_vip_manual(message: Message):
         
     parts        = (message.text or "").split()
     target_uid   = None
-    duration_str = "30d"
+    amount_add   = 0
 
     try:
         if message.reply_to_message and message.reply_to_message.from_user:
             target_uid = message.reply_to_message.from_user.id
-            if len(parts) > 1: duration_str = parts[1]
-        elif len(parts) > 1 and parts[1].isdigit():
+            if len(parts) > 1 and parts[1].isdigit(): 
+                amount_add = int(parts[1])
+        elif len(parts) > 2 and parts[1].isdigit() and parts[2].isdigit():
             target_uid = int(parts[1])
-            if len(parts) > 2: duration_str = parts[2]
+            amount_add = int(parts[2])
         else:
             await safe_reply(message,
                 "❌ **Format tidak valid:**\n"
-                f"`/add_vip{CMD_SUFFIX} [durasi]` (balas pesan) — contoh: `/add_vip{CMD_SUFFIX} 2m`\n"
-                f"`/add_vip{CMD_SUFFIX} <user_id> [durasi]` — contoh: `/add_vip{CMD_SUFFIX} 12345 1y`\n\n"
-                "Durasi: `30d`, `2m`, `1y`, atau angka hari"
+                f"`/add_vip{CMD_SUFFIX} [jumlah_poin]` (balas pesan) — contoh: `/add_vip{CMD_SUFFIX} 50000`\n"
+                f"`/add_vip{CMD_SUFFIX} <user_id> [jumlah_poin]` — contoh: `/add_vip{CMD_SUFFIX} 12345 50000`\n"
             )
             return
 
-        duration_days = parse_duration(duration_str)
+        if amount_add <= 0:
+            return await safe_reply(message, "❌ Jumlah Poin harus lebih dari 0.")
+
         await ensure_user_data_structure(target_uid)
-
-        user_data      = get_data().get(target_uid, {})
-        total_duration = user_data.get("total_vip_duration", 0) + duration_days
-        new_expiry     = _extend_vip(target_uid, duration_days)
-
-        await saveoptions(target_uid, "premium_expiry_date", new_expiry.isoformat(), SAVE_TO_DATABASE)
-        await saveoptions(target_uid, "total_vip_duration",  total_duration,         SAVE_TO_DATABASE)
+        await add_user_balance(target_uid, amount_add, SAVE_TO_DATABASE)
+        new_balance = get_user_balance(target_uid)
 
         await safe_reply(message,
-            f"✅ ➕ 👑 **VIP MANUAL BERHASIL DITAMBAHKAN**\n\n"
+            f"✅ ➕ 💎 **POIN MANUAL DITAMBAHKAN**\n\n"
             f"├ User ID: `{target_uid}`\n"
-            f"├ Durasi Baru: **{duration_days} hari**\n"
-            f"└ Aktif Hingga: **{new_expiry.strftime('%d %B %Y, %H:%M WIB')}**"
+            f"├ Poin Ditambah: **+{amount_add:,}**\n"
+            f"└ Saldo Sekarang: **{new_balance:,} Poin**"
         )
     except Exception as e:
         LOGGER.error(f"/add_vip error: {e}", exc_info=True)
@@ -326,7 +309,7 @@ async def _add_vip_manual(message: Message):
 
 
 # ═══════════════════════════════════════════════════════════════════════
-#  /delete_vip — Hapus VIP (Owner)
+#  /delete_vip — Kurangi Poin / Reset Poin (Owner)
 # ═══════════════════════════════════════════════════════════════════════
 
 @router.message(Command(f"delete_vip{CMD_SUFFIX}"))
@@ -341,15 +324,15 @@ async def _delete_vip_manual(message: Message):
         elif len(parts) > 1 and parts[1].isdigit():
             target_uid = int(parts[1])
         else:
-            return await safe_reply(message, f"❌ Format: `/delete_vip{CMD_SUFFIX} <user_id>` atau balas pesan.")
+            return await safe_reply(message, f"❌ Format: `/delete_vip{CMD_SUFFIX} <user_id>` atau balas pesan (Ini akan MERESET saldo jadi 0).")
 
         await ensure_user_data_structure(target_uid)
-        if not get_data().get(target_uid, {}).get("premium_expiry_date"):
-            return await safe_reply(message, f"❌ User `{target_uid}` tidak memiliki VIP aktif.")
-
-        await saveoptions(target_uid, "premium_expiry_date", None, SAVE_TO_DATABASE)
-        await saveoptions(target_uid, "total_vip_duration",  0,    SAVE_TO_DATABASE)
-        await safe_reply(message, f"✅ ➖ VIP user `{target_uid}` berhasil dihapus paksa.")
+        current = get_user_balance(target_uid)
+        
+        # Potong habis saldonya
+        await deduct_user_balance(target_uid, current, SAVE_TO_DATABASE)
+        
+        await safe_reply(message, f"✅ ➖ Saldo Poin user `{target_uid}` berhasil di-reset menjadi 0.")
 
     except Exception as e:
         LOGGER.error(f"/delete_vip error: {e}", exc_info=True)
@@ -357,47 +340,37 @@ async def _delete_vip_manual(message: Message):
 
 
 # ═══════════════════════════════════════════════════════════════════════
-#  /view_vip — Lihat Daftar VIP (Owner)
+#  /view_vip — Lihat Daftar User & Saldo Poin (Owner)
 # ═══════════════════════════════════════════════════════════════════════
 
 @router.message(Command(f"view_vip{CMD_SUFFIX}"))
 async def _view_vip_list(message: Message):
     if not owner_checker(message): return
         
-    path = "vip_list.txt"
+    path = "poin_list.txt"
     try:
         all_data   = get_data()
-        now        = datetime.now()
-        vip_list   = []
+        point_list = []
 
-        for uid, udata in all_data.items():
+        # Tarik semua user yang punya saldo > 0
+        for uid, udata in list(all_data.items()):
             if not isinstance(uid, int):
                 continue
-            expiry_str = udata.get("premium_expiry_date")
-            if not expiry_str:
-                continue
-            try:
-                expiry = datetime.fromisoformat(str(expiry_str))
-                if expiry > now:
-                    total_dur = udata.get("total_vip_duration", 0)
-                    vip_list.append((uid, expiry, total_dur))
-            except (ValueError, TypeError):
-                continue
+            balance = udata.get("balance_points", 0)
+            if balance > 0:
+                point_list.append((uid, balance))
 
-        if not vip_list:
-            return await safe_reply(message, "ℹ️ Tidak ada pengguna VIP aktif saat ini.")
+        if not point_list:
+            return await safe_reply(message, "ℹ️ Belum ada pengguna yang memiliki Saldo Poin saat ini.")
 
-        vip_list.sort(key=lambda x: x[1])   # sort by expiry (terdekat dulu)
+        # Urutkan berdasarkan Saldo Terbanyak (Top Spender/Holder)
+        point_list.sort(key=lambda x: x[1], reverse=True)
 
-        lines = ["**👑 Daftar Pengguna VIP Aktif**\n"]
-        for i, (uid, expiry, total_dur) in enumerate(vip_list, 1):
-            days_left  = (expiry - now).days
-            expiry_fmt = expiry.strftime("%d %b %Y")
+        lines = ["**💎 Daftar Pengguna (Berdasarkan Saldo Poin)**\n"]
+        for i, (uid, balance) in enumerate(point_list, 1):
             lines.append(
                 f"\n**{i}.** `{uid}`\n"
-                f"   ├ Berakhir: `{expiry_fmt}`\n"
-                f"   ├ Total: `{total_dur} hari`\n"
-                f"   └ Sisa: `{days_left} hari`"
+                f"   └ Saldo: `{balance:,} Poin`"
             )
 
         text_msg = "".join(lines)
@@ -406,7 +379,7 @@ async def _view_vip_list(message: Message):
             with open(path, "w", encoding="utf-8") as f:
                 plain = text_msg.replace("**", "").replace("`", "")
                 f.write(plain)
-            await message.reply_document(document=FSInputFile(path), caption="Daftar VIP terlalu panjang, dikirim sebagai file.")
+            await message.reply_document(document=FSInputFile(path), caption="Daftar pengguna terlalu panjang, dikirim sebagai file.")
         else:
             await message.reply(text_msg)
 
