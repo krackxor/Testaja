@@ -1,14 +1,14 @@
 """
 ╔══════════════════════════════════════════════════════════════════════╗
-║                 bot/subtitle_editor.py — v3.0 (STUDIO ULTIMATE)      ║
+║                 bot/subtitle_editor.py — v3.1 (STUDIO ULTIMATE)      ║
 ║       Subtitle Editor: QC, Undo, Split/Merge, & Find/Replace         ║
 ╠══════════════════════════════════════════════════════════════════════╣
-║  CHANGELOG v3.0:                                                     ║
+║  CHANGELOG v3.1:                                                     ║
+║  [NEW] Integrasi dengan point_manager (Sistem Saldo Pay-As-You-Go).  ║
+║  [NEW] Memotong saldo (500 Poin) saat user menekan 'Translate All'.  ║
+║  [NEW] Menyiapkan gate kasir di tombol 'Kompilasi' (Future-proof).   ║
 ║  [NEW] Fitur Undo/Redo (Memori History) untuk aksi destruktif.       ║
 ║  [NEW] Quality Control (QC & Auto-Fix) mendeteksi overlap/durasi.    ║
-║  [NEW] Find & Replace (Cari & Ganti Massal).                         ║
-║  [NEW] Split (Belah Teks/Waktu) & Merge (Gabung Baris) per baris.    ║
-║  [FIX] Sistem Auto-Reindex untuk menjaga urutan baris tetap rapi.    ║
 ╚══════════════════════════════════════════════════════════════════════╝
 """
 
@@ -36,6 +36,9 @@ from bot_helper.Database.User_Data import (
 from bot_helper.Others.SrtParser import parse_srt_to_db
 from bot_helper.Others.SrtCompiler import compile_db_to_srt
 from bot.shared import wait_for_message, CMD_SUFFIX, LOGGER
+
+# [NEW v3.1] Import Mesin Kasir
+from bot_helper.Process.point_manager import process_payment
 
 router = Router()
 
@@ -180,7 +183,7 @@ async def start_new_project_from_file(message: Message, document, user_id: int):
         await status_msg.edit_text(f"❌ **Error:** {e}")
 
 # ═══════════════════════════════════════════════════════════════════════
-#  ENTRY POINTS & WORKSPACE HANDLERS (Sama seperti v2.3)
+#  ENTRY POINTS & WORKSPACE HANDLERS
 # ═══════════════════════════════════════════════════════════════════════
 
 @router.message(Command(f"subedit{CMD_SUFFIX}"))
@@ -610,9 +613,17 @@ async def handle_set_lang(call: CallbackQuery):
 @router.callback_query(F.data.startswith("sub_trall_"))
 async def handle_translate_all(call: CallbackQuery):
     user_id = int(call.data.split("_")[2])
+    if call.from_user.id != user_id: return await call.answer("Bukan milikmu!", show_alert=True)
+    
+    # [NEW v3.1] Cek Saldo Poin sebelum mengeksekusi "Translate All"
+    payment = await process_payment(user_id, "autotranslate")
+    if not payment["success"]:
+        return await call.answer("❌ Saldo Poin tidak cukup! Fitur ini membutuhkan 500 Poin.", show_alert=True)
+
     await save_undo_state(user_id) # Backup
     lang = get_active_settings(user_id).get("ai_subtitle", {}).get("target_lang", "id")
     status_msg = await call.message.edit_text(f"⏳ <b>Menerjemahkan ke {lang.upper()} di latar belakang...</b>", parse_mode="HTML")
+    
     db = get_db()
     all_lines = await db.db["subtitle_temp"].find({"user_id": user_id}).to_list(length=None)
     translator = GoogleTranslator(source='auto', target=lang)
@@ -680,6 +691,13 @@ async def handle_delete_line(call: CallbackQuery):
 @router.callback_query(F.data.startswith("sub_compile_"))
 async def handle_compile(call: CallbackQuery):
     user_id = int(call.data.split("_")[2])
+    if call.from_user.id != user_id: return await call.answer("Bukan milikmu!", show_alert=True)
+    
+    # [NEW v3.1] Menyiapkan gerbang pembayaran untuk kompilasi. Saat ini gratis (karena tidak ada di price list point_manager)
+    payment = await process_payment(user_id, "compile")
+    if not payment["success"]:
+        return await call.answer("❌ Saldo Poin tidak cukup!", show_alert=True)
+    
     msg = await call.message.edit_text("⏳ 🏗 **Menyusun file SRT baru...**")
     output_path = await compile_db_to_srt(user_id)
     if output_path and os.path.exists(output_path):
