@@ -1,9 +1,11 @@
 """
 ╔══════════════════════════════════════════════════════════════════════╗
 ║            bot_helper/Process/Running_Tasks.py                       ║
-║            Encoder1 Bot — v3.2 (Aiogram 3.x)                         ║
+║            Encoder1 Bot — v3.3 (Aiogram 3.x SaaS Edition)            ║
 ╠══════════════════════════════════════════════════════════════════════╣
 ║  CHANGELOG dari versi lama:                                          ║
+║  [NEW v3.3] Fungsi get_user_task_stats untuk UI Dashboard SaaS.      ║
+║  [IMPROVE v3.3] clear_all_trash_on_startup membersihkan lebih banyak.║
 ║  [FIX HIGH]  pkill ffmpeg global → kill PID spesifik                 ║
 ║  [FIX HIGH]  get_data()[user_id] → .get() semua tempat               ║
 ║  [FIX HIGH]  analyze_ffmpeg_error tuple → dict (Step 8 API)          ║
@@ -135,10 +137,39 @@ def get_user_id(process_id: str):
             return task["process_status"].user_id
     return False
 
+# [NEW v3.3] Dashboard Task Stats
+def get_user_task_stats(user_id: int) -> dict:
+    """
+    Mengambil statistik tugas spesifik untuk satu user.
+    Berguna untuk tampilan Dashboard personal.
+    """
+    active = [t for t in working_task if getattr(t.get("process_status"), "user_id", None) == user_id]
+    queued = [t for t in queued_task if getattr(t.get("process_status"), "user_id", None) == user_id]
+    
+    return {
+        "active_count": len(active),
+        "queued_count": len(queued),
+        "total": len(active) + len(queued),
+        "details": active + queued
+    }
+
 
 # ═══════════════════════════════════════════════════════════════════════
 #  TRASH CLEANUP
 # ═══════════════════════════════════════════════════════════════════════
+
+async def clear_all_trash_on_startup():
+    """[UPDATED v3.3] Membersihkan folder temp dari sisa crash sebelumnya saat bot pertama kali dinyalakan."""
+    trash_dirs = ["./temp/", "./gameplay/temp/", "./userdata/temp/", "./temp/cloud_uploads/"]
+    for d in trash_dirs:
+        if os.path.exists(d):
+            try:
+                shutil.rmtree(d)
+                os.makedirs(d, exist_ok=True)
+                LOGGER.info(f"🧹 Folder {d} berhasil dibersihkan & di-reset.")
+            except Exception as e:
+                LOGGER.error(f"❌ Gagal bersihkan {d}: {e}")
+
 
 async def clear_trash(task: dict, trash_objects: list, multi_tasks: list) -> None:
     new_task = False
@@ -155,7 +186,7 @@ async def clear_trash(task: dict, trash_objects: list, multi_tasks: list) -> Non
                 pass
         ps.garbage_messages = []
 
-    # ── [NEW v3.2] CLEANUP FILE EXTERNAL SEPERTI DUBBING AUDIO ──
+    # ── CLEANUP FILE EXTERNAL SEPERTI DUBBING AUDIO ──
     if hasattr(ps, "custom_dub_audio") and ps.custom_dub_audio and os.path.exists(ps.custom_dub_audio):
         try:
             os.remove(ps.custom_dub_audio)
@@ -734,36 +765,3 @@ async def start_task(task: dict) -> None:
         LOGGER.info(f"🧹 Memulai master cleanup untuk task {process_status.process_id}")
         await clear_trash(task, trash_objects, multi_tasks)
         await task_manager()
-
-
-# ═══════════════════════════════════════════════════════════════════════
-#  STARTUP HELPERS
-# ═══════════════════════════════════════════════════════════════════════
-
-def get_user_task_stats(user_id: int) -> dict:
-    """
-    Mengambil statistik tugas spesifik untuk satu user.
-    Berguna untuk tampilan Dashboard personal.
-    """
-    active = [t for t in working_task if t.get("process_status").user_id == user_id]
-    queued = [t for t in queued_task if t.get("process_status").user_id == user_id]
-    
-    return {
-        "active_count": len(active),
-        "queued_count": len(queued),
-        "total": len(active) + len(queued),
-        "details": active + queued
-    }
-
-# Update fungsi clear_all_trash agar lebih bersih saat startup
-async def clear_all_trash_on_startup():
-    """Membersihkan folder temp dari sisa crash sebelumnya."""
-    trash_dirs = ["./temp/", "./gameplay/temp/", "./userdata/temp/"]
-    for d in trash_dirs:
-        if os.path.exists(d):
-            try:
-                shutil.rmtree(d)
-                os.makedirs(d)
-                LOGGER.info(f"🧹 Folder {d} dibersihkan.")
-            except Exception as e:
-                LOGGER.error(f"❌ Gagal bersihkan {d}: {e}")
