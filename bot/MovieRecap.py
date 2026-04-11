@@ -1,21 +1,14 @@
 """
 ╔══════════════════════════════════════════════════════════════════════╗
-║                    bot/MovieRecap.py — v4.1                          ║
+║                    bot/MovieRecap.py — v4.2                          ║
 ║        Movie Recap: Rangkuman Film Otomatis dengan Voiceover AI      ║
 ╠══════════════════════════════════════════════════════════════════════╣
-║  CHANGELOG v4.1:                                                     ║
+║  CHANGELOG v4.2:                                                     ║
+║  [NEW] INTEGRASI SISTEM POIN! Memotong saldo sebelum render.         ║
 ║  [UX PREMIUM] Implementasi API Warna Tombol Native Telegram 9.4+     ║
-║                (Primary, Success, Danger) pada Reply Keyboard.       ║
 ║  [UX PREMIUM] Standardisasi Hierarki Emoji (❌ Error, ⏳ Proses).      ║
-║  [UX PREMIUM] Mengganti "❌ Skip" menjadi "⏭️ Skip" agar jelas.      ║
 ║  [UX PREMIUM] Migrasi Total Dashboard Inline menjadi Interactive     ║
 ║                Wizard (Step-by-step) dengan Reply Keyboard Singkat!  ║
-║  [UX PREMIUM] Opsi "Kustom" ditambahkan pada pemilihan Durasi.       ║
-║  [UX PREMIUM] Auto-Delete disematkan di semua langkah setup produksi ║
-║                agar obrolan tidak dipenuhi pesan sampah.             ║
-║  [UX PREMIUM] Kotak Konfirmasi (Summary Box) diseragamkan dengan     ║
-║                desain modul admin dan advanced_media_handlers.       ║
-║  [FIX HIGH] Implementasi CMD_SUFFIX pada semua Command filter        ║
 ╚══════════════════════════════════════════════════════════════════════╝
 """
 
@@ -35,7 +28,7 @@ from aiogram.types import (
 from aiogram.filters import Command, CommandObject
 from aiogram.exceptions import TelegramBadRequest
 
-from bot_helper.Database.User_Data import get_data, ensure_user_data_structure, get_task_limit
+from bot_helper.Database.User_Data import get_data, ensure_user_data_structure, get_task_limit, get_user_balance
 from bot_helper.Others.Helper_Functions import get_human_size, get_readable_time
 from bot_helper.Others.Names import Names
 from bot_helper.Process.Process_Status import ProcessStatus, get_progress_bar_string
@@ -45,6 +38,9 @@ from bot_helper.Telegram.Telegram_Client import Telegram
 from config.config import Config
 
 from bot.shared import wait_for_message
+
+# [NEW v4.2] Import Mesin Kasir
+from bot_helper.Process.point_manager import process_payment
 
 try:
     from bot.YTUpload import upload_to_youtube, YOUTUBE_ENABLED
@@ -95,7 +91,6 @@ def _make_reply_kb(options: list, row_width: int = 2) -> ReplyKeyboardMarkup:
     kb = []
     row = []
     for opt in options:
-        # Auto-Color Logic
         if "Batal" in opt or "❌" in opt:
             btn_style = "danger"
         elif "Ya" in opt or "✅" in opt:
@@ -116,23 +111,6 @@ def _make_reply_kb(options: list, row_width: int = 2) -> ReplyKeyboardMarkup:
 # ═══════════════════════════════════════════════════════════════════════
 #  CORE FUNCTIONS
 # ═══════════════════════════════════════════════════════════════════════
-
-def _is_vip(user_id: int) -> bool:
-    if user_id == Config.OWNER_ID or user_id in Config.SUDO_USERS: return True
-    expiry_str = get_data().get(user_id, {}).get("premium_expiry_date")
-    if not expiry_str: return False
-    try: return datetime.now(datetime.fromisoformat(str(expiry_str)).tzinfo) < datetime.fromisoformat(str(expiry_str))
-    except Exception: return False
-
-def _vip_expiry_text(user_id: int) -> str:
-    if user_id == Config.OWNER_ID or user_id in Config.SUDO_USERS: return "♾️ Unlimited (Owner/Sudo)"
-    expiry_str = get_data().get(user_id, {}).get("premium_expiry_date")
-    if not expiry_str: return "❌ Tidak aktif"
-    try:
-        expiry = datetime.fromisoformat(str(expiry_str)); now = datetime.now(expiry.tzinfo)
-        if now >= expiry: return "❌ Sudah kadaluarsa"
-        return f"✅ Aktif — sisa {(expiry - now).days} hari"
-    except Exception: return "❓ Tidak diketahui"
 
 async def _safe_edit(msg: Message, text: str, buttons=None) -> None:
     try:
@@ -420,12 +398,6 @@ async def recap_handler(message: Message, command: CommandObject) -> None:
     user_id = message.from_user.id
     chat_id = message.chat.id
     
-    if not _is_vip(user_id): 
-        return await message.reply(
-            "👑 **Fitur Eksklusif VIP**\nHanya untuk member Premium.", 
-            reply_markup=InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="💬 Hubungi Admin", url=f"https://t.me/{Config.BOT_USERNAME}", style="primary")]])
-        )
-        
     movie_title = (command.args or "").strip()
     reply_msg = message.reply_to_message
     has_txt = False
@@ -537,15 +509,21 @@ async def recap_handler(message: Message, command: CommandObject) -> None:
     
     if not resp_conf or "batal" in (resp_conf.text or "").lower():
         return await message.answer("❌ Dibatalkan.", reply_markup=ReplyKeyboardRemove())
+
+    # [NEW v4.2] MESIN KASIR: POTONG SALDO POIN
+    await message.answer("🔄 Mengecek Saldo Poin...", reply_markup=ReplyKeyboardRemove())
+    payment = await process_payment(user_id=user_id, command="recap")
+    if not payment["success"]:
+        return await message.answer(payment["message"], reply_markup=ReplyKeyboardRemove())
         
-    await message.answer("⏳ ✅ Menyiapkan Mesin Recap...", reply_markup=ReplyKeyboardRemove())
+    await message.answer(f"⏳ ✅ Menyiapkan Mesin Recap...\n{payment['message']}", reply_markup=ReplyKeyboardRemove())
 
     user_name = message.from_user.username or ""
     user_first_name = message.from_user.first_name or str(user_id)
     ps = ProcessStatus(user_id, chat_id, user_name, user_first_name, message, getattr(Names, "movierecap", "MovieRecap"), "Telegram")
     ps.file_name = f"{movie_title}_recap"
     
-    init_text  = f"🎬 **Movie Recap Dimulai**\n{'─'*32}\n  🎞️ Film      `{movie_title}`\n  🤖 Mode      `{'Auto AI Vision' if mode=='auto' else 'Chapter + Narasi'}`\n  ⏱️ Durasi    `{int(target_min)} menit`\n{'─'*32}\n**ID:** `{ps.process_id}`\n`/cancel{CMD_SUFFIX} process {ps.process_id}`"
+    init_text  = f"🎬 **Movie Recap Dimulai**\n{'─'*32}\n  🎞️ Film    `{movie_title}`\n  🤖 Mode      `{'Auto AI Vision' if mode=='auto' else 'Chapter + Narasi'}`\n  ⏱️ Durasi    `{int(target_min)} menit`\n{'─'*32}\n**ID:** `{ps.process_id}`\n`/cancel{CMD_SUFFIX} process {ps.process_id}`"
     cancel_btn = [[InlineKeyboardButton(text="❌ Batal", callback_data=f"rc_cancel_{user_id}_{ps.process_id}", style="danger")]]
     
     status_msg = await message.answer(init_text, reply_markup=InlineKeyboardMarkup(inline_keyboard=cancel_btn))
