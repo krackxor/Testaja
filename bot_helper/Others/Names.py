@@ -1,9 +1,11 @@
 """
 ╔══════════════════════════════════════════════════════════════════════╗
-║            bot_helper/Others/Names.py — v4.2                         ║
+║            bot_helper/Others/Names.py — v4.3                         ║
 ║                    Konstanta Nama Proses Bot                         ║
 ╠══════════════════════════════════════════════════════════════════════╣
-║  CHANGELOG v4.2:                                                     ║
+║  CHANGELOG v4.3:                                                     ║
+║  [NEW]  Menambahkan label UI untuk fitur Studio Khoirul yang baru    ║
+║         (Verdict, TopTier, Archives, Lore, Radar, Patch).            ║
 ║  [NEW]  subedit (Integrasi Manual Subtitle Editor)                   ║
 ║  [NEW]  autosub, autotranslate (Whisper AI & Deep Trans)             ║
 ║  [FIX]  Sinkronisasi label status UI untuk semua fitur baru.         ║
@@ -61,7 +63,7 @@ class Names:
     ytupload       = "YouTubeUpload" 
     autoclip       = "AutoClip"      
     movierecap     = "MovieRecap"    
-    top            = "Top"            
+    top            = "Top"           
     review         = "Review"        
     short_vid      = "Short"         
 
@@ -96,7 +98,7 @@ class Names:
         # AI & Editor Processes (NEW)
         autosub:        "🧠 AI Transcribing",
         autotranslate:  "🌐 AI Translating",
-        subedit:        "📝 Editing Subtitle", # [NEW]
+        subedit:        "📝 Editing Subtitle", 
         
         # Video production processes
         "YouTubeUpload": "⬆️ Mengunggah YouTube",
@@ -105,6 +107,14 @@ class Names:
         "Top":           "🕹 Merender TOP",
         "Review":        "🎬 Merender Review",
         "Short":         "📱 Merender Short",
+        
+        # Studio Khoirul Produksi Baru (v6.0+)
+        "PRODUKSI STUDIO (THE VERDICT)":          "🎬 Merender Verdict",
+        "PRODUKSI STUDIO (TOP TIER)":             "🏆 Merender Top Tier",
+        "PRODUKSI STUDIO (THE ARCHIVES)":         "📜 Merender Archives",
+        "PRODUKSI STUDIO (LORE & CONSPIRACIES)":  "🧠 Merender Lore",
+        "PRODUKSI STUDIO (ON THE RADAR)":         "📡 Merender Radar",
+        "PRODUKSI STUDIO (THE LATEST PATCH)":     "🗞️ Merender Patch",
     }
 
     # ── Daftar proses yang pakai FFmpeg ──────────────────────────────
