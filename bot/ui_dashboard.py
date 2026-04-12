@@ -1,7 +1,8 @@
 """
 UI Dashboard Template for STUDIO KHOIRUL (Aiogram 3.x)
-Versi: PROFESSIONAL v6.9 - Final Layout & Rebranding
-Update: Re-layout menu utama, ubah Studio -> Creator, Poin -> Top Up, pindah Format ke Fast Encode sbg Resolusi.
+Versi: PROFESSIONAL v7.0 - Final Layout & Asset Integration
+Update: Re-layout menu utama, sinkronisasi dengan bot.asset_handlers, 
+        perbaikan mapping fungsi untuk fitur aset video/audio.
 """
 
 import asyncio
@@ -81,7 +82,7 @@ async def safe_edit(message: Message, text: str, reply_markup: InlineKeyboardMar
         return False
 
 def is_admin(user_id: int) -> bool:
-    return user_id in Config.SUDO_USERS
+    return user_id in Config.SUDO_USERS or user_id == Config.OWNER_ID
 
 def get_system_stats() -> dict:
     stats = {'storage': 0, 'cpu': 0, 'ram': 0}
@@ -141,7 +142,6 @@ def kb_start_menu() -> InlineKeyboardMarkup:
     ])
 
 def kb_main_menu(is_admin_user: bool = False) -> InlineKeyboardMarkup:
-    """[MODIFIED v6.9] Re-layout sesuai permintaan (Encode->Creator->Download->Aset->Top Up)"""
     buttons = [
         [
             InlineKeyboardButton(text="🎞️ Encode", callback_data="menu_encode", style="primary"),
@@ -223,7 +223,6 @@ def kb_studio() -> InlineKeyboardMarkup:
     ])
 
 def kb_encode_main() -> InlineKeyboardMarkup:
-    """[MODIFIED v6.9] Menu Encode Utama yang lebih bersih. Resolusi dipindah."""
     return InlineKeyboardMarkup(inline_keyboard=[
         [
             InlineKeyboardButton(text="🚀 Fast Encode", callback_data="menu_fast_encode", style="success"), 
@@ -236,14 +235,13 @@ def kb_encode_main() -> InlineKeyboardMarkup:
     ])
 
 def kb_fast_encode_submenu() -> InlineKeyboardMarkup:
-    """[MODIFIED v6.9] Sub-menu khusus Fast Encode + Resolusi (Format)"""
     return InlineKeyboardMarkup(inline_keyboard=[
         [
             InlineKeyboardButton(text="🎥 Set Video", callback_data="video_settings", style="primary"),
             InlineKeyboardButton(text="🎵 Set Audio", callback_data="audio_settings", style="primary")
         ],
         [
-            InlineKeyboardButton(text="🚜 Resolusi", callback_data="convert_settings", style="primary"), # Format pindah kesini jadi Resolusi
+            InlineKeyboardButton(text="🚜 Resolusi", callback_data="convert_settings", style="primary"), 
             InlineKeyboardButton(text="©️ Watermark", callback_data="watermark_settings", style="primary")
         ],
         [
@@ -300,16 +298,21 @@ def kb_editor() -> InlineKeyboardMarkup:
     ])
 
 def kb_assets() -> InlineKeyboardMarkup:
+    """[FIX v7.0] Menyesuaikan tombol dengan command asset_handlers.py"""
     return InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="➕ Add Footage", callback_data="cmd_addgameplay", style="success")],
         [
-            InlineKeyboardButton(text="📋 List", callback_data="cmd_listgameplay", style="primary"),
-            InlineKeyboardButton(text="🔊 Add SFX", callback_data="cmd_addsfx", style="primary")
+            InlineKeyboardButton(text="➕ Add Video", callback_data="cmd_addaset", style="success"),
+            InlineKeyboardButton(text="🔊 Add Audio", callback_data="cmd_addsfx", style="success")
         ],
         [
-            InlineKeyboardButton(text="🗑️ Hapus", callback_data="cmd_deletegameplay", style="danger"),
-            InlineKeyboardButton(text="↩️ Kembali", callback_data="menu_main", style="danger")
-        ]
+            InlineKeyboardButton(text="📋 List Video", callback_data="cmd_viewaset", style="primary"),
+            InlineKeyboardButton(text="🎵 List Audio", callback_data="cmd_viewsfx", style="primary")
+        ],
+        [
+            InlineKeyboardButton(text="🗑️ Del Video", callback_data="cmd_delaset", style="danger"),
+            InlineKeyboardButton(text="🗑️ Del Audio", callback_data="cmd_delsfx", style="danger")
+        ],
+        [InlineKeyboardButton(text="↩️ Kembali", callback_data="menu_main", style="danger")]
     ])
 
 def kb_download() -> InlineKeyboardMarkup:
@@ -420,7 +423,6 @@ async def nav_cloud(callback: CallbackQuery):
 
 @ui_router.callback_query(F.data == "menu_studio")
 async def nav_studio(callback: CallbackQuery):
-    # [MODIFIED] Header text diubah dari "Studio" jadi "Creator"
     text = create_section_header("🎬", "Creator", "Produksi video otomatis dengan AI, script, dan rendering")
     await safe_edit(callback.message, text, kb_studio())
     await callback.answer()
@@ -465,7 +467,7 @@ Pusat modifikasi dan manipulasi video.
 
 @ui_router.callback_query(F.data == "menu_assets")
 async def nav_assets(callback: CallbackQuery):
-    text = create_section_header("🎮", "Aset", "Kelola footage video mentahan, sound effects, dan media")
+    text = create_section_header("🎮", "Brankas Aset", "Kelola footage video mentahan, sound effects, dan media pribadi Anda.")
     await safe_edit(callback.message, text, kb_assets())
     await callback.answer()
 
@@ -483,7 +485,6 @@ async def nav_settings(callback: CallbackQuery):
 
 @ui_router.callback_query(F.data == "menu_vip")
 async def nav_vip(callback: CallbackQuery):
-    # [MODIFIED] Header text diubah dari "Dompet Poin" jadi "Top Up & Dompet"
     text = create_section_header("💎", "Top Up & Dompet", "Kelola saldo poin, mutasi pemakaian, dan top-up (Verifikasi Trakteer)")
     await safe_edit(callback.message, text, kb_vip())
     await callback.answer()
@@ -572,6 +573,7 @@ async def route_commands(callback: CallbackQuery):
         import bot.AutoClip as autoclip
         import bot.YTUpload as yt
         import bot.CloudUploads as cloud 
+        import bot.asset_handlers as asset # [NEW v7.0] Asset Import
     except Exception as import_err:
         print(f"[UI ROUTER IMPORT ERROR] {import_err}")
         return await callback.answer("❌ Gagal memuat module handler.", show_alert=True)
@@ -589,10 +591,13 @@ async def route_commands(callback: CallbackQuery):
         "savewatermark": getattr(adm, "_savewatermark", None),
         "savethumb": getattr(adm, "_savethumb", None),
 
-        "listgameplay": getattr(gp, "list_gameplay_handler", None),
-        "deletegameplay": getattr(gp, "delete_gameplay_handler", None),
-        "addgameplay": getattr(gp, "add_gameplay_handler", None),
-        "addsfx": getattr(gp, "addsfx_handler", None),
+        # [FIX v7.0] MAPPING ULANG KE ASSET HANDLER
+        "addaset": getattr(asset, "addaset_handler", None),
+        "viewaset": getattr(asset, "viewaset_handler", None),
+        "delaset": getattr(asset, "delaset_handler", None),
+        "addsfx": getattr(asset, "addsfx_handler", None),
+        "viewsfx": getattr(asset, "viewsfx_handler", None),
+        "delsfx": getattr(asset, "delsfx_handler", None),
 
         "recap": getattr(recap, "recap_handler", None),
         "clip": getattr(autoclip, "autoclip_handler", None),
@@ -656,7 +661,6 @@ async def route_commands(callback: CallbackQuery):
         "checksudo", "time", "stats", "add_vip", "delete_vip",
         "view_vip", "addsudo", "delsudo", "changeconfig", "clearconfigs",
         "saveconfig", "savewatermark", "savethumb", "status", "verify", "myvip", "history",
-        "listgameplay"
     }
 
     media_cmds = {
@@ -665,7 +669,7 @@ async def route_commands(callback: CallbackQuery):
         "extract", "extension", "changeindex", "changemetadata", "mediainfo",
         "trim", "split", "cut", "rotate", "crop", "autocrop", "genss",
         "gensample", "ext_thumb", "ext_frames", "autosub", "autotranslate", 
-        "leech", "mirror", "addgameplay", "addsfx", "deletegameplay", "recap", "clip",
+        "leech", "mirror", "addaset", "addsfx", "delaset", "delsfx", "recap", "clip", # Ditambah addaset, addsfx
         "ytupload", "gofile", "pixeldrain", "buzzheavier", "terabox", "vimeo", "rclone", "youtube"
     }
 
@@ -679,8 +683,13 @@ async def route_commands(callback: CallbackQuery):
 
         if cmd in media_cmds:
             await callback.answer()
-
-            if cmd == "autosub":
+            
+            # [FIX v7.0] PROMPT CERDAS SESUAI FITUR ASET
+            if cmd == "addaset":
+                media_type = "File Video (MP4/MKV/DSB)"
+            elif cmd == "addsfx":
+                media_type = "File Audio/MP3"
+            elif cmd == "autosub":
                 media_type = "Video atau Audio"
             elif cmd == "autotranslate":
                 media_type = "File Subtitle (.srt / .ass)"
@@ -690,13 +699,15 @@ async def route_commands(callback: CallbackQuery):
                 media_type = "File / Video / Dokumen"
             elif cmd in ["recap", "clip"]:
                 media_type = "File Naskah (.txt)"
+            elif cmd in ["delaset", "delsfx"]:
+                media_type = "Teks (Nama file yang ingin dihapus)"
             else:
                 media_type = "Media (Video/Audio/Srt/Gambar)"
 
             prompt = await callback.message.answer(
                 f"📥 <b>MODE {cmd.upper()} AKTIF</b>\n"
                 f"────────────────────\n"
-                f"Silakan kirim <b>{media_type}</b> Anda ke chat ini sekarang...\n\n"
+                f"Silakan kirim atau balas dengan <b>{media_type}</b> Anda ke chat ini sekarang...\n\n"
                 f"<i>(Waktu tunggu 120 detik)</i>",
                 parse_mode="HTML"
             )
