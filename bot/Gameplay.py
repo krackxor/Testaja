@@ -1,11 +1,11 @@
 """
 ╔══════════════════════════════════════════════════════════════════════╗
-║    bot/Gameplay.py — v6.0.1 (HOTFIX IMPORT)                          ║
+║    bot/Gameplay.py — v6.0.2 (HOTFIX SYNTAX)                          ║
 ║    Studio Khoirul: Core Engine Video Production Bot (Pay-As-You-Go)  ║
 ╠══════════════════════════════════════════════════════════════════════╣
-║  CHANGELOG v6.0.1:                                                   ║
-║  [FIX CRITICAL] Menambahkan kembali import Command dan CommandObject ║
-║                 dari aiogram.filters yang sebelumnya hilang.         ║
+║  CHANGELOG v6.0.2:                                                   ║
+║  [FIX CRITICAL] Menghapus stray/sisa tanda kutip tiga di akhir file  ║
+║                 yang menyebabkan SyntaxError.                        ║
 ╚══════════════════════════════════════════════════════════════════════╝
 """
 
@@ -24,7 +24,7 @@ from aiogram.types import (
     Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton, FSInputFile,
     ReplyKeyboardMarkup, KeyboardButton, ReplyKeyboardRemove
 )
-from aiogram.filters import Command, CommandObject # [FIX] Import yang hilang
+from aiogram.filters import Command, CommandObject
 from aiogram.exceptions import TelegramBadRequest
 
 import edge_tts
@@ -126,6 +126,7 @@ def _make_reply_kb(options: list, row_width: int = 2) -> ReplyKeyboardMarkup:
     return ReplyKeyboardMarkup(keyboard=kb, resize_keyboard=True, one_time_keyboard=True)
 
 def find_gameplay_for_game(game_title: str, user_id: int) -> Optional[str]:
+    """Mencari video. Prioritas 1: Brankas User. Prioritas 2: Folder Global"""
     tgt = game_title.lower().strip()
     dirs_to_check = [os.path.join(ASET_VIDEO_BASE, str(user_id)), ASET_VIDEO_BASE]
     
@@ -139,6 +140,7 @@ def find_gameplay_for_game(game_title: str, user_id: int) -> Optional[str]:
     return None
 
 def get_audio_path(filename: str, user_id: int) -> Optional[str]:
+    """Mencari audio. Prioritas 1: Brankas User. Prioritas 2: Folder Global"""
     priv = os.path.join(AUDIO_BASE, str(user_id), filename)
     if os.path.exists(priv): return priv
     glob = os.path.join(AUDIO_BASE, filename)
@@ -216,6 +218,7 @@ def get_hook_clip(path: str, is_portrait: bool, est_dur: float):
 # ═══════════════════════════════════════════════════════════════════════
 
 async def merge_clips_async(video_paths: list, output_path: str, apply_bgm: bool, user_id: int) -> float:
+    """Menggabungkan video dengan sistem Asynchronous FFmpeg agar tidak memblokir dan macet (stuck)."""
     if not video_paths: return 0.0
     
     list_file = tmp(f"concat_{int(time.time())}.txt")
@@ -224,6 +227,7 @@ async def merge_clips_async(video_paths: list, output_path: str, apply_bgm: bool
         
     temp_concat = tmp(f"merged_{int(time.time())}.mp4")
     
+    # Exec FFmpeg secara Async dengan DEVNULL output agar pipa tidak penuh
     proc = await asyncio.create_subprocess_exec(
         "ffmpeg", "-y", "-f", "concat", "-safe", "0", "-i", list_file, "-c", "copy", temp_concat,
         stdout=asyncio.subprocess.DEVNULL,
@@ -233,6 +237,7 @@ async def merge_clips_async(video_paths: list, output_path: str, apply_bgm: bool
     
     if proc.returncode != 0:
         LOGGER.error(f"FFmpeg Concat Error: {stderr.decode()}")
+        # Fallback ke MoviePy secara manual jika format FFmpeg crash
         clips = [VideoFileClip(v) for v in video_paths]
         merged = concatenate_videoclips(clips, method="compose")
         await asyncio.to_thread(merged.write_videofile, temp_concat, fps=TARGET_FPS, codec="libx264", bitrate=BITRATE, audio_bitrate=AUDIO_BR, logger=None, threads=4)
@@ -859,4 +864,3 @@ async def _send_settings(message: Message) -> None:
 async def set_yt_cb(call: CallbackQuery) -> None: 
     await call.answer()
     await call.message.answer(_dash("📺","YouTube Status",[("API Upload", "✅ Siap" if YOUTUBE_ENABLED else "❌ Belum diinstall"),("yt-dlp", "✅ Siap" if YOUTUBE_ENABLED else "❌ Belum diinstall"),("Token", "✅ Ada" if os.path.exists("token.json") else "❌ Belum login"),("Secret", "✅ Ada" if os.path.exists("client_secret.json") else "❌ Tidak ada")]))
-"""
