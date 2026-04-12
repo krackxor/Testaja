@@ -1,18 +1,15 @@
 """
 ╔══════════════════════════════════════════════════════════════════════╗
-║    bot/Gameplay.py — v5.5 (ANTI-MACET & SAFE CONCURRENCY)            ║
+║    bot/Gameplay.py — v5.7 (ULTRAFAST & NO THUMBNAIL)                 ║
 ║    Studio Khoirul: Core Engine Video Production Bot (Pay-As-You-Go)  ║
 ╠══════════════════════════════════════════════════════════════════════╣
-║  CHANGELOG v5.5:                                                     ║
-║  [FIX CRITICAL] Menghapus pkill ffmpeg yang menyebabkan crash global ║
-║                 jika ada 2 user merender bersamaan.                  ║
-║  [FIX CRITICAL] Menambahkan Timeout pada TTS agar tidak hang.        ║
-║  [FIX CRITICAL] Auto-Skip Scene jika gagal 3x (Render tetap jalan).  ║
-║  [FIX CRITICAL] Memasang Progress Bar pada Pyrogram upload agar      ║
-║                 animasi tidak stuck di "Menyiapkan thumbnail HD..."  ║
-║  [UX PREMIUM] Bot otomatis mendeteksi file .txt yang dikirim dan     ║
-║               memunculkan Dashboard Studio Interaktif (Satu Klik).   ║
-║  [NEW] INTEGRASI SISTEM POIN! Memotong saldo sebelum render jalan.   ║
+║  CHANGELOG v5.7:                                                     ║
+║  [SPEED] Mengubah preset FFmpeg menjadi "ultrafast" untuk            ║
+║          memaksimalkan kecepatan render berkali-kali lipat.          ║
+║  [FIX CRITICAL] MENGHAPUS TOTAL fitur pembuatan Thumbnail HD karena  ║
+║                 terbukti menyebabkan server nge-hang/macet. Telegram ║
+║                 kini akan membuat thumbnail secara otomatis.         ║
+║  [FIX CRITICAL] Progress Bar upload (Pyrogram) dibuat asinkron penuh.║
 ╚══════════════════════════════════════════════════════════════════════╝
 """
 
@@ -40,7 +37,6 @@ from aiogram.filters import Command, CommandObject
 from aiogram.exceptions import TelegramBadRequest
 
 # ── Third Party ───────────────────────────────────────────────────────
-import cv2
 import edge_tts
 import numpy as np
 from PIL import Image, ImageDraw, ImageFont
@@ -94,7 +90,9 @@ FONT_REG  = "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"
 
 TARGET_W, TARGET_H, TARGET_FPS = 1920, 1080, 30
 SHORT_W, SHORT_H = 1080, 1920
-BITRATE, AUDIO_BR, PRESET, PROG_H = "8000k", "192k", "fast", 8
+
+# [FIX SPEED v5.7] Preset diubah menjadi "ultrafast" untuk kecepatan maksimal!
+BITRATE, AUDIO_BR, PRESET, PROG_H = "8000k", "192k", "ultrafast", 8
 
 FFMPEG_PARAMS = [
     "-preset", PRESET, 
@@ -505,50 +503,6 @@ def make_burst_rating_card(score, game_title, duration, w=SHORT_W, h=SHORT_H):
     for line, (glw, glh) in zip(g_lines, g_sizes): _stroke(draw, (w-glw)//2, ry, line, fs_g, BURST_WHITE, (0,0,0), 2); ry += glh+g_gap
     return ImageClip(np.array(canvas), is_mask=False).with_duration(duration).with_effects([FadeIn(0.6), FadeOut(0.5)])
 
-def get_random_thumb_frame(video_path: str) -> np.ndarray:
-    cap = cv2.VideoCapture(video_path); total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
-    random_idx = random.randint(int(total_frames * 0.1), int(total_frames * 0.9)); cap.set(cv2.CAP_PROP_POS_FRAMES, random_idx)
-    ok, frame = cap.read(); cap.release()
-    return cv2.cvtColor(frame, cv2.COLOR_BGR2RGB) if ok and frame is not None else np.zeros((THUMB_H, THUMB_W, 3), dtype=np.uint8)
-
-def make_thumbnail(frame_rgb, game_title, score=None, w=THUMB_W, h=THUMB_H, mode="review"):
-    is_portrait = h > w; img = Image.fromarray(frame_rgb); src_r = img.width/img.height; tgt_r = w/h
-    nw, nh = (h, int(img.width*h/img.height)) if src_r > tgt_r else (w, int(img.height*w/img.width))
-    img = img.resize((nw, nh), Image.LANCZOS); x1, y1 = (nw-w)//2, (nh-h)//2; bg = img.crop((x1, y1, x1+w, y1+h)).convert("RGBA"); canvas = bg.copy(); draw = ImageDraw.Draw(canvas)
-    grad_h = int(h*(0.52 if is_portrait else 0.65)); grad = Image.new("RGBA", (w, grad_h), (0,0,0,0)); gd = ImageDraw.Draw(grad)
-    for y in range(grad_h): gd.line([(0,y),(w,y)], fill=(0,0,0,int(220*(y/grad_h)**1.5)))
-    canvas.paste(grad, (0, h-grad_h), grad); MARGIN_L = int(w*0.055); MARGIN_B = int(h*(0.055 if is_portrait else 0.075)); tlen = len(game_title)
-    fs = int(w*(0.125 if tlen<=10 else 0.096 if tlen<=18 else 0.078 if tlen<=28 else 0.062)) if is_portrait else int(h*(0.112 if tlen<=10 else 0.086 if tlen<=18 else 0.068 if tlen<=28 else 0.055))
-    ft = _font(fs, bold=True); lines = _wrap(game_title.upper(), ft, int(w*(0.86 if is_portrait else 0.62))); lsizes = [_measure(l, ft) for l in lines]; gap = int(fs*0.18)
-    tot_th = sum(lh for _,lh in lsizes)+gap*max(0, len(lines)-1); accent_col = {"arcade":ARCADE_GOLD,"review":CINEMA_RED,"short":BURST_CYAN}.get(mode, CINEMA_RED)
-    title_col = {"arcade":(255,255,255),"review":CINEMA_CREAM,"short":BURST_WHITE}.get(mode, CINEMA_CREAM); line_y = h-MARGIN_B-tot_th-5-int(h*0.016)
-    draw.rectangle([MARGIN_L, line_y, MARGIN_L+min(int(w*0.48), max(lw for lw,_ in lsizes)+24), line_y+5], fill=(*accent_col, 255)); ty = h-MARGIN_B-tot_th
-    for line, (lw2, lh2) in zip(lines, lsizes): _stroke(draw, MARGIN_L, ty, line, ft, title_col, (0,0,0), 3); ty += lh2+gap
-    if score is not None:
-        score = max(1, min(10, score)); label, col = VERDICT_MAP.get(score, ("OK",(180,180,180)))
-        fs_num = int(w*0.195) if is_portrait else int(h*0.170); fs_sub = int(w*0.052) if is_portrait else int(h*0.045); fs_lbl = int(w*0.056) if is_portrait else int(h*0.048)
-        fn_num=_font(fs_num); fn_sub=_font(fs_sub, bold=False); fn_lbl=_font(fs_lbl); s_txt=str(score); slash_txt="/10"; sw2,sh2=_measure(s_txt,fn_num); slw,slh=_measure(slash_txt,fn_sub); lbw,lbh=_measure(label,fn_lbl)
-        PAD_X=int(w*0.028); PAD_Y=int(h*0.020); badge_w=max(sw2+slw+10,lbw)+PAD_X*2; badge_h=sh2+lbh+PAD_Y*2+int(h*0.010)
-        bx = (w-int(w*0.055))-badge_w if is_portrait else (w-MARGIN_L)-badge_w; by = int(h*0.058) if is_portrait else (h-MARGIN_B)-badge_h
-        draw.rounded_rectangle([bx-6,by-6,bx+badge_w+6,by+badge_h+6], radius=14, fill=(0,0,0,210)); draw.rounded_rectangle([bx-6,by-6,bx+badge_w+6,by+badge_h+6], radius=14, outline=(*col,215), width=3)
-        num_x=bx+(badge_w-sw2-slw-8)//2; num_y=by+PAD_Y; _stroke(draw,num_x,num_y,s_txt,fn_num,col,(0,0,0),4); _stroke(draw,num_x+sw2+5,num_y+sh2-slh-int(h*0.004),slash_txt,fn_sub,(185,185,185),(0,0,0),2); _stroke(draw,bx+(badge_w-lbw)//2,num_y+sh2+int(h*0.008),label,fn_lbl,col,(0,0,0),2)
-    fs_logo = max(15,int(w*0.026) if is_portrait else int(h*0.028)); fl=_font(fs_logo, bold=False); logo="STUDIO KHOIRUL"; ltw,lth=_measure(logo,fl); lx=int(w*0.028) if is_portrait else w-ltw-int(w*0.028); ly=int(h*0.028); P=7
-    draw.rounded_rectangle([lx-P,ly-P//2,lx+ltw+P,ly+lth+P//2], radius=5, fill=(0,0,0,170)); draw.rectangle([lx-P,ly+lth+P//2-3,lx+ltw+P,ly+lth+P//2], fill=(*accent_col,200)); draw.text((lx,ly), logo, font=fl, fill=(*accent_col, 240))
-    return canvas.convert("RGB")
-
-def generate_thumbnail(game_title, score=None, gameplay_path=None, save_path=None, portrait=False, mode="review") -> str:
-    src = gameplay_path if (gameplay_path and os.path.exists(gameplay_path)) else find_gameplay_for_game(game_title)
-    if not src and list_gameplay_videos(): src = os.path.join(GAMEPLAY_DIR, random.choice(list_gameplay_videos()))
-    if not src: raise ValueError("Tidak ada video sumber untuk thumbnail.")
-    img = make_thumbnail(get_random_thumb_frame(src), game_title, score=score, w=THUMB_SHORT_W if portrait else THUMB_W, h=THUMB_SHORT_H if portrait else THUMB_H, mode=mode)
-    
-    if not save_path: 
-        safe_title = re.sub(r'[^\w]', '_', game_title)
-        suffix = '_portrait' if portrait else ''
-        save_path = os.path.join(THUMB_DIR, f"thumb_{safe_title}{suffix}.png")
-        
-    img.save(save_path, "PNG", optimize=True); return save_path
-
 
 # ═══════════════════════════════════════════════════════════════════════
 #  UNIVERSAL TEXT PARSER & THEME
@@ -843,10 +797,8 @@ async def _core_studio_logic(message: Message, ui, st: dict, gameplay_path: str)
             
             await asyncio.to_thread(merge_short_clips if is_portrait else merge_clips, part_files, merged_path, True)
             
-            # Buat Thumbnail & Upload Telegram
-            await ui.update(f"📤 Mengunggah ke Telegram [{res_mode}]", details="Menyiapkan thumbnail HD...")
-            score = next((int(s["narration"]) for s in scenes if s["type"] == "RATING" and str(s["narration"]).isdigit()), None)
-            thumb_path = await asyncio.to_thread(generate_thumbnail, st["title"], score, gameplay_path, None, is_portrait, "short" if is_portrait else "review")
+            # [FIX SPEED v5.7] Thumbnail HD DIHAPUS TOTAL sesuai permintaan.
+            await ui.update(f"📤 Mengunggah ke Telegram [{res_mode}]", details="Mempersiapkan koneksi ke server Telegram...")
             
             # --- TAMBAHKAN PROGRESS BAR UPLOAD PYROGRAM ---
             last_up_edit = 0.0
@@ -854,21 +806,21 @@ async def _core_studio_logic(message: Message, ui, st: dict, gameplay_path: str)
                 nonlocal last_up_edit
                 now = time.time()
                 if now - last_up_edit >= 2.0 and total > 0:
+                    last_up_edit = now
                     try:
-                        await ui.update(
+                        asyncio.create_task(ui.update(
                             status=f"📤 Upload Telegram [{res_mode}]", 
                             current=current, 
                             total=total, 
                             details="Mengirim video hasil render ke chat Anda..."
-                        )
+                        ))
                     except Exception: pass
-                    last_up_edit = now
 
             try:
                 await Telegram.PYROGRAM_CLIENT.send_video(
                     chat_id=message.chat.id,
                     video=merged_path,
-                    thumb=thumb_path, 
+                    # thumb=thumb_path, # Thumbnail dihapus
                     caption=f"🎬 **{st['segment_name']} - {st['title']}**\n📐 {res_label}\n✅ Berhasil Dirender!",
                     supports_streaming=True,
                     width=SHORT_W if is_portrait else TARGET_W,
@@ -881,7 +833,7 @@ async def _core_studio_logic(message: Message, ui, st: dict, gameplay_path: str)
                     await Telegram.AIOGRAM_BOT.send_video(
                         chat_id=message.chat.id,
                         video=FSInputFile(merged_path),
-                        thumbnail=FSInputFile(thumb_path),
+                        # thumbnail=FSInputFile(thumb_path) if thumb_path else None, # Thumbnail dihapus
                         caption=f"🎬 **{st['segment_name']} - {st['title']}**\n📐 {res_label}\n✅ Berhasil Dirender!",
                         supports_streaming=True,
                         width=SHORT_W if is_portrait else TARGET_W,
@@ -932,8 +884,6 @@ async def _core_studio_logic(message: Message, ui, st: dict, gameplay_path: str)
             cleanup_temp(part_files)
             cleanup_temp([merged_path])
             
-    # [DIHAPUS KARENA MENYEBABKAN MACET] subprocess.run(["pkill", "-f", "ffmpeg"], check=False)
-    
     elapsed = time.time() - t0
     txt_path = st.get("txt_path", "")
     cleanup_temp([txt_path] if txt_path else [])
