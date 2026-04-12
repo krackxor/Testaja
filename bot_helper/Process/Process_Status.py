@@ -7,6 +7,7 @@
 ║  [FIX CRITICAL] MENGEMBALIKAN SEMUA VARIABEL DAN FUNGSI LAMA yang    ║
 ║                 sempat terhapus (split_mode, extract_maps, dll) agar ║
 ║                 media_handlers.py tidak crash saat inisialisasi.     ║
+║  [FIX]          Menambahkan fungsi get_task_details yang hilang.     ║
 ║  [UX REFINED]   Full Pure Markdown Support (**tebal**, `kode`).      ║
 ╚══════════════════════════════════════════════════════════════════════╝
 """
@@ -250,6 +251,10 @@ class ProcessStatus:
             return f"({done}/{self.multi_task_no})"
         return ""
     def replace_multi_tasks(self, multi_tasks: list) -> None: self.multi_tasks = multi_tasks
+
+    # [PERBAIKAN BUG DISINI] Menambahkan fungsi get_task_details
+    def get_task_details(self) -> str:
+        return ""
 
     # ── Status Message Methods ───────────────────────────────────────
     def update_status_message(self, message: str) -> None: self.message = message
