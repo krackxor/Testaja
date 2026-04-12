@@ -1,11 +1,13 @@
 """
 ╔══════════════════════════════════════════════════════════════════════╗
-║    bot_helper/Handlers/vip_handlers.py — v5.1 (PAY-AS-YOU-GO FINAL)  ║
+║    bot/vip_handlers.py — v5.2 (PAY-AS-YOU-GO FINAL FIX)              ║
 ║    Sistem Top-Up Poin & Trakteer Payment Verification                ║
 ╠══════════════════════════════════════════════════════════════════════╣
 ║  Commands: /verify /myvip /history /add_vip /delete_vip /view_vip    ║
 ╠══════════════════════════════════════════════════════════════════════╣
-║  CHANGELOG v5.1:                                                     ║
+║  CHANGELOG v5.2:                                                     ║
+║  [FIX CRITICAL] Memperbaiki "Bad Request: message can't be edited"   ║
+║                 saat verifikasi Trakteer akibat ReplyKeyboardRemove. ║
 ║  [NEW] Merombak logika dari "Sistem Hari/Bulan" menjadi "Poin".      ║
 ║  [NEW] 1 Rupiah Donasi = 1 Poin (Otomatis deteksi dari Trakteer).    ║
 ║  [NEW] Menambahkan perintah /history untuk melihat riwayat mutasi.   ║
@@ -121,6 +123,13 @@ async def _verify_payment(message: Message):
 
     verif_msg = await message.answer("⏳ 🔎 Sedang memverifikasi Order ID ke Trakteer...", reply_markup=ReplyKeyboardRemove())
     
+    # [FIX] Helper baru untuk MENGHAPUS pesan lama & mengirim pesan baru, 
+    # karena edit_text dengan ReplyKeyboardRemove() akan memicu TelegramBadRequest.
+    async def _finish_verif(text: str):
+        try: await verif_msg.delete()
+        except Exception: pass
+        return await message.answer(text)
+    
     try:
         async with aiohttp.ClientSession() as session:
             async with session.get(
@@ -131,20 +140,20 @@ async def _verify_payment(message: Message):
             ) as api_resp:
                 
                 if api_resp.status == 401:
-                    return await verif_msg.edit_text("❌ API Key Trakteer salah (Unauthorized).")
+                    return await _finish_verif("❌ API Key Trakteer salah (Unauthorized).")
                 elif api_resp.status != 200:
-                    return await verif_msg.edit_text(f"❌ HTTP Error {api_resp.status}.")
+                    return await _finish_verif(f"❌ HTTP Error {api_resp.status}.")
                     
                 data = await api_resp.json()
                 
     except asyncio.TimeoutError:
-        return await verif_msg.edit_text("❌ Gagal terhubung: Trakteer Server Timeout.")
+        return await _finish_verif("❌ Gagal terhubung: Trakteer Server Timeout.")
     except Exception as e:
         LOGGER.error(f"Trakteer connection error: {e}")
-        return await verif_msg.edit_text(f"❌ Gagal terhubung ke Trakteer: `{e}`")
+        return await _finish_verif(f"❌ Gagal terhubung ke Trakteer: `{e}`")
 
     if data.get("status") != "success":
-        return await verif_msg.edit_text(f"❌ Error dari Trakteer: `{data.get('message', 'Unknown')}`")
+        return await _finish_verif(f"❌ Error dari Trakteer: `{data.get('message', 'Unknown')}`")
 
     # Cari transaksi yang cocok
     target = None
@@ -154,26 +163,26 @@ async def _verify_payment(message: Message):
             break
 
     if not target:
-        return await verif_msg.edit_text("❌ Order ID tidak ditemukan di Trakteer. (Pastikan Order ID benar).")
+        return await _finish_verif("❌ Order ID tidak ditemukan di Trakteer. (Pastikan Order ID benar).")
 
     # Validasi status pembayaran
     if target.get("status", "success") != "success":
-        return await verif_msg.edit_text(f"❌ Status pembayaran Order ID ini: `{target.get('status')}`")
+        return await _finish_verif(f"❌ Status pembayaran Order ID ini: `{target.get('status')}`")
 
     # Validasi tanggal (batas aktivasi)
     try:
         trx_date = datetime.strptime(target.get("updated_at", ""), "%Y-%m-%d %H:%M:%S")
     except (ValueError, TypeError):
-        return await verif_msg.edit_text("❌ Format tanggal tidak valid dari Trakteer. Hubungi admin.")
+        return await _finish_verif("❌ Format tanggal tidak valid dari Trakteer. Hubungi admin.")
 
     if datetime.now() > trx_date + timedelta(hours=ACTIVATION_WINDOW_HOURS):
         days = int(ACTIVATION_WINDOW_HOURS / 24)
-        return await verif_msg.edit_text(f"❌ Order ID hangus. Tidak diklaim dalam **{days} hari** setelah donasi.")
+        return await _finish_verif(f"❌ Order ID hangus. Tidak diklaim dalam **{days} hari** setelah donasi.")
 
     # Hitung Poin (Rp 1 = 1 Poin)
     amount_rp = int(target.get("amount", 0))
     if amount_rp < MINIMUM_TOPUP_RP:
-        return await verif_msg.edit_text(f"❌ Jumlah Top-up (Rp {amount_rp:,}) kurang dari minimum (Rp {MINIMUM_TOPUP_RP:,}).")
+        return await _finish_verif(f"❌ Jumlah Top-up (Rp {amount_rp:,}) kurang dari minimum (Rp {MINIMUM_TOPUP_RP:,}).")
 
     # Tambahkan Saldo ke Database
     await add_user_balance(user_id, amount_rp, SAVE_TO_DATABASE)
@@ -194,7 +203,7 @@ async def _verify_payment(message: Message):
         f"├ Saldo Didapat: **+{amount_rp:,} Poin**\n"
         f"└ Total Saldo Anda: **{new_balance:,} Poin**"
     )
-    await verif_msg.edit_text(box_txt)
+    await _finish_verif(box_txt)
 
 
 # ═══════════════════════════════════════════════════════════════════════
