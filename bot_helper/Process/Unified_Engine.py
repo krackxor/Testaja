@@ -7,6 +7,7 @@
 ║  [UI] Membuat nama "Engine" menjadi dinamis! Kini bot bisa           ║
 ║       menampilkan "Whisper AI", "FFmpeg", dll sesuai modul yang      ║
 ║       sedang digunakan alih-alih hanya "Unified Core".               ║
+║  [FIX] Perbaikan bug TimeFormatter (UnboundLocalError hours).        ║
 ╚══════════════════════════════════════════════════════════════════════╝
 """
 
@@ -40,7 +41,9 @@ def TimeFormatter(milliseconds: float) -> str:
     if not milliseconds or milliseconds <= 0: return "0s"
     seconds, milliseconds = divmod(int(milliseconds), 1000)
     minutes, seconds = divmod(seconds, 60)
-    hours, minutes = divmod(hours, 60)
+    # [PERBAIKAN BUG DISINI]
+    # Menggunakan 'minutes' sebagai argumen divmod, bukan 'hours'
+    hours, minutes = divmod(minutes, 60)
     days, hours = divmod(hours, 24)
     tmp = ((str(days) + "d, ") if days else "") + ((str(hours) + "h, ") if hours else "") + ((str(minutes) + "m, ") if minutes else "") + ((str(seconds) + "s") if seconds else "")
     tmp = tmp.strip()
