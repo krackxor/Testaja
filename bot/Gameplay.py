@@ -1,15 +1,18 @@
 """
 ╔══════════════════════════════════════════════════════════════════════╗
-║    bot/Gameplay.py — v5.4 (ONE-CLICK STUDIO EDITION)                 ║
+║    bot/Gameplay.py — v5.5 (ANTI-MACET & SAFE CONCURRENCY)            ║
 ║    Studio Khoirul: Core Engine Video Production Bot (Pay-As-You-Go)  ║
 ╠══════════════════════════════════════════════════════════════════════╣
-║  CHANGELOG v5.4:                                                     ║
+║  CHANGELOG v5.5:                                                     ║
+║  [FIX CRITICAL] Menghapus pkill ffmpeg yang menyebabkan crash global ║
+║                 jika ada 2 user merender bersamaan.                  ║
+║  [FIX CRITICAL] Menambahkan Timeout pada TTS agar tidak hang.        ║
+║  [FIX CRITICAL] Auto-Skip Scene jika gagal 3x (Render tetap jalan).  ║
 ║  [FIX CRITICAL] Memasang Progress Bar pada Pyrogram upload agar      ║
 ║                 animasi tidak stuck di "Menyiapkan thumbnail HD..."  ║
 ║  [UX PREMIUM] Bot otomatis mendeteksi file .txt yang dikirim dan     ║
 ║               memunculkan Dashboard Studio Interaktif (Satu Klik).   ║
 ║  [NEW] INTEGRASI SISTEM POIN! Memotong saldo sebelum render jalan.   ║
-║  [INTEGRATION] Migrasi total ke bot_helper.Process.Unified_Engine    ║
 ╚══════════════════════════════════════════════════════════════════════╝
 """
 
@@ -208,7 +211,10 @@ async def download_with_progress(message: Message, reply_msg: Message, dest: str
             LOGGER.error(f"Pyrogram temp dl error: {e}")
     
     if not downloaded:
-        await Telegram.AIOGRAM_BOT.download(target_media, destination=dest)
+        try:
+            await Telegram.AIOGRAM_BOT.download(target_media, destination=dest)
+        except Exception as e:
+            LOGGER.error(f"Aiogram dl error: {e}")
         
     return os.path.exists(dest)
 
@@ -594,6 +600,9 @@ def get_segment_theme(segment_name):
 # ═══════════════════════════════════════════════════════════════════════
 
 async def render_studio_clip(scene_dict, segment_name, output_name, game_title, bg_clip=None, res_mode="16:9", subtitles_on=True, show_badge=True) -> str:
+    # Beri nafas ke event loop agar UI tidak terblokir
+    await asyncio.sleep(0.01)
+
     temp = []; is_portrait = (res_mode == "9:16"); W, H = (SHORT_W, SHORT_H) if is_portrait else (TARGET_W, TARGET_H)
     ffmpeg_cfg = FFMPEG_SHORT if is_portrait else FFMPEG_PARAMS; theme = get_segment_theme(segment_name)
     stype, seg, narr = scene_dict["type"], scene_dict["segment"], scene_dict["narration"]
@@ -640,9 +649,15 @@ async def render_studio_clip(scene_dict, segment_name, output_name, game_title, 
 
         if narr.strip() and narr != "-":
             ap = output_name.replace(".mp4", ".mp3"); temp.append(ap)
-            await edge_tts.Communicate(tts_text, current_voice, rate=rate_setting, pitch=pitch_setting, volume=volume_setting).save(ap) 
-            if os.path.exists(ap) and os.path.getsize(ap) > 512:
-                vo = AudioFileClip(ap); dur = max(vo.duration, 1.0)
+            try:
+                # [FIX CRITICAL] Membungkus Edge TTS dengan Timeout agar tidak hang
+                ap_task = edge_tts.Communicate(tts_text, current_voice, rate=rate_setting, pitch=pitch_setting, volume=volume_setting).save(ap)
+                await asyncio.wait_for(ap_task, timeout=45.0)
+                if os.path.exists(ap) and os.path.getsize(ap) > 512:
+                    vo = AudioFileClip(ap); dur = max(vo.duration, 1.0)
+            except Exception as e:
+                LOGGER.error(f"TTS Error/Timeout: {e}")
+                dur = 3.0 # Fallback jika TTS gagal agar scene tetap bisa dirender tanpa suara
         else: dur = 3.0; subtitles_on = False 
         
         sfx_map = {
@@ -745,6 +760,9 @@ async def _core_studio_logic(message: Message, ui, st: dict, gameplay_path: str)
         completed_count = 0
 
         for chunk_idx in range(0, total, CHUNK_SIZE):
+            # Memberi napas pada event loop agar UI tidak terblokir
+            await asyncio.sleep(0.05) 
+            
             chunk_scenes = scenes[chunk_idx:chunk_idx + CHUNK_SIZE]
             chunk_windows = windows[chunk_idx:chunk_idx + CHUNK_SIZE]
             concurrency = get_dynamic_semaphore()
@@ -756,15 +774,16 @@ async def _core_studio_logic(message: Message, ui, st: dict, gameplay_path: str)
             async def process_single_scene(local_idx, global_idx, scene, window, prev_seg_local):
                 nonlocal completed_count
                 async with semaphore:
-                    # Update fungsi prep_phase ke UI di Unified_Engine
                     sisa = total - completed_count
-                    await ui.prep_phase("Mempersiapkan proses pemotongan...", remaining=sisa)
+                    try: await ui.prep_phase("Mempersiapkan proses pemotongan...", remaining=sisa)
+                    except: pass
 
                     current_segment = scene["segment"]
                     out_name = tmp(f"cache_{message.from_user.id}_{safe_title}_{res_mode.replace(':','')}_{global_idx:02d}.mp4")
                     
                     if os.path.exists(out_name) and os.path.getsize(out_name) > 10000:
                         LOGGER.info(f"[CACHE HIT] Scene {global_idx} already rendered.")
+                        chunk_generated[local_idx] = out_name
                     else:
                         bg_clip = None
                         if scene["type"] == "RATING": 
@@ -779,23 +798,28 @@ async def _core_studio_logic(message: Message, ui, st: dict, gameplay_path: str)
                         for attempt in range(3):
                             try: 
                                 await render_studio_clip(scene, st["segment_name"], out_name, st["title"], bg_clip, res_mode, st["subtitles"], show_badge=(current_segment != prev_seg_local))
+                                chunk_generated[local_idx] = out_name
                                 break
                             except Exception as e:
                                 LOGGER.error(f"Scene {global_idx} attempt {attempt+1} failed: {e}")
-                                if attempt == 2: raise e
+                                if attempt == 2:
+                                    # [FIX CRITICAL] Auto-Skip agar render tidak mati jika ada 1 scene rusak
+                                    LOGGER.error(f"Scene {global_idx} dilewati karena gagal dirender.")
+                                    chunk_generated[local_idx] = None
+                                    break
                                 await asyncio.sleep(2)
                     
-                    chunk_generated[local_idx] = out_name
                     completed_count += 1
                     
                     if completed_count % 2 == 0 or completed_count == total:
-                        # REPORT PROGRESS TO UNIFIED_ENGINE UI
-                        asyncio.create_task(ui.update(
-                            status=f"🎬 Merender [{res_mode}] (Paralel {concurrency}x)",
-                            current=completed_count,
-                            total=total,
-                            details=f"Scene {global_idx}: {current_segment[:20]}"
-                        ))
+                        try:
+                            asyncio.create_task(ui.update(
+                                status=f"🎬 Merender [{res_mode}] (Paralel {concurrency}x)",
+                                current=completed_count,
+                                total=total,
+                                details=f"Scene {global_idx}: {current_segment[:20]}"
+                            ))
+                        except: pass
                     gc.collect()
 
             for i, (sc, win) in enumerate(zip(chunk_scenes, chunk_windows)):
@@ -829,18 +853,17 @@ async def _core_studio_logic(message: Message, ui, st: dict, gameplay_path: str)
             async def _up_progress(current: int, total: int):
                 nonlocal last_up_edit
                 now = time.time()
-                # Update UI setiap 2 detik agar Telegram tidak memblokir karena spam
                 if now - last_up_edit >= 2.0 and total > 0:
-                    # Ini akan mematikan animasi looping dan mengubahnya jadi bar persentase asli
-                    await ui.update(
-                        status=f"📤 Upload Telegram [{res_mode}]", 
-                        current=current, 
-                        total=total, 
-                        details="Mengirim video hasil render ke chat Anda..."
-                    )
+                    try:
+                        await ui.update(
+                            status=f"📤 Upload Telegram [{res_mode}]", 
+                            current=current, 
+                            total=total, 
+                            details="Mengirim video hasil render ke chat Anda..."
+                        )
+                    except Exception: pass
                     last_up_edit = now
 
-            # [FIX CRITICAL v5.4] Menggunakan Telegram.PYROGRAM_CLIENT dengan Progress Bar
             try:
                 await Telegram.PYROGRAM_CLIENT.send_video(
                     chat_id=message.chat.id,
@@ -850,11 +873,10 @@ async def _core_studio_logic(message: Message, ui, st: dict, gameplay_path: str)
                     supports_streaming=True,
                     width=SHORT_W if is_portrait else TARGET_W,
                     height=SHORT_H if is_portrait else TARGET_H,
-                    progress=_up_progress # <--- INILAH KUNCI AGAR LAYAR TIDAK STUCK
+                    progress=_up_progress
                 )
             except Exception as e:
                 LOGGER.error(f"Gagal upload Pyrogram: {e}")
-                # Fallback ke Aiogram jika Pyrogram gagal
                 try:
                     await Telegram.AIOGRAM_BOT.send_video(
                         chat_id=message.chat.id,
@@ -897,7 +919,8 @@ async def _core_studio_logic(message: Message, ui, st: dict, gameplay_path: str)
                             current = chunk_status.resumable_progress
                             now = time.time()
                             if now - last_up_edit >= 2.0:
-                                await ui.update(f"🚀 Upload YouTube [{res_mode}]", current=current, total=fsize, details=f"Judul: {st['title']}")
+                                try: await ui.update(f"🚀 Upload YouTube [{res_mode}]", current=current, total=fsize, details=f"Judul: {st['title']}")
+                                except: pass
                                 last_up_edit = now
 
                     yt_link = f"https://youtu.be/{response.get('id', '')}"
@@ -909,8 +932,7 @@ async def _core_studio_logic(message: Message, ui, st: dict, gameplay_path: str)
             cleanup_temp(part_files)
             cleanup_temp([merged_path])
             
-    try: subprocess.run(["pkill", "-f", "ffmpeg"], check=False)
-    except: pass
+    # [DIHAPUS KARENA MENYEBABKAN MACET] subprocess.run(["pkill", "-f", "ffmpeg"], check=False)
     
     elapsed = time.time() - t0
     txt_path = st.get("txt_path", "")
@@ -963,7 +985,9 @@ async def studio_dashboard_cb(call: CallbackQuery) -> None:
     
     if action == "cancel":
         _studio_session.pop(user_id, None)
-        return await call.message.edit_text("❌ Proses dibatalkan.")
+        try: await call.message.edit_text("❌ Proses dibatalkan.")
+        except TelegramBadRequest: pass
+        return
         
     if user_id not in _studio_session:
         return await call.answer("❌ Sesi telah berakhir. Silakan kirim ulang file .txt Anda.", show_alert=True)
@@ -974,7 +998,8 @@ async def studio_dashboard_cb(call: CallbackQuery) -> None:
     segment_name = STUDIO_COMMANDS.get(action, "STUDIO KHOIRUL")
     command_used = action
     
-    await call.message.delete() # Hapus dashboard inline
+    try: await call.message.delete()
+    except TelegramBadRequest: pass
     
     txt_path = tmp(f"studio_{int(time.time())}.txt")
     await Telegram.AIOGRAM_BOT.download(session_data["document"], destination=txt_path)
