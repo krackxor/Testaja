@@ -1,16 +1,15 @@
 """
 ╔══════════════════════════════════════════════════════════════════════╗
-║                    bot/subtitle_handlers.py — v2.4                   ║
+║                    bot/subtitle_handlers.py — v2.5                   ║
 ║        Auto Subtitle (AI Whisper) & Auto Translate Subtitle          ║
 ╠══════════════════════════════════════════════════════════════════════╣
-║  CHANGELOG v2.4:                                                     ║
+║  CHANGELOG v2.5:                                                     ║
+║  [FIX] Menyesuaikan pemanggilan execute_unified_task agar selaras    ║
+║        dengan Unified Engine v2.8 (Mendukung dynamic engine_name).   ║
 ║  [FIX CRITICAL] Ekstraksi audio via FFmpeg sebelum Whisper agar      ║
 ║                 tidak stuck/macet di tengah proses pembacaan file.   ║
-║  [FIX CRITICAL] Mengganti download Aiogram (max 20MB) dengan         ║
-║                 Pyrogram (MTProto) agar support file hingga 2GB      ║
-║                 saat menarik media untuk Auto Subtitle.              ║
-║  [UX] Menambahkan UI Update (Progress Bar) saat mengunduh media.     ║
-║  [NEW] Integrasi dengan Sistem Kasir (point_manager.py).             ║
+║  [FIX CRITICAL] Mengganti download Aiogram dengan Pyrogram (MTProto) ║
+║                 agar support file media hingga 2GB.                  ║
 ╚══════════════════════════════════════════════════════════════════════╝
 """
 
@@ -105,7 +104,7 @@ def _is_vip(user_id: int) -> bool:
 async def _core_autosub_logic(message: Message, ui, reply_msg: Message, lang_code: str, fname: str) -> None:
     """Fungsi inti Whisper AI yang telah terintegrasi dengan ProgressUI & Anti-Macet"""
     media_path = _tmp(f"media_{message.message_id}.mp4")
-    audio_path = _tmp(f"audio_{message.message_id}.wav") # [FIX] Tambahan file audio
+    audio_path = _tmp(f"audio_{message.message_id}.wav") # Tambahan file audio
     srt_path = _tmp(f"{fname}.srt")
     
     try:
@@ -140,7 +139,7 @@ async def _core_autosub_logic(message: Message, ui, reply_msg: Message, lang_cod
 
         if not os.path.exists(media_path): raise RuntimeError("Gagal mengunduh berkas media.")
 
-        # [FIX] 1.5 Ekstraksi Audio Eksplisit agar AI Whisper tidak macet membaca Video
+        # 1.5 Ekstraksi Audio Eksplisit agar AI Whisper tidak macet membaca Video
         await ui.update("🎵 Mengekstrak Audio...", details="Memisahkan suara dari video agar AI 5x lebih cepat...")
         proc = await asyncio.create_subprocess_exec(
             "ffmpeg", "-y", "-i", media_path, "-vn", "-acodec", "pcm_s16le", "-ar", "16000", "-ac", "1", audio_path,
@@ -157,7 +156,7 @@ async def _core_autosub_logic(message: Message, ui, reply_msg: Message, lang_cod
         
         def init_whisper():
             try:
-                # [FIX] Catcher Error di dalam thread agar tidak silent crash
+                # Catcher Error di dalam thread agar tidak silent crash
                 model = WhisperModel("base", device="cpu", compute_type="int8")
                 target_lang = None if lang_code == "auto" else lang_code
                 return model.transcribe(target_file_for_ai, language=target_lang, beam_size=5)
@@ -225,7 +224,7 @@ async def _core_autosub_logic(message: Message, ui, reply_msg: Message, lang_cod
         await ui.finish(f"✅ <b>Auto Subtitle Berhasil!</b>\nDeteksi Bahasa: <code>{detected_lang.upper()}</code>")
 
     except Exception as e:
-        # [FIX] Tangkap semua error dan laporkan ke UI!
+        # Tangkap semua error dan laporkan ke UI
         LOGGER.error(f"Error di AutoSub: {e}")
         await ui.error(f"Gagal memproses Auto Subtitle:\n{str(e)[:100]}")
     finally:
@@ -379,14 +378,13 @@ async def autosub_handler(message: Message) -> None:
     if not resp_conf or "batal" in (resp_conf.text or "").lower():
         return await message.answer("❌ Dibatalkan.", reply_markup=ReplyKeyboardRemove())
 
-    # [NEW v2.2] MESIN KASIR: POTONG SALDO POIN
+    # MESIN KASIR: POTONG SALDO POIN
     await message.answer("🔄 Mengecek Saldo Poin...", reply_markup=ReplyKeyboardRemove())
     payment = await process_payment(user_id=user_id, command="autosub")
     
     if not payment["success"]:
         return await message.answer(payment["message"])
     else:
-        # Jika berhasil potong poin, kirim pesan sukses potong saldo (bisa otomatis terhapus nanti)
         temp_msg = await message.answer(payment["message"])
 
     # 🚀 JALANKAN VIA UNIFIED ENGINE
@@ -394,7 +392,16 @@ async def autosub_handler(message: Message) -> None:
     fname = target_media.file_name if hasattr(target_media, 'file_name') else "media"
     if "." in fname: fname = fname.rsplit(".", 1)[0]
     
-    await execute_unified_task(message, "AUTO SUBTITLE AI", _core_autosub_logic, reply_msg, lang_code, fname)
+    # [FIX v2.5] Menambahkan engine_name khusus Whisper AI
+    await execute_unified_task(
+        message, 
+        "AUTO SUBTITLE AI", 
+        _core_autosub_logic, 
+        reply_msg, 
+        lang_code, 
+        fname,
+        engine_name="Whisper AI"
+    )
 
 
 @router.message(Command(f"autotranslate{CMD_SUFFIX}"))
@@ -463,16 +470,25 @@ async def autotranslate_handler(message: Message) -> None:
     if not resp_conf or "batal" in (resp_conf.text or "").lower():
         return await message.answer("❌ Dibatalkan.", reply_markup=ReplyKeyboardRemove())
 
-    # [NEW v2.2] MESIN KASIR: POTONG SALDO POIN
+    # MESIN KASIR: POTONG SALDO POIN
     await message.answer("🔄 Mengecek Saldo Poin...", reply_markup=ReplyKeyboardRemove())
     payment = await process_payment(user_id=user_id, command="autotranslate")
     
     if not payment["success"]:
         return await message.answer(payment["message"])
     else:
-        # Jika berhasil potong poin, kirim pesan sukses potong saldo (bisa otomatis terhapus nanti)
         temp_msg = await message.answer(payment["message"])
 
     # 🚀 JALANKAN VIA UNIFIED ENGINE
     fname = reply_msg.document.file_name.rsplit(".", 1)[0]
-    await execute_unified_task(message, "AUTO TRANSLATE", _core_autotranslate_logic, reply_msg, lang_code, fname)
+    
+    # [FIX v2.5] Menambahkan engine_name khusus Google Translator
+    await execute_unified_task(
+        message, 
+        "AUTO TRANSLATE", 
+        _core_autotranslate_logic, 
+        reply_msg, 
+        lang_code, 
+        fname,
+        engine_name="Google Deep Translator"
+    )
