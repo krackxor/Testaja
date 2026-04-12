@@ -1,136 +1,118 @@
 """
 ╔══════════════════════════════════════════════════════════════════════╗
-║    bot/Gameplay.py — v5.7 (ULTRAFAST & NO THUMBNAIL)                 ║
+║    bot/Gameplay.py — v6.0 (PERSONAL VAULT & ASYNC FFMPEG)            ║
 ║    Studio Khoirul: Core Engine Video Production Bot (Pay-As-You-Go)  ║
 ╠══════════════════════════════════════════════════════════════════════╣
-║  CHANGELOG v5.7:                                                     ║
-║  [SPEED] Mengubah preset FFmpeg menjadi "ultrafast" untuk            ║
-║          memaksimalkan kecepatan render berkali-kali lipat.          ║
-║  [FIX CRITICAL] MENGHAPUS TOTAL fitur pembuatan Thumbnail HD karena  ║
-║                 terbukti menyebabkan server nge-hang/macet. Telegram ║
-║                 kini akan membuat thumbnail secara otomatis.         ║
-║  [FIX CRITICAL] Progress Bar upload (Pyrogram) dibuat asinkron penuh.║
+║  CHANGELOG v6.0:                                                     ║
+║  [FIX CRITICAL] Mengubah `subprocess.run` menjadi `asyncio` pada     ║
+║                 proses FFmpeg Merge agar sistem tidak mengalami      ║
+║                 deadlock/stuck/macet saat buffer output penuh.       ║
+║  [NEW FEATURE]  Integrasi Personal Vault: Bot akan memprioritaskan   ║
+║                 pengambilan video, BGM, dan SFX dari folder pribadi  ║
+║                 User ID sebelum mencari di folder Global!            ║
+║  [CLEANUP]      Menghapus fungsi asset lama yang sudah dipindah.     ║
 ╚══════════════════════════════════════════════════════════════════════╝
 """
 
-# ── Standard Library ──────────────────────────────────────────────────
 import asyncio
 import gc
 import os
 import random
 import re
-import subprocess
 import time
 import shutil
-import math
 import psutil 
-from datetime import datetime
 from typing import Optional
 
-# ── Aiogram ───────────────────────────────────────────────────────────
 from aiogram import Router, F
 from aiogram.types import (
     Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton, FSInputFile,
     ReplyKeyboardMarkup, KeyboardButton, ReplyKeyboardRemove
 )
-from aiogram.filters import Command, CommandObject
 from aiogram.exceptions import TelegramBadRequest
 
-# ── Third Party ───────────────────────────────────────────────────────
 import edge_tts
 import numpy as np
 from PIL import Image, ImageDraw, ImageFont
 from moviepy import (
-    AudioFileClip, ColorClip, CompositeVideoClip,
-    ImageClip, VideoFileClip, concatenate_videoclips,
-    CompositeAudioClip, concatenate_audioclips
+    AudioFileClip, ColorClip, CompositeVideoClip, ImageClip, VideoFileClip,
+    CompositeAudioClip, concatenate_videoclips
 )
 from moviepy.video.fx import FadeIn, FadeOut, Loop
-from moviepy.audio.fx import AudioLoop, MultiplyVolume
+from moviepy.audio.fx import MultiplyVolume
 
-# ── Internal ──────────────────────────────────────────────────────────
-from bot_helper.Database.User_Data import get_data, ensure_user_data_structure
-from bot_helper.Others.Helper_Functions import get_human_size, get_readable_time
-from bot_helper.Others.Names import Names
+from bot_helper.Database.User_Data import ensure_user_data_structure
 from bot_helper.Process.Unified_Engine import execute_unified_task
 from bot_helper.Telegram.Telegram_Client import Telegram
+from bot_helper.Process.point_manager import process_payment
 from config.config import Config
 from bot.shared import wait_for_message, CMD_SUFFIX
 
-# [NEW] Import Mesin Kasir Poin
-from bot_helper.Process.point_manager import process_payment
-
 try:
-    from bot.YTUpload import _core_ytupload_logic, YOUTUBE_ENABLED, _is_vip as _yt_is_vip
+    from bot.YTUpload import YOUTUBE_ENABLED
     _HAS_YTUPLOAD = True
 except ImportError:
     YOUTUBE_ENABLED = False
     _HAS_YTUPLOAD   = False
-    def _yt_is_vip(uid): return uid == Config.OWNER_ID or uid in Config.SUDO_USERS
 
-try:
-    import yt_dlp
-    YTDLP_ENABLED = True
-except ImportError:
-    YTDLP_ENABLED = False
+try: import yt_dlp; YTDLP_ENABLED = True
+except ImportError: YTDLP_ENABLED = False
 
-LOGGER     = Config.LOGGER
-router     = Router()
+LOGGER = Config.LOGGER
+router = Router()
 
-# ═══════════════════════════════════════════════════════════════════════
-#  KONFIGURASI GLOBAL
-# ═══════════════════════════════════════════════════════════════════════
-VOICE        = "en-US-SteffanNeural"  
-GAMEPLAY_DIR = "./gameplay/"
-TEMP_DIR     = "./temp/"
-THUMB_DIR    = "./thumbs/"
+VOICE = "en-US-SteffanNeural"  
 
-FONT_BOLD = "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf"
-FONT_REG  = "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"
+# ─── PATHS SYSTEM (SYNC WITH ASSET HANDLERS) ───
+BASE_DIR        = os.path.abspath(os.getcwd())
+ASET_VIDEO_BASE = os.path.join(BASE_DIR, "aset_video")
+AUDIO_BASE      = os.path.join(BASE_DIR, "audio")
+TEMP_DIR        = os.path.join(BASE_DIR, "temp")
 
 TARGET_W, TARGET_H, TARGET_FPS = 1920, 1080, 30
 SHORT_W, SHORT_H = 1080, 1920
-
-# [FIX SPEED v5.7] Preset diubah menjadi "ultrafast" untuk kecepatan maksimal!
 BITRATE, AUDIO_BR, PRESET, PROG_H = "8000k", "192k", "ultrafast", 8
 
 FFMPEG_PARAMS = [
-    "-preset", PRESET, 
-    "-profile:v", "high", 
-    "-level", "4.2", 
-    "-pix_fmt", "yuv420p", 
-    "-movflags", "+faststart", 
-    "-g", "30", 
-    "-keyint_min", "30", 
-    "-sc_threshold", "0",
-    "-threads", "4"  
+    "-preset", PRESET, "-profile:v", "high", "-level", "4.2", "-pix_fmt", "yuv420p", 
+    "-movflags", "+faststart", "-g", "30", "-keyint_min", "30", "-sc_threshold", "0", "-threads", "4"  
 ]
-FFMPEG_SHORT  = FFMPEG_PARAMS
-
-THUMB_W, THUMB_H, THUMB_SHORT_W, THUMB_SHORT_H = 1920, 1080, 1080, 1920
 
 VERDICT_MAP = {
-    10: ("MASTERPIECE", (255, 215,   0)), 9: ("MUST PLAY",   (255, 200,   0)),
-    8: ("GREAT",       ( 80, 220,  80)), 7: ("GOOD",        ( 80, 200,  80)),
-    6: ("DECENT",      ( 80, 180, 255)), 5: ("AVERAGE",     (180, 180, 180)),
-    4: ("BELOW AVG",   (255, 160,  50)), 3: ("WEAK",        (255, 110,  50)),
-    2: ("BAD",         (220,  50,  50)), 1: ("AWFUL",       (190,  30,  30)),
+    10: ("MASTERPIECE", (255, 215, 0)), 9: ("MUST PLAY", (255, 200, 0)),
+    8: ("GREAT", (80, 220, 80)), 7: ("GOOD", (80, 200, 80)),
+    6: ("DECENT", (80, 180, 255)), 5: ("AVERAGE", (180, 180, 180)),
+    4: ("BELOW AVG", (255, 160, 50)), 3: ("WEAK", (255, 110, 50)),
+    2: ("BAD", (220, 50, 50)), 1: ("AWFUL", (190, 30, 30)),
 }
 
 ARCADE_GOLD, CINEMA_RED, CINEMA_CREAM, CINEMA_GOLD = (255, 200, 0), (200, 30, 30), (255, 240, 210), (220, 180, 80)
 BURST_CYAN, BURST_MAGENTA, BURST_WHITE = (0, 230, 255), (255, 30, 120), (255, 255, 255)
-ARCHIVE_AMBER, LORE_PURPLE, LORE_GREEN = (255, 191, 0), (148, 0, 211), (57, 255, 20)
-RADAR_CYAN, RADAR_ORANGE, PATCH_RED, PATCH_YELLOW = (0, 255, 255), (255, 140, 0), (220, 20, 60), (255, 255, 0)
+ARCHIVE_AMBER, RADAR_CYAN, RADAR_ORANGE, PATCH_RED, PATCH_YELLOW = (255, 191, 0), (0, 255, 255), (255, 140, 0), (220, 20, 60), (255, 255, 0)
 
-for _d in [GAMEPLAY_DIR, TEMP_DIR, THUMB_DIR, "./audio"]: os.makedirs(_d, exist_ok=True)
-
-# State sementara per user untuk menyimpan file script .txt yang baru dikirim
+for _d in [ASET_VIDEO_BASE, AUDIO_BASE, TEMP_DIR]: os.makedirs(_d, exist_ok=True)
 _studio_session: dict = {}
 
 
 # ═══════════════════════════════════════════════════════════════════════
-#  UI & CLEANUP HELPERS
+#  HELPERS & ASSET LOCATORS (PRIVATE FIRST, GLOBAL SECOND)
 # ═══════════════════════════════════════════════════════════════════════
+
+def tmp(name: str) -> str: return os.path.join(TEMP_DIR, name)
+
+def cleanup_temp(files: list):
+    for f in files:
+        if f and os.path.isfile(f):
+            try: os.remove(f)
+            except: pass
+
+def get_dynamic_semaphore():
+    try:
+        mem = psutil.virtual_memory()
+        if mem.percent > 85: return 1  
+        elif mem.percent > 70: return 2 
+        else: return 3                
+    except: return 2
 
 async def _clean_msgs(*msgs):
     for m in msgs:
@@ -139,86 +121,39 @@ async def _clean_msgs(*msgs):
             except Exception: pass
 
 def _make_reply_kb(options: list, row_width: int = 2) -> ReplyKeyboardMarkup:
-    kb = []
-    row = []
+    kb, row = [], []
     for opt in options:
-        if "Batal" in opt or "❌" in opt: btn_style = "danger"
-        elif "Ya" in opt or "✅" in opt: btn_style = "success"
-        else: btn_style = "primary"
+        btn_style = "danger" if "Batal" in opt or "❌" in opt else "success" if "Ya" in opt or "✅" in opt else "primary"
         row.append(KeyboardButton(text=opt, style=btn_style))
         if len(row) == row_width: kb.append(row); row = []
     if row: kb.append(row)
     return ReplyKeyboardMarkup(keyboard=kb, resize_keyboard=True, one_time_keyboard=True)
 
-def get_dynamic_semaphore():
-    try:
-        mem = psutil.virtual_memory()
-        if mem.percent > 85: return 1  
-        elif mem.percent > 70: return 2 
-        else: return 3                
-    except:
-        return 2
-
-def _dash(icon: str, title: str, rows: list) -> str: return f"{icon} **{title}**\n`{'─'*30}`\n" + "\n".join(f"  {lbl:<13}{val}" for lbl, val in rows) + f"\n`{'─'*30}`"
-def _st(step: str, detail: str = "") -> str: return f"⏳ {step}" + (f"\n`{detail}`" if detail else "")
-def _ok(step: str, detail: str = "") -> str: return f"✅ {step}" + (f"\n`{detail}`" if detail else "")
-def _er(msg: str) -> str: return f"❌ {msg}"
-def _is_video_msg(msg: Message) -> bool: return bool(msg and (msg.video or (msg.document and msg.document.mime_type and "video" in msg.document.mime_type)))
-
-async def _safe_edit(msg: Message, text: str, buttons=None):
-    try: 
-        if buttons: await msg.edit_text(text, reply_markup=InlineKeyboardMarkup(inline_keyboard=buttons))
-        else: await msg.edit_text(text)
-    except TelegramBadRequest: pass
-    except Exception: pass
-
-def tmp(name: str) -> str: return os.path.join(TEMP_DIR, name)
-def cleanup_temp(files: list):
-    for f in files:
-        if f and os.path.isfile(f):
-            try: os.remove(f)
-            except: pass
-
-def safe_filename(name: str, ext: str = ".mp4") -> str:
-    clean = re.sub(r'[^\w\-_. ]', '_', name).strip()
-    return clean if clean.lower().endswith(ext) else clean + ext
-
-async def download_with_progress(message: Message, reply_msg: Message, dest: str, label: str = "Video", status_msg: Message = None) -> bool:
-    target_media = reply_msg.video or reply_msg.document or reply_msg.audio
-    if not target_media: return False
+def find_gameplay_for_game(game_title: str, user_id: int) -> Optional[str]:
+    """Mencari video. Prioritas 1: Brankas User. Prioritas 2: Folder Global"""
+    tgt = game_title.lower().strip()
+    dirs_to_check = [os.path.join(ASET_VIDEO_BASE, str(user_id)), ASET_VIDEO_BASE]
     
-    last_dl_edit = 0.0
-    async def _dl_progress(current: int, total: int):
-        nonlocal last_dl_edit
-        now = time.time()
-        if now - last_dl_edit >= 2.0 and status_msg:
-            pct = current / total if total else 0
-            bar = "█" * int(pct * 10) + "░" * (10 - int(pct * 10))
-            try: await status_msg.edit_text(f"⏳ 🔽 **Mengunduh {label}...**\n\n[{bar}] {pct*100:.1f}%\n📥 `{get_human_size(current)} / {get_human_size(total)}`")
-            except Exception: pass
-            last_dl_edit = now
+    for folder in dirs_to_check:
+        if not os.path.exists(folder): continue
+        vids = [f for f in os.listdir(folder) if f.lower().endswith(('.mp4', '.mkv', '.avi', '.mov'))]
+        for v in vids:
+            if v.lower().rsplit('.', 1)[0] == tgt: return os.path.join(folder, v)
+        for v in vids:
+            if tgt in v.lower() or v.lower().rsplit('.', 1)[0] in tgt: return os.path.join(folder, v)
+    return None
 
-    pyro_client = Telegram.PYROGRAM_CLIENT
-    downloaded = False
-    if pyro_client:
-        try:
-            pyro_msg = await pyro_client.get_messages(reply_msg.chat.id, reply_msg.message_id)
-            await pyro_client.download_media(message=pyro_msg, file_name=dest, progress=_dl_progress)
-            downloaded = True
-        except Exception as e:
-            LOGGER.error(f"Pyrogram temp dl error: {e}")
-    
-    if not downloaded:
-        try:
-            await Telegram.AIOGRAM_BOT.download(target_media, destination=dest)
-        except Exception as e:
-            LOGGER.error(f"Aiogram dl error: {e}")
-        
-    return os.path.exists(dest)
+def get_audio_path(filename: str, user_id: int) -> Optional[str]:
+    """Mencari audio. Prioritas 1: Brankas User. Prioritas 2: Folder Global"""
+    priv = os.path.join(AUDIO_BASE, str(user_id), filename)
+    if os.path.exists(priv): return priv
+    glob = os.path.join(AUDIO_BASE, filename)
+    if os.path.exists(glob): return glob
+    return None
 
 
 # ═══════════════════════════════════════════════════════════════════════
-#  VIDEO REFRAME & SMART SLICING (ALL SYNC FUNCTIONS)
+#  VIDEO REFRAME & SMART SLICING
 # ═══════════════════════════════════════════════════════════════════════
 
 def normalize_clip(clip, w=TARGET_W, h=TARGET_H, fps=TARGET_FPS):
@@ -234,18 +169,6 @@ def reframe_to_short(clip, w=SHORT_W, h=SHORT_H, fps=TARGET_FPS):
     nw, nh = (w, int(clip.h*(w/clip.w))) if src_r <= tgt_r else (int(clip.w*(h/clip.h)), h)
     clip = clip.resized((nw, nh)); x1, y1 = (nw-w)//2, (nh-h)//2
     return clip.cropped(x1=x1, y1=y1, x2=x1+w, y2=y1+h)
-
-def list_gameplay_videos() -> list: return [f for f in os.listdir(GAMEPLAY_DIR) if f.lower().endswith(('.mp4', '.mkv', '.avi', '.mov'))]
-
-def find_gameplay_for_game(game_title: str) -> Optional[str]:
-    vids = list_gameplay_videos(); tgt = game_title.lower().strip()
-    if not vids: return None
-    for v in vids:
-        if v.lower().rsplit('.', 1)[0] == tgt: return os.path.join(GAMEPLAY_DIR, v)
-    for v in vids:
-        stem = v.lower().rsplit('.', 1)[0]
-        if tgt in stem or stem in tgt: return os.path.join(GAMEPLAY_DIR, v)
-    return max([os.path.join(GAMEPLAY_DIR, v) for v in vids], key=os.path.getmtime)
 
 def split_gameplay(gameplay_path: str, scenes: list) -> list:
     tot = VideoFileClip(gameplay_path).duration
@@ -295,82 +218,62 @@ def get_hook_clip(path: str, is_portrait: bool, est_dur: float):
 
 
 # ═══════════════════════════════════════════════════════════════════════
-#  ULTRA-FAST MERGE (FFMPEG CONCAT DEMUXER)
+#  ULTRA-FAST & ASYNC MERGE ENGINE (FIX STUCK)
 # ═══════════════════════════════════════════════════════════════════════
 
-def _merge_with_ffmpeg_ultrafast(video_paths: list, output_path: str, ffmpeg_params: list, apply_bgm: bool = True) -> float:
+async def merge_clips_async(video_paths: list, output_path: str, apply_bgm: bool, user_id: int) -> float:
+    """Menggabungkan video dengan sistem Asynchronous FFmpeg agar tidak memblokir dan macet (stuck)."""
     if not video_paths: return 0.0
     
-    list_file = tmp(f"concat_list_{int(time.time())}.txt")
+    list_file = tmp(f"concat_{int(time.time())}.txt")
     with open(list_file, "w", encoding="utf-8") as f:
-        for p in video_paths: 
-            f.write(f"file '{os.path.abspath(p)}'\n")
-
-    temp_concat = tmp(f"merged_concat_{int(time.time())}.mp4")
-    try:
-        subprocess.run([
-            "ffmpeg", "-y", "-f", "concat", "-safe", "0", 
-            "-i", list_file, 
-            "-c", "copy", 
-            temp_concat
-        ], check=True, capture_output=True, timeout=300)
-    except subprocess.CalledProcessError as e:
-        LOGGER.error(f"FFmpeg Concat Error: {e.stderr.decode()}")
+        for p in video_paths: f.write(f"file '{os.path.abspath(p)}'\n")
+        
+    temp_concat = tmp(f"merged_{int(time.time())}.mp4")
+    
+    # Exec FFmpeg secara Async dengan DEVNULL output agar pipa tidak penuh
+    proc = await asyncio.create_subprocess_exec(
+        "ffmpeg", "-y", "-f", "concat", "-safe", "0", "-i", list_file, "-c", "copy", temp_concat,
+        stdout=asyncio.subprocess.DEVNULL,
+        stderr=asyncio.subprocess.PIPE
+    )
+    _, stderr = await proc.communicate()
+    
+    if proc.returncode != 0:
+        LOGGER.error(f"FFmpeg Concat Error: {stderr.decode()}")
+        # Fallback ke MoviePy secara manual jika format FFmpeg crash
         clips = [VideoFileClip(v) for v in video_paths]
         merged = concatenate_videoclips(clips, method="compose")
-        merged.write_videofile(temp_concat, fps=TARGET_FPS, codec="libx264", 
-                               bitrate=BITRATE, audio_bitrate=AUDIO_BR, 
-                               logger=None, threads=4)
+        await asyncio.to_thread(merged.write_videofile, temp_concat, fps=TARGET_FPS, codec="libx264", bitrate=BITRATE, audio_bitrate=AUDIO_BR, logger=None, threads=4)
         for c in clips: c.close()
         merged.close()
 
-    bgm_path = os.path.abspath("./audio/bgm.mp3")
+    bgm_path = get_audio_path("bgm.mp3", user_id)
     
-    if apply_bgm and os.path.exists(bgm_path):
-        probe_cmd = [
-            "ffprobe", "-v", "error", "-show_entries", 
-            "format=duration", "-of", 
-            "default=noprint_wrappers=1:nokey=1", temp_concat
-        ]
-        try:
-            result = subprocess.run(probe_cmd, capture_output=True, text=True, timeout=10)
-            video_duration = float(result.stdout.strip())
-        except:
-            video_duration = 60.0  
+    if apply_bgm and bgm_path:
+        probe_proc = await asyncio.create_subprocess_exec(
+            "ffprobe", "-v", "error", "-show_entries", "format=duration", "-of", "default=noprint_wrappers=1:nokey=1", temp_concat,
+            stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.DEVNULL
+        )
+        stdout, _ = await probe_proc.communicate()
+        try: video_duration = float(stdout.decode().strip())
+        except: video_duration = 60.0  
         
-        temp_final = tmp(f"merged_with_bgm_{int(time.time())}.mp4")
-        subprocess.run([
-            "ffmpeg", "-y",
-            "-i", temp_concat,
-            "-stream_loop", "-1", "-i", bgm_path,  
-            "-filter_complex", 
-            f"[1:a]volume=0.3,aloop=loop=-1:size=2e+09[bg]; [0:a][bg]amix=inputs=2:duration=first[aout]",
-            "-map", "0:v",
-            "-map", "[aout]",
-            "-t", str(video_duration),  
-            "-c:v", "copy",  
-            "-c:a", "aac",
-            "-b:a", AUDIO_BR,
-            "-shortest",
-            temp_final
-        ], check=True, capture_output=True, timeout=600)
-        
+        temp_final = tmp(f"bgm_{int(time.time())}.mp4")
+        bgm_proc = await asyncio.create_subprocess_exec(
+            "ffmpeg", "-y", "-i", temp_concat, "-stream_loop", "-1", "-i", bgm_path,  
+            "-filter_complex", f"[1:a]volume=0.3,aloop=loop=-1:size=2e+09[bg]; [0:a][bg]amix=inputs=2:duration=first[aout]",
+            "-map", "0:v", "-map", "[aout]", "-t", str(video_duration), "-c:v", "copy", "-c:a", "aac", "-b:a", AUDIO_BR, "-shortest", temp_final,
+            stdout=asyncio.subprocess.DEVNULL, stderr=asyncio.subprocess.DEVNULL
+        )
+        await bgm_proc.communicate()
         cleanup_temp([temp_concat])
         shutil.move(temp_final, output_path)
-    else:
+    else: 
         shutil.move(temp_concat, output_path)
-    
+        
     cleanup_temp([list_file])
-    try:
-        result = subprocess.run(["ffprobe", "-v", "error", "-show_entries", "format=duration", "-of", "default=noprint_wrappers=1:nokey=1", output_path], capture_output=True, text=True, timeout=10)
-        return float(result.stdout.strip())
-    except: return 0.0
-
-def merge_clips(video_paths: list, output_path: str, apply_bgm: bool = True) -> float: 
-    return _merge_with_ffmpeg_ultrafast(video_paths, output_path, FFMPEG_PARAMS, apply_bgm)
-
-def merge_short_clips(video_paths: list, output_path: str, apply_bgm: bool = True) -> float: 
-    return _merge_with_ffmpeg_ultrafast(video_paths, output_path, FFMPEG_SHORT, apply_bgm)
+    return 0.0
 
 
 # ═══════════════════════════════════════════════════════════════════════
@@ -378,7 +281,7 @@ def merge_short_clips(video_paths: list, output_path: str, apply_bgm: bool = Tru
 # ═══════════════════════════════════════════════════════════════════════
 
 def _font(size: int, bold: bool = True):
-    try: return ImageFont.truetype(FONT_BOLD if bold else FONT_REG, size)
+    try: return ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf" if bold else "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", size)
     except: return ImageFont.load_default()
 def _measure(text: str, font): return ImageDraw.Draw(Image.new("RGBA", (1, 1))).textbbox((0, 0), text, font=font)[2:4]
 def _wrap(text: str, font, max_w: int) -> list:
@@ -395,6 +298,7 @@ def _stroke(draw, x, y, text, font, fill, sfill, sw): draw.text((x, y), text, fo
 def _glow(draw, x, y, text, font, fill, glow_color, radius=3):
     for r in range(radius, 0, -1): draw.text((x, y), text, font=font, fill=(*glow_color, int(180*(1-r/(radius+1)))), stroke_width=r, stroke_fill=(*glow_color, int(180*(1-r/(radius+1)))))
     draw.text((x, y), text, font=font, fill=(*fill, 255))
+
 def make_gradient_bar(w, h, duration, a_top=0, a_bot=235, color=(0,0,0)):
     arr = np.zeros((h, w, 4), dtype=np.uint8)
     for y in range(h): arr[y, :, :3] = color; arr[y, :, 3] = int(a_top + (a_bot-a_top)*(y/h)**1.4)
@@ -434,13 +338,13 @@ def make_cinema_subtitle(narration, duration, w, h, safe_bottom):
         for line, (lw2, lh2) in zip(lines, lsizes): _stroke(draw, (w-lw2)//2, yc, line, fs, CINEMA_CREAM, (0,0,0), 2); yc += lh2+gap
         subs.append(ImageClip(np.array(canvas), is_mask=False).with_duration(cd).with_start(tc).with_effects([FadeIn(0.2), FadeOut(0.2)])); tc += cd
     return subs
-def make_cinema_watermark(duration, w, h, segment_name="THE VERDICT"):
+def make_cinema_watermark(duration, w, h, segment_name):
     is_portrait = h > w; fs = _font(int(w * 0.035) if is_portrait else max(18, int(h*0.022)), bold=False); theme = get_segment_theme(segment_name)
     accent = theme.get("title_glow", theme["title_color"]); text = f"⚡ STUDIO KHOIRUL | {segment_name}"; tw, th = _measure(text, fs); MARGIN = 14; x, y = w-tw-MARGIN, h-th-PROG_H-MARGIN
     canvas = Image.new("RGBA", (w, h), (0,0,0,0)); draw = ImageDraw.Draw(canvas)
     draw.rectangle([x-6, y-3, x+tw+6, y+th+3], fill=(0,0,0,150)); draw.rectangle([x-6, y+th+3, x+tw+6, y+th+6], fill=(*accent[:3], 200)); _stroke(draw, x, y, text, fs, theme["subtitle_color"][:3], (0,0,0), 1)
     return ImageClip(np.array(canvas), is_mask=False).with_duration(duration)
-def make_cinema_title_overlay(title, duration, w, h, segment_name="THE VERDICT"):
+def make_cinema_title_overlay(title, duration, w, h, segment_name):
     theme = get_segment_theme(segment_name); is_portrait = h > w
     fs_big = _font(int(w * 0.11) if is_portrait else max(55, int(h * 0.110)), bold=theme["font_bold"]); max_title_w = int(w * 0.90) if is_portrait else int(w * 0.78)
     lines = _wrap(title.upper(), fs_big, max_title_w); lsizes = [_measure(l, fs_big) for l in lines]; gap = int(h*0.018); tot_h = sum(lh for _,lh in lsizes)+gap*max(0, len(lines)-1)
@@ -503,11 +407,6 @@ def make_burst_rating_card(score, game_title, duration, w=SHORT_W, h=SHORT_H):
     for line, (glw, glh) in zip(g_lines, g_sizes): _stroke(draw, (w-glw)//2, ry, line, fs_g, BURST_WHITE, (0,0,0), 2); ry += glh+g_gap
     return ImageClip(np.array(canvas), is_mask=False).with_duration(duration).with_effects([FadeIn(0.6), FadeOut(0.5)])
 
-
-# ═══════════════════════════════════════════════════════════════════════
-#  UNIVERSAL TEXT PARSER & THEME
-# ═══════════════════════════════════════════════════════════════════════
-
 def parse_studio_txt(path: str) -> dict:
     scenes, errors, main_title, yt_description, rating_score = [], [], None, "", None
     with open(path, "r", encoding="utf-8", errors="replace") as f:
@@ -541,61 +440,30 @@ def parse_studio_txt(path: str) -> dict:
 def get_segment_theme(segment_name):
     nu = segment_name.upper()
     if nu == "THE ARCHIVES": return {"title_color": ARCHIVE_AMBER, "subtitle_color": ARCHIVE_AMBER, "sub_bar_color": (0, 0, 0, 200), "font_bold": False}
-    if nu == "LORE & CONSPIRACIES": 
-        return {"title_color": (229, 9, 20), "title_glow": (150, 0, 0), "subtitle_color": (255, 255, 255), "sub_bar_color": (15, 15, 15, 240), "font_bold": True} 
+    if nu == "LORE & CONSPIRACIES": return {"title_color": (229, 9, 20), "title_glow": (150, 0, 0), "subtitle_color": (255, 255, 255), "sub_bar_color": (15, 15, 15, 240), "font_bold": True} 
     if nu == "TOP TIER": return {"title_color": ARCADE_GOLD, "subtitle_color": ARCADE_GOLD, "sub_bar_color": (0,0,0,180), "font_bold": True}
     if nu == "ON THE RADAR": return {"title_color": (255,255,255), "title_glow": RADAR_CYAN, "subtitle_color": (255,255,255), "sub_bar_color": (*RADAR_ORANGE, 200), "font_bold": False}
     if nu == "THE LATEST PATCH": return {"title_color": (255,255,255), "subtitle_color": PATCH_YELLOW, "sub_bar_color": (*PATCH_RED, 230), "font_bold": True}
     return {"title_color": CINEMA_CREAM, "subtitle_color": CINEMA_GOLD, "sub_bar_color": (*CINEMA_RED, 200), "font_bold": True}
 
 
-# ═══════════════════════════════════════════════════════════════════════
-#  UNIVERSAL RENDERER (STRICT CLEANUP)
-# ═══════════════════════════════════════════════════════════════════════
-
-async def render_studio_clip(scene_dict, segment_name, output_name, game_title, bg_clip=None, res_mode="16:9", subtitles_on=True, show_badge=True) -> str:
-    # Beri nafas ke event loop agar UI tidak terblokir
+async def render_studio_clip(scene_dict, segment_name, output_name, game_title, user_id, bg_clip=None, res_mode="16:9", subtitles_on=True, show_badge=True) -> str:
     await asyncio.sleep(0.01)
-
     temp = []; is_portrait = (res_mode == "9:16"); W, H = (SHORT_W, SHORT_H) if is_portrait else (TARGET_W, TARGET_H)
     ffmpeg_cfg = FFMPEG_SHORT if is_portrait else FFMPEG_PARAMS; theme = get_segment_theme(segment_name)
     stype, seg, narr = scene_dict["type"], scene_dict["segment"], scene_dict["narration"]
-    
-    final_clip = None
-    vo = None
-    sfx_audio = None
-    bg = None
+    final_clip = vo = sfx_audio = bg = None
 
     try:
-        dur = 3.0
-        tts_text = narr 
-        pitch_setting = "+0Hz"
-        rate_setting = "+0%"
-        volume_setting = "+0%"
-        current_voice = VOICE
+        dur = 3.0; tts_text = narr; pitch_setting = "+0Hz"; rate_setting = "+0%"; volume_setting = "+0%"; current_voice = VOICE
         
-        if "[DEEP]" in tts_text:
-            tts_text = tts_text.replace("[DEEP]", "").strip()
-            pitch_setting = "-10Hz"; rate_setting = "-15%"
-        elif "[SLOW]" in tts_text:
-            tts_text = tts_text.replace("[SLOW]", "").strip()
-            rate_setting = "-20%"
-        elif "[FAST]" in tts_text:
-            tts_text = tts_text.replace("[FAST]", "").strip()
-            rate_setting = "+15%"
-        elif "[WHISPER]" in tts_text: 
-            tts_text = tts_text.replace("[WHISPER]", "").strip()
-            pitch_setting = "-5Hz"; rate_setting = "-10%"; volume_setting = "-40%"
-        elif "[PANIC]" in tts_text: 
-            tts_text = tts_text.replace("[PANIC]", "").strip()
-            pitch_setting = "+15Hz"; rate_setting = "+25%"; volume_setting = "+20%"
-        elif "[DRAMATIC]" in tts_text: 
-            tts_text = tts_text.replace("[DRAMATIC]", "").strip()
-            pitch_setting = "-15Hz"; rate_setting = "-5%"; volume_setting = "+40%"
-        elif "[ARCHIVE]" in tts_text: 
-            tts_text = tts_text.replace("[ARCHIVE]", "").strip()
-            current_voice = "en-GB-SoniaNeural"
-            pitch_setting = "+0Hz"; rate_setting = "-10%"; volume_setting = "-20%"
+        if "[DEEP]" in tts_text: tts_text = tts_text.replace("[DEEP]", "").strip(); pitch_setting = "-10Hz"; rate_setting = "-15%"
+        elif "[SLOW]" in tts_text: tts_text = tts_text.replace("[SLOW]", "").strip(); rate_setting = "-20%"
+        elif "[FAST]" in tts_text: tts_text = tts_text.replace("[FAST]", "").strip(); rate_setting = "+15%"
+        elif "[WHISPER]" in tts_text: tts_text = tts_text.replace("[WHISPER]", "").strip(); pitch_setting = "-5Hz"; rate_setting = "-10%"; volume_setting = "-40%"
+        elif "[PANIC]" in tts_text: tts_text = tts_text.replace("[PANIC]", "").strip(); pitch_setting = "+15Hz"; rate_setting = "+25%"; volume_setting = "+20%"
+        elif "[DRAMATIC]" in tts_text: tts_text = tts_text.replace("[DRAMATIC]", "").strip(); pitch_setting = "-15Hz"; rate_setting = "-5%"; volume_setting = "+40%"
+        elif "[ARCHIVE]" in tts_text: tts_text = tts_text.replace("[ARCHIVE]", "").strip(); current_voice = "en-GB-SoniaNeural"; pitch_setting = "+0Hz"; rate_setting = "-10%"; volume_setting = "-20%"
 
         visual_text = re.sub(r'\[.*?\]', '', narr)
         visual_text = re.sub(r'[\.\-\~]+', '', visual_text).strip()
@@ -604,26 +472,25 @@ async def render_studio_clip(scene_dict, segment_name, output_name, game_title, 
         if narr.strip() and narr != "-":
             ap = output_name.replace(".mp4", ".mp3"); temp.append(ap)
             try:
-                # [FIX CRITICAL] Membungkus Edge TTS dengan Timeout agar tidak hang
                 ap_task = edge_tts.Communicate(tts_text, current_voice, rate=rate_setting, pitch=pitch_setting, volume=volume_setting).save(ap)
                 await asyncio.wait_for(ap_task, timeout=45.0)
                 if os.path.exists(ap) and os.path.getsize(ap) > 512:
                     vo = AudioFileClip(ap); dur = max(vo.duration, 1.0)
             except Exception as e:
                 LOGGER.error(f"TTS Error/Timeout: {e}")
-                dur = 3.0 # Fallback jika TTS gagal agar scene tetap bisa dirender tanpa suara
+                dur = 3.0 
         else: dur = 3.0; subtitles_on = False 
         
         sfx_map = {
             "HOOK": "sfx_impact.mp3", "DROP": "sfx_impact.mp3", "FACT": "sfx_impact.mp3", "TITLE": "sfx_impact.mp3", "CLIMAX": "sfx_impact.mp3",
             "CHAPTER": "sfx_whoosh.mp3", "SECTION": "sfx_whoosh.mp3", "INTRO": "sfx_whoosh.mp3", "CONCLUSION": "sfx_whoosh.mp3", "OUTRO": "sfx_whoosh.mp3",
-            "THEORY": "sfx_glitch.mp3", "UPDATE": "sfx_glitch.mp3", "MIDPOINT": "sfx_glitch.mp3",
-            "RATING": "sfx_rating.mp3"
+            "THEORY": "sfx_glitch.mp3", "UPDATE": "sfx_glitch.mp3", "MIDPOINT": "sfx_glitch.mp3", "RATING": "sfx_rating.mp3"
         }
         sfx_file = sfx_map.get(stype)
         if sfx_file:
-            sfx_path = os.path.abspath(f"./audio/{sfx_file}")
-            if os.path.exists(sfx_path): 
+            # [NEW] Ambil SFX dari Private Vault jika ada
+            sfx_path = get_audio_path(sfx_file, user_id)
+            if sfx_path: 
                 try: sfx_audio = AudioFileClip(sfx_path).with_duration(min(1.5, dur))
                 except: pass
 
@@ -635,7 +502,6 @@ async def render_studio_clip(scene_dict, segment_name, output_name, game_title, 
         if bg.audio is not None: audio_layers.append(bg.audio.with_effects([MultiplyVolume(0.1)]))
         if vo: audio_layers.append(vo)
         if sfx_audio: audio_layers.append(sfx_audio.with_effects([MultiplyVolume(0.8)]))
-        
         if audio_layers:
             final_audio = CompositeAudioClip(audio_layers)
             bg = bg.with_audio(final_audio)
@@ -660,18 +526,7 @@ async def render_studio_clip(scene_dict, segment_name, output_name, game_title, 
         clips += [make_cinema_watermark(dur, W, H, segment_name), prog_bg, prog_bar]
         final_clip = CompositeVideoClip(clips, size=(W,H))
         
-        kw = {
-            "fps": TARGET_FPS, 
-            "codec": "libx264", 
-            "bitrate": BITRATE, 
-            "audio_codec": "aac", 
-            "audio_bitrate": AUDIO_BR, 
-            "ffmpeg_params": ffmpeg_cfg, 
-            "logger": None, 
-            "threads": 4, 
-            "write_logfile": False  
-        }
-        
+        kw = {"fps": TARGET_FPS, "codec": "libx264", "bitrate": BITRATE, "audio_codec": "aac", "audio_bitrate": AUDIO_BR, "ffmpeg_params": ffmpeg_cfg, "logger": None, "threads": 4, "write_logfile": False}
         await asyncio.to_thread(final_clip.write_videofile, output_name, **kw)
         
     finally: 
@@ -696,11 +551,8 @@ async def render_studio_clip(scene_dict, segment_name, output_name, game_title, 
     return output_name
 
 
-# ═══════════════════════════════════════════════════════════════════════
-#  WORKER STUDIO (INTEGRATED WITH UNIFIED_ENGINE)
-# ═══════════════════════════════════════════════════════════════════════
-
 async def _core_studio_logic(message: Message, ui, st: dict, gameplay_path: str) -> None:
+    user_id = message.from_user.id
     scenes, total, t0 = st["scenes"], len(st["scenes"]), time.time()
     
     for res_mode in [r for r in ["16:9", "9:16"] if st["resolution"] in [r, "both"]]:
@@ -714,7 +566,6 @@ async def _core_studio_logic(message: Message, ui, st: dict, gameplay_path: str)
         completed_count = 0
 
         for chunk_idx in range(0, total, CHUNK_SIZE):
-            # Memberi napas pada event loop agar UI tidak terblokir
             await asyncio.sleep(0.05) 
             
             chunk_scenes = scenes[chunk_idx:chunk_idx + CHUNK_SIZE]
@@ -733,10 +584,9 @@ async def _core_studio_logic(message: Message, ui, st: dict, gameplay_path: str)
                     except: pass
 
                     current_segment = scene["segment"]
-                    out_name = tmp(f"cache_{message.from_user.id}_{safe_title}_{res_mode.replace(':','')}_{global_idx:02d}.mp4")
+                    out_name = tmp(f"cache_{user_id}_{safe_title}_{res_mode.replace(':','')}_{global_idx:02d}.mp4")
                     
                     if os.path.exists(out_name) and os.path.getsize(out_name) > 10000:
-                        LOGGER.info(f"[CACHE HIT] Scene {global_idx} already rendered.")
                         chunk_generated[local_idx] = out_name
                     else:
                         bg_clip = None
@@ -751,28 +601,19 @@ async def _core_studio_logic(message: Message, ui, st: dict, gameplay_path: str)
                         
                         for attempt in range(3):
                             try: 
-                                await render_studio_clip(scene, st["segment_name"], out_name, st["title"], bg_clip, res_mode, st["subtitles"], show_badge=(current_segment != prev_seg_local))
+                                await render_studio_clip(scene, st["segment_name"], out_name, st["title"], user_id, bg_clip, res_mode, st["subtitles"], show_badge=(current_segment != prev_seg_local))
                                 chunk_generated[local_idx] = out_name
                                 break
                             except Exception as e:
-                                LOGGER.error(f"Scene {global_idx} attempt {attempt+1} failed: {e}")
                                 if attempt == 2:
-                                    # [FIX CRITICAL] Auto-Skip agar render tidak mati jika ada 1 scene rusak
-                                    LOGGER.error(f"Scene {global_idx} dilewati karena gagal dirender.")
                                     chunk_generated[local_idx] = None
                                     break
                                 await asyncio.sleep(2)
                     
                     completed_count += 1
-                    
                     if completed_count % 2 == 0 or completed_count == total:
                         try:
-                            asyncio.create_task(ui.update(
-                                status=f"🎬 Merender [{res_mode}] (Paralel {concurrency}x)",
-                                current=completed_count,
-                                total=total,
-                                details=f"Scene {global_idx}: {current_segment[:20]}"
-                            ))
+                            asyncio.create_task(ui.update(status=f"🎬 Merender [{res_mode}] (Paralel {concurrency}x)", current=completed_count, total=total, details=f"Scene {global_idx}: {current_segment[:20]}"))
                         except: pass
                     gc.collect()
 
@@ -785,22 +626,20 @@ async def _core_studio_logic(message: Message, ui, st: dict, gameplay_path: str)
             
             if valid_chunk_files:
                 part_name = tmp(f"PART_{chunk_idx//CHUNK_SIZE}_{safe_title}_{res_mode.replace(':','')}.mp4")
-                await asyncio.to_thread(merge_short_clips if is_portrait else merge_clips, valid_chunk_files, part_name, False)
+                # Menggunakan Async Merge
+                await merge_clips_async(valid_chunk_files, part_name, False, user_id)
                 part_files.append(part_name)
                 cleanup_temp(valid_chunk_files)
                 gc.collect()
 
-        # ─── THE FINAL MERGE ───
         if len(part_files) > 0:
-            await ui.update(f"⚡ Final Merging [{res_mode}]", details="Menggabungkan semua part video (Ultrafast Mode)...")
+            await ui.update(f"⚡ Final Merging [{res_mode}]", details="Menggabungkan semua part video (Async Mode)...")
             merged_path = tmp(f"FINAL_{st['segment_name'].replace(' ','')}_{res_mode.replace(':','')}_{safe_title}.mp4")
             
-            await asyncio.to_thread(merge_short_clips if is_portrait else merge_clips, part_files, merged_path, True)
+            # Menggunakan Async Merge
+            await merge_clips_async(part_files, merged_path, True, user_id)
             
-            # [FIX SPEED v5.7] Thumbnail HD DIHAPUS TOTAL sesuai permintaan.
             await ui.update(f"📤 Mengunggah ke Telegram [{res_mode}]", details="Mempersiapkan koneksi ke server Telegram...")
-            
-            # --- TAMBAHKAN PROGRESS BAR UPLOAD PYROGRAM ---
             last_up_edit = 0.0
             async def _up_progress(current: int, total: int):
                 nonlocal last_up_edit
@@ -808,42 +647,27 @@ async def _core_studio_logic(message: Message, ui, st: dict, gameplay_path: str)
                 if now - last_up_edit >= 2.0 and total > 0:
                     last_up_edit = now
                     try:
-                        asyncio.create_task(ui.update(
-                            status=f"📤 Upload Telegram [{res_mode}]", 
-                            current=current, 
-                            total=total, 
-                            details="Mengirim video hasil render ke chat Anda..."
-                        ))
-                    except Exception: pass
+                        asyncio.create_task(ui.update(status=f"📤 Upload Telegram [{res_mode}]", current=current, total=total, details="Mengirim video hasil render ke chat Anda..."))
+                    except: pass
 
             try:
                 await Telegram.PYROGRAM_CLIENT.send_video(
-                    chat_id=message.chat.id,
-                    video=merged_path,
-                    # thumb=thumb_path, # Thumbnail dihapus
+                    chat_id=message.chat.id, video=merged_path, 
                     caption=f"🎬 **{st['segment_name']} - {st['title']}**\n📐 {res_label}\n✅ Berhasil Dirender!",
-                    supports_streaming=True,
-                    width=SHORT_W if is_portrait else TARGET_W,
-                    height=SHORT_H if is_portrait else TARGET_H,
+                    supports_streaming=True, width=SHORT_W if is_portrait else TARGET_W, height=SHORT_H if is_portrait else TARGET_H,
                     progress=_up_progress
                 )
             except Exception as e:
-                LOGGER.error(f"Gagal upload Pyrogram: {e}")
                 try:
                     await Telegram.AIOGRAM_BOT.send_video(
-                        chat_id=message.chat.id,
-                        video=FSInputFile(merged_path),
-                        # thumbnail=FSInputFile(thumb_path) if thumb_path else None, # Thumbnail dihapus
+                        chat_id=message.chat.id, video=FSInputFile(merged_path),
                         caption=f"🎬 **{st['segment_name']} - {st['title']}**\n📐 {res_label}\n✅ Berhasil Dirender!",
-                        supports_streaming=True,
-                        width=SHORT_W if is_portrait else TARGET_W,
-                        height=SHORT_H if is_portrait else TARGET_H,
+                        supports_streaming=True, width=SHORT_W if is_portrait else TARGET_W, height=SHORT_H if is_portrait else TARGET_H,
                         request_timeout=3600 
                     )
                 except Exception as fallback_e:
                     await message.answer(f"❌ Gagal mengirim video hasil akhir: {fallback_e}")
             
-            # YouTube Upload (Jika aktif)
             if st["yt_enabled"] and YOUTUBE_ENABLED and _HAS_YTUPLOAD and os.path.exists(merged_path):
                 await ui.update(f"🌐 Mengunggah [{res_mode}] ke YouTube...", details=f"Privasi: {st['yt_privacy'].capitalize()}")
                 try:
@@ -853,13 +677,7 @@ async def _core_studio_logic(message: Message, ui, st: dict, gameplay_path: str)
                     media = MediaFileUpload(merged_path, chunksize=YT_CHUNK_SIZE, resumable=True)
                     request = youtube.videos().insert(
                         part="snippet,status",
-                        body={
-                            "snippet": {
-                                "categoryId": YT_CATEGORY_ID, "description": st["description"], 
-                                "title": st["title"] + (" #Shorts" if is_portrait else ""), "tags": YT_TAGS,
-                            },
-                            "status": {"privacyStatus": st["yt_privacy"]},
-                        },
+                        body={"snippet": {"categoryId": YT_CATEGORY_ID, "description": st["description"], "title": st["title"] + (" #Shorts" if is_portrait else ""), "tags": YT_TAGS}, "status": {"privacyStatus": st["yt_privacy"]}},
                         media_body=media,
                     )
                     response = None
@@ -878,22 +696,15 @@ async def _core_studio_logic(message: Message, ui, st: dict, gameplay_path: str)
                     yt_link = f"https://youtu.be/{response.get('id', '')}"
                     btn = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="📺 Buka YouTube", url=yt_link, style="success")]])
                     await message.answer(f"📺 **Berhasil Upload YouTube!** [{res_mode}]\n[Tonton Video ↗]({yt_link})", reply_markup=btn)
-                except Exception as e: 
-                    await message.answer(f"❌ YouTube upload gagal [{res_mode}]: `{e}`")
+                except Exception as e: await message.answer(f"❌ YouTube upload gagal [{res_mode}]: `{e}`")
             
-            cleanup_temp(part_files)
-            cleanup_temp([merged_path])
+            cleanup_temp(part_files); cleanup_temp([merged_path])
             
     elapsed = time.time() - t0
     txt_path = st.get("txt_path", "")
     cleanup_temp([txt_path] if txt_path else [])
-    
     await ui.finish(f"✅ **Produksi Selesai!**\n{st['segment_name']} - {st['title']}")
 
-
-# ═══════════════════════════════════════════════════════════════════════
-#  MASTER COMMAND HANDLER (WIZARD UI)
-# ═══════════════════════════════════════════════════════════════════════
 
 STUDIO_COMMANDS = {
     "verdict": "THE VERDICT", "toptier": "TOP TIER", "archives": "THE ARCHIVES", 
@@ -902,30 +713,16 @@ STUDIO_COMMANDS = {
 
 @router.message(F.document & F.document.file_name.endswith('.txt'))
 async def auto_detect_txt_handler(message: Message) -> None:
-    """Auto-detect file .txt dan memunculkan Dashboard Studio"""
     user_id = message.from_user.id
-    
-    # Save session data temporary
-    _studio_session[user_id] = {
-        "txt_msg": message,
-        "document": message.document
-    }
+    _studio_session[user_id] = {"txt_msg": message, "document": message.document}
     
     kb = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="🎬 The Verdict (Merah)", callback_data="studio_verdict", style="primary"),
-         InlineKeyboardButton(text="🏆 Top Tier (Emas)", callback_data="studio_toptier", style="primary")],
-        [InlineKeyboardButton(text="📜 The Archives (Retro)", callback_data="studio_archives", style="primary"),
-         InlineKeyboardButton(text="🧠 Lore (Netflix)", callback_data="studio_lore", style="primary")],
-        [InlineKeyboardButton(text="📡 Radar (Cyan)", callback_data="studio_radar", style="primary"),
-         InlineKeyboardButton(text="🗞️ Patch (Berita)", callback_data="studio_patch", style="primary")],
+        [InlineKeyboardButton(text="🎬 The Verdict", callback_data="studio_verdict", style="primary"), InlineKeyboardButton(text="🏆 Top Tier", callback_data="studio_toptier", style="primary")],
+        [InlineKeyboardButton(text="📜 The Archives", callback_data="studio_archives", style="primary"), InlineKeyboardButton(text="🧠 Lore", callback_data="studio_lore", style="primary")],
+        [InlineKeyboardButton(text="📡 Radar", callback_data="studio_radar", style="primary"), InlineKeyboardButton(text="🗞️ Patch", callback_data="studio_patch", style="primary")],
         [InlineKeyboardButton(text="❌ Batal", callback_data="studio_cancel", style="danger")]
     ])
-    
-    await message.reply(
-        "📄 **Naskah Studio (.txt) Terdeteksi!**\n\n"
-        "Silakan pilih Mode Produksi yang Anda inginkan untuk naskah ini:",
-        reply_markup=kb
-    )
+    await message.reply("📄 **Naskah Studio (.txt) Terdeteksi!**\nPilih Mode Produksi yang Anda inginkan:", reply_markup=kb)
 
 @router.callback_query(F.data.startswith("studio_"))
 async def studio_dashboard_cb(call: CallbackQuery) -> None:
@@ -936,7 +733,7 @@ async def studio_dashboard_cb(call: CallbackQuery) -> None:
     if action == "cancel":
         _studio_session.pop(user_id, None)
         try: await call.message.edit_text("❌ Proses dibatalkan.")
-        except TelegramBadRequest: pass
+        except: pass
         return
         
     if user_id not in _studio_session:
@@ -944,12 +741,10 @@ async def studio_dashboard_cb(call: CallbackQuery) -> None:
         
     session_data = _studio_session.pop(user_id)
     txt_msg = session_data["txt_msg"]
-    
     segment_name = STUDIO_COMMANDS.get(action, "STUDIO KHOIRUL")
-    command_used = action
     
     try: await call.message.delete()
-    except TelegramBadRequest: pass
+    except: pass
     
     txt_path = tmp(f"studio_{int(time.time())}.txt")
     await Telegram.AIOGRAM_BOT.download(session_data["document"], destination=txt_path)
@@ -961,39 +756,25 @@ async def studio_dashboard_cb(call: CallbackQuery) -> None:
     
     await ensure_user_data_structure(user_id)
     
-    # --- WIZARD START ---
-    # Step 1: Resolusi
     kb_res = _make_reply_kb(["🖥 16:9", "📱 9:16", "🖥📱 Keduanya", "❌ Batal"], 3)
     msg_res = await call.message.answer("📐 **Pilih Resolusi Video:**", reply_markup=kb_res)
     resp_res = await wait_for_message(chat_id, user_id, 60)
     await _clean_msgs(msg_res, resp_res)
     
-    if not resp_res:
-        cleanup_temp([txt_path])
-        return await call.message.answer("❌ Waktu habis. Dibatalkan.", reply_markup=ReplyKeyboardRemove())
-    if "batal" in (resp_res.text or "").lower():
-        cleanup_temp([txt_path])
-        return await call.message.answer("❌ Dibatalkan.", reply_markup=ReplyKeyboardRemove())
-    
+    if not resp_res or "batal" in (resp_res.text or "").lower():
+        cleanup_temp([txt_path]); return await call.message.answer("❌ Dibatalkan.", reply_markup=ReplyKeyboardRemove())
     res_txt = (resp_res.text or "").lower()
     res_mode = "both" if "keduanya" in res_txt else "9:16" if "9:16" in res_txt else "16:9"
     
-    # Step 2: Subtitle
     kb_sub = _make_reply_kb(["✅ ON", "❌ OFF", "❌ Batal"], 3)
     msg_sub = await call.message.answer("💬 **Gunakan Subtitle Bergerak?**", reply_markup=kb_sub)
     resp_sub = await wait_for_message(chat_id, user_id, 60)
     await _clean_msgs(msg_sub, resp_sub)
     
-    if not resp_sub:
-        cleanup_temp([txt_path])
-        return await call.message.answer("❌ Waktu habis. Dibatalkan.", reply_markup=ReplyKeyboardRemove())
-    if "batal" in (resp_sub.text or "").lower():
-        cleanup_temp([txt_path])
-        return await call.message.answer("❌ Dibatalkan.", reply_markup=ReplyKeyboardRemove())
-        
+    if not resp_sub or "batal" in (resp_sub.text or "").lower():
+        cleanup_temp([txt_path]); return await call.message.answer("❌ Dibatalkan.", reply_markup=ReplyKeyboardRemove())
     subs_on = True if "on" in (resp_sub.text or "").lower() else False
     
-    # Step 3: YouTube
     yt_enabled, yt_privacy = False, "private"
     if YOUTUBE_ENABLED and _HAS_YTUPLOAD:
         kb_yt = _make_reply_kb(["⏭️ Skip", "🌍 Public", "🔗 Unlisted", "🔒 Private", "❌ Batal"], 3)
@@ -1001,18 +782,12 @@ async def studio_dashboard_cb(call: CallbackQuery) -> None:
         resp_yt = await wait_for_message(chat_id, user_id, 60)
         await _clean_msgs(msg_yt, resp_yt)
         
-        if not resp_yt:
-            cleanup_temp([txt_path])
-            return await call.message.answer("❌ Waktu habis. Dibatalkan.", reply_markup=ReplyKeyboardRemove())
-        if "batal" in (resp_yt.text or "").lower():
-            cleanup_temp([txt_path])
-            return await call.message.answer("❌ Dibatalkan.", reply_markup=ReplyKeyboardRemove())
-            
+        if not resp_yt or "batal" in (resp_yt.text or "").lower():
+            cleanup_temp([txt_path]); return await call.message.answer("❌ Dibatalkan.", reply_markup=ReplyKeyboardRemove())
         yt_txt = (resp_yt.text or "").lower()
         yt_enabled = "skip" not in yt_txt
         yt_privacy = "public" if "public" in yt_txt else "unlisted" if "unlisted" in yt_txt else "private"
     
-    # Step 4: Konfirmasi Akhir (Summary Box)
     st = {
         "segment_name": segment_name, "title": data["title"], "description": data["description"], 
         "score": data["score"], "scenes": data["scenes"], "txt_path": txt_path, 
@@ -1024,163 +799,62 @@ async def studio_dashboard_cb(call: CallbackQuery) -> None:
     yt_label = f'✅ Upload ({yt_privacy.capitalize()})' if yt_enabled else '⏭️ Skip'
     
     conf_txt = (
-        f"🎬 **KONFIRMASI PRODUKSI**\n\n"
-        f"🏷️ **Segmen:** `{segment_name}`\n"
-        f"📝 **Judul:** `{st['title'][:35]}...`\n"
-        f"🎬 **Total Scene:** `{len(st['scenes'])} klip`\n"
-        f"📐 **Resolusi:** `{res_label}`\n"
-        f"💬 **Subtitle:** `{'✅ ON' if subs_on else '❌ OFF'}`\n"
-        f"📺 **YouTube:** `{yt_label}`\n\n"
-        "Lanjutkan?"
+        f"🎬 **KONFIRMASI PRODUKSI**\n\n🏷️ **Segmen:** `{segment_name}`\n📝 **Judul:** `{st['title'][:35]}...`\n🎬 **Total Scene:** `{len(st['scenes'])} klip`\n"
+        f"📐 **Resolusi:** `{res_label}`\n💬 **Subtitle:** `{'✅ ON' if subs_on else '❌ OFF'}`\n📺 **YouTube:** `{yt_label}`\n\nLanjutkan?"
     )
     kb_conf = _make_reply_kb(["✅ Render", "❌ Batal"], 2)
     msg_conf = await call.message.answer(conf_txt, reply_markup=kb_conf)
     resp_conf = await wait_for_message(chat_id, user_id, 60)
     await _clean_msgs(msg_conf, resp_conf)
     
-    if not resp_conf:
-        cleanup_temp([txt_path])
-        return await call.message.answer("❌ Waktu habis. Dibatalkan.", reply_markup=ReplyKeyboardRemove())
-    if "batal" in (resp_conf.text or "").lower():
-        cleanup_temp([txt_path])
-        return await call.message.answer("❌ Dibatalkan.", reply_markup=ReplyKeyboardRemove())
+    if not resp_conf or "batal" in (resp_conf.text or "").lower():
+        cleanup_temp([txt_path]); return await call.message.answer("❌ Dibatalkan.", reply_markup=ReplyKeyboardRemove())
         
-    # [NEW v5.2] MESIN KASIR: POTONG SALDO POIN
     await call.message.answer("🔄 Mengecek Saldo Poin...", reply_markup=ReplyKeyboardRemove())
-    
-    payment = await process_payment(user_id=user_id, command=command_used)
+    payment = await process_payment(user_id=user_id, command=action)
     
     if not payment["success"]:
-        cleanup_temp([txt_path])
-        return await call.message.answer(payment["message"])
+        cleanup_temp([txt_path]); return await call.message.answer(payment["message"])
 
     await call.message.answer(f"⏳ ✅ Menyiapkan Mesin Produksi...\n{payment['message']}", reply_markup=ReplyKeyboardRemove())
     
-    gp_path = await asyncio.to_thread(find_gameplay_for_game, st["title"])
+    # [FIX] Cari Gameplay dari folder Private dulu, baru Global
+    gp_path = await asyncio.to_thread(find_gameplay_for_game, st["title"], user_id)
     if not gp_path: 
         cleanup_temp([txt_path])
-        return await call.message.answer(f"❌ Gameplay untuk `{st['title']}` tidak ditemukan di server!\nGunakan `/addgameplay{CMD_SUFFIX}`.")
+        return await call.message.answer(f"❌ Aset Video untuk `{st['title']}` tidak ditemukan di Brankas Anda maupun Global!\nSilakan tambahkan dengan perintah `/addaset{CMD_SUFFIX}`.")
 
-    # 🚀 JALANKAN VIA UNIFIED ENGINE
     await execute_unified_task(txt_msg, f"PRODUKSI STUDIO ({segment_name})", _core_studio_logic, st, gp_path)
 
 
 # ═══════════════════════════════════════════════════════════════════════
-#  HANDLERS LAINNYA & ADDSFX
+#  MENU BANTUAN & SETTINGS PUSAT
 # ═══════════════════════════════════════════════════════════════════════
 
-@router.message(Command(f"addsfx{CMD_SUFFIX}"))
-async def addsfx_handler(message: Message, command: CommandObject) -> None:
-    # Hanya untuk admin, tidak dipotong poin
-    if message.from_user.id not in Config.SUDO_USERS and message.from_user.id != Config.OWNER_ID: 
-        return
-    raw_text = (command.args or "").strip()
-    if not raw_text: return await message.reply(f"❌ **Format:** Balas file MP3/Audio -> `/addsfx{CMD_SUFFIX} sfx_impact`")
-    
-    reply_msg = message.reply_to_message
-    if not reply_msg or not (reply_msg.audio or reply_msg.voice or reply_msg.document):
-        return await message.reply("❌ Balas sebuah file audio/mp3!")
-
-    valid_names = ["sfx_impact", "sfx_whoosh", "sfx_glitch", "sfx_rating", "bgm"]
-    if raw_text not in valid_names:
-        return await message.reply(f"❌ **Nama SFX harus salah satu dari:**\n`{', '.join(valid_names)}`\n\n_Contoh: /addsfx{CMD_SUFFIX} sfx_glitch_")
-
-    final_path = os.path.join("./audio", f"{raw_text}.mp3")
-    status_msg = await message.reply(f"⏳ Mengunduh `{raw_text}.mp3`...")
-    
-    res = await download_with_progress(message, reply_msg, final_path, label="sfx", status_msg=status_msg)
-    if res: await _safe_edit(status_msg, f"✅ **Berhasil menyimpan SFX: `{raw_text}.mp3`**\n_Audio ini akan otomatis terpasang saat merender video!_")
-    else: await _safe_edit(status_msg, "❌ Gagal mengunduh audio.")
-
-
-def _check_gameplay_clip(path):
-    t = VideoFileClip(path)
-    w, h, d = t.w, t.h, t.duration
-    t.close()
-    return w, h, d
-
-@router.message(Command(f"addgameplay{CMD_SUFFIX}"))
-async def add_gameplay_handler(message: Message, command: CommandObject) -> None:
-    if not message.reply_to_message: return await message.reply(_dash("🎮","Cara Pakai /addgameplay",[("Format",f"Balas video → /addgameplay{CMD_SUFFIX} Nama"),("Contoh",f"/addgameplay{CMD_SUFFIX} Hollow Knight"),("Lokasi","./gameplay/")]))
-    
-    custom_name = (command.args or "").strip()
-    reply_msg = message.reply_to_message
-    if not (reply_msg.video or reply_msg.document): return await message.reply(_er("Pesan yang di-reply bukan video!"))
-    
-    if custom_name: file_name = safe_filename(custom_name)
-    else:
-        doc = reply_msg.document or reply_msg.video
-        file_name = re.sub(r'[^\w\-_. ]','_', doc.file_name) if getattr(doc, 'file_name', None) else f"gameplay_{message.message_id}.mp4"
-        
-    final_path = os.path.join(GAMEPLAY_DIR, file_name); status_msg = await message.reply(_st(f"Mengunduh `{file_name}`..."))
-    if not await download_with_progress(message, reply_msg, final_path, label=f"`{file_name}`", status_msg=status_msg): 
-        return await _safe_edit(status_msg, _er("Download gagal."))
-        
-    try: 
-        w, h, d = await asyncio.to_thread(_check_gameplay_clip, final_path)
-        await _safe_edit(status_msg, _dash("✅","Gameplay Tersimpan",[("File", file_name),("Resolusi",f"{w}×{h}"),("Durasi",f"{d:.1f}s"),("Lokasi","./gameplay/")]))
-    except Exception as e: 
-        cleanup_temp([final_path]); await _safe_edit(status_msg, _er(f"File tidak valid: {e}"))
-
-
-def _get_gameplay_list_text(videos):
-    lines = []
-    tot = 0.0
-    for i, v in enumerate(videos, 1):
-        try:
-            c = VideoFileClip(os.path.join(GAMEPLAY_DIR, v))
-            d = c.duration
-            lines.append((f"{i}. {v}", f"{c.w}×{c.h} · {d:.1f}s"))
-            c.close()
-            tot += d
-        except:
-            lines.append((f"{i}. {v}", "❌ error"))
-    return lines, tot
-
-@router.message(Command(f"listgameplay{CMD_SUFFIX}"))
-async def list_gameplay_handler(message: Message) -> None:
-    videos = sorted(list_gameplay_videos())
-    if not videos: return await message.answer(f"❌ Belum ada gameplay.\n\nUpload: Balas video → `/addgameplay{CMD_SUFFIX} Nama Game`")
-    
-    status_msg = await message.answer("⏳ Membaca data durasi video...")
-    lines, tot = await asyncio.to_thread(_get_gameplay_list_text, videos)
-    
-    await _safe_edit(status_msg, _dash("🎮", f"Gameplay — {len(videos)} video · {tot:.0f}s total", lines), buttons=[[InlineKeyboardButton(text="🗑️ Hapus gameplay", callback_data="gp_delete_prompt", style="danger")]])
-
-@router.callback_query(F.data == "gp_delete_prompt")
-async def gp_delete_prompt_cb(call: CallbackQuery) -> None: 
-    await call.answer()
-    await call.message.answer(f"Kirim: `/deletegameplay{CMD_SUFFIX} nama_file.mp4`")
-
-@router.message(Command(f"deletegameplay{CMD_SUFFIX}"))
-async def delete_gameplay_handler(message: Message, command: CommandObject) -> None:
-    name = (command.args or "").strip(); path = os.path.join(GAMEPLAY_DIR, name)
-    if os.path.exists(path): os.remove(path); await message.reply(_ok(f"Dihapus: {name}"))
-    else: await message.reply(_er(f"File `{name}` tidak ditemukan.\nCek: `/listgameplay{CMD_SUFFIX}`"))
-
+def _dash(icon: str, title: str, rows: list) -> str: return f"{icon} **{title}**\n`{'─'*30}`\n" + "\n".join(f"  {lbl:<13}{val}" for lbl, val in rows) + f"\n`{'─'*30}`"
 
 @router.message(Command(f"help{CMD_SUFFIX}"))
 async def help_handler(message: Message) -> None:
     btns = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="🎮 Gameplay", callback_data="help_gameplay", style="primary"), InlineKeyboardButton(text="🎬 Produksi", callback_data="help_produksi", style="primary")], 
-        [InlineKeyboardButton(text="🛠 Tools", callback_data="help_tools", style="primary"), InlineKeyboardButton(text="⚙️ Settings", callback_data="help_settings", style="primary")]
+        [InlineKeyboardButton(text="🗂️ Aset Video", callback_data="help_gameplay", style="primary"), InlineKeyboardButton(text="🎵 Aset Audio", callback_data="help_sfx", style="primary")], 
+        [InlineKeyboardButton(text="🎬 Produksi", callback_data="help_produksi", style="primary"), InlineKeyboardButton(text="⚙️ Settings", callback_data="help_settings", style="primary")]
     ])
-    await message.answer(_dash("📖","STUDIO KHOIRUL — Panduan",[("","─── 🎮 MEDIA ───"),(f"/addgameplay{CMD_SUFFIX}", "Balas video → simpan gameplay"),(f"/addsfx{CMD_SUFFIX}", "Balas MP3 → simpan SFX"),(f"/listgameplay{CMD_SUFFIX}","Lihat semua gameplay"),("","─── 🎬 PRODUKSI UNIVERSAL ───"),("Kirim file .txt", "Otomatis memunculkan Menu Studio Khoirul"),("","─── ⚙️ LAINNYA ───"),(f"/settings{CMD_SUFFIX}","Konfigurasi bot"),(f"/help{CMD_SUFFIX}",   "Panduan ini")]), reply_markup=btns)
+    await message.answer(_dash("📖","STUDIO KHOIRUL — Panduan",[("","─── 🗂️ MANAJEMEN ASET ───"),(f"/addaset", "Simpan Video ke Brankas"),(f"/addsfx", "Simpan Audio ke Brankas"),(f"/viewaset","Lihat Daftar Brankas Anda"),("","─── 🎬 PRODUKSI UNIVERSAL ───"),("Kirim .txt", "Otomatis memunculkan Menu")]), reply_markup=btns)
 
 @router.callback_query(F.data == "help_gameplay")
 async def help_gameplay_cb(call: CallbackQuery) -> None: 
     await call.answer()
-    await call.message.answer(_dash("🎮","GAMEPLAY — Cara Pakai",[("Simpan",  f"Balas video → /addgameplay{CMD_SUFFIX} Nama"),("List", f"/listgameplay{CMD_SUFFIX}"),("Hapus", f"/deletegameplay{CMD_SUFFIX} nama.mp4"),("Format", "Nama file = nama game di .txt"),("Lokasi", "./gameplay/")]))
+    await call.message.answer(_dash("🗂️","ASET VIDEO — Cara Pakai",[("Simpan",  f"Balas video → /addaset Nama"),("List", f"/viewaset"),("Hapus", f"/delaset nama_file.mp4"),("Catatan", "Aset ini bersifat pribadi (Private)")]))
+
+@router.callback_query(F.data == "help_sfx")
+async def help_sfx_cb(call: CallbackQuery) -> None: 
+    await call.answer()
+    await call.message.answer(_dash("🎵","ASET AUDIO — Cara Pakai",[("Simpan",  f"Balas mp3 → /addsfx sfx_nama"),("List", f"/viewsfx"),("Hapus", f"/delsfx sfx_nama.mp3"),("Catatan", "Aset ini bersifat pribadi (Private)")]))
 
 @router.callback_query(F.data == "help_produksi")
 async def help_produksi_cb(call: CallbackQuery) -> None: 
     await call.answer()
     await call.message.answer(_dash("🎬","PRODUKSI — Format .txt",[("DESC", "DESC | Deskripsi video YouTube"),("TITLE", "TITLE | Judul Video | Teks Pembuka"),("HOOK", "HOOK | Kalimat Penarik Perhatian | Teks"),("SECTION", "SECTION | Nama Segmen | Teks"),("RATING",  "RATING | 9")]))
-
-@router.callback_query(F.data == "help_tools")
-async def help_tools_cb(call: CallbackQuery) -> None: 
-    await call.answer()
-    await call.message.answer(_dash("🛠","TOOLS — Cara Pakai",[("Auto SFX",  f"Balas mp3 -> /addsfx{CMD_SUFFIX} sfx_impact")]))
 
 @router.callback_query(F.data == "help_settings")
 async def help_settings_cb(call: CallbackQuery) -> None: 
@@ -1188,26 +862,11 @@ async def help_settings_cb(call: CallbackQuery) -> None:
     await _send_settings(call.message)
 
 @router.message(Command(f"settings{CMD_SUFFIX}"))
-async def settings_handler(message: Message) -> None: 
-    await _send_settings(message)
+async def settings_handler(message: Message) -> None: await _send_settings(message)
 
 async def _send_settings(message: Message) -> None: 
-    btns = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="🎮 Gameplay", callback_data="set_gameplay", style="primary"), InlineKeyboardButton(text="📺 YouTube", callback_data="set_yt", style="primary")], 
-        [InlineKeyboardButton(text="📖 Help", callback_data="help_tools", style="primary")]
-    ])
-    await message.answer(_dash("⚙️","Studio Khoirul — Konfigurasi",[("","─── Resolusi ───"),("Landscape", f"{TARGET_W}×{TARGET_H} · {TARGET_FPS}fps"),("Portrait",  f"{SHORT_W}×{SHORT_H} · {TARGET_FPS}fps"),("","─── Encode ───"),("Bitrate",  f"{BITRATE} video · {AUDIO_BR} audio"),("Preset",  PRESET),("TTS Voice",VOICE),("","─── Status ───"),("Gameplay",  f"{len(list_gameplay_videos())} video"),("YouTube", "✅ Aktif" if YOUTUBE_ENABLED else "❌ Nonaktif"),("yt-dlp", "✅ Aktif" if YTDLP_ENABLED else "❌ Nonaktif")]), reply_markup=btns)
-
-@router.callback_query(F.data == "set_gameplay")
-async def set_gameplay_cb(call: CallbackQuery) -> None:
-    await call.answer()
-    videos = sorted(list_gameplay_videos())
-    if not videos: return await call.message.answer(f"❌ Belum ada gameplay.\n\n`/addgameplay{CMD_SUFFIX} Nama`")
-    
-    status_msg = await call.message.answer("⏳ Membaca data durasi video...")
-    lines, tot = await asyncio.to_thread(_get_gameplay_list_text, videos)
-    
-    await _safe_edit(status_msg, _dash("🎮",f"Gameplay ({len(videos)} video · {tot:.0f}s total)", lines))
+    btns = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="📺 YouTube", callback_data="set_yt", style="primary")], [InlineKeyboardButton(text="📖 Help", callback_data="help_tools", style="primary")]])
+    await message.answer(_dash("⚙️","Studio Khoirul — Konfigurasi",[("","─── Resolusi ───"),("Landscape", f"{TARGET_W}×{TARGET_H} · {TARGET_FPS}fps"),("Portrait",  f"{SHORT_W}×{SHORT_H} · {TARGET_FPS}fps"),("","─── Encode ───"),("Bitrate",  f"{BITRATE} video · {AUDIO_BR} audio"),("Preset",  PRESET),("TTS Voice",VOICE),("","─── Status API ───"),("YouTube", "✅ Aktif" if YOUTUBE_ENABLED else "❌ Nonaktif"),("yt-dlp", "✅ Aktif" if YTDLP_ENABLED else "❌ Nonaktif")]), reply_markup=btns)
 
 @router.callback_query(F.data == "set_yt")
 async def set_yt_cb(call: CallbackQuery) -> None: 
