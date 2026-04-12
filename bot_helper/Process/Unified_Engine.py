@@ -1,5 +1,18 @@
+"""
+╔══════════════════════════════════════════════════════════════════════╗
+║    bot_helper/Process/Unified_Engine.py — v2.8                       ║
+║    Core Task Manager & UI Progress Handler untuk Studio Khoirul      ║
+╠══════════════════════════════════════════════════════════════════════╣
+║  CHANGELOG v2.8:                                                     ║
+║  [UI] Membuat nama "Engine" menjadi dinamis! Kini bot bisa           ║
+║       menampilkan "Whisper AI", "FFmpeg", dll sesuai modul yang      ║
+║       sedang digunakan alih-alih hanya "Unified Core".               ║
+╚══════════════════════════════════════════════════════════════════════╝
+"""
+
 import asyncio
 import time
+import traceback
 from aiogram.types import Message
 from aiogram.exceptions import TelegramBadRequest, TelegramRetryAfter
 from config.config import Config
@@ -7,10 +20,10 @@ from config.config import Config
 LOGGER = Config.LOGGER
 _task_semaphore = asyncio.Semaphore(Config.RUNNING_TASK_LIMIT)
 
-# Memori Internal & UI Exporter (Untuk Sinergi dengan Running_Tasks)
+# Memori Internal & UI Exporter
 _ue_queued = {}
 _ue_working = {}
-_ue_ui_objects = {}  # MENYIMPAN OBJEK UI AGAR BISA DIBACA GLOBAL
+_ue_ui_objects = {}  
 
 DIVIDER = "━━━━━━━━━━━━━━━━━━━━"
 
@@ -27,7 +40,7 @@ def TimeFormatter(milliseconds: float) -> str:
     if not milliseconds or milliseconds <= 0: return "0s"
     seconds, milliseconds = divmod(int(milliseconds), 1000)
     minutes, seconds = divmod(seconds, 60)
-    hours, minutes = divmod(minutes, 60)
+    hours, minutes = divmod(hours, 60)
     days, hours = divmod(hours, 24)
     tmp = ((str(days) + "d, ") if days else "") + ((str(hours) + "h, ") if hours else "") + ((str(minutes) + "m, ") if minutes else "") + ((str(seconds) + "s") if seconds else "")
     tmp = tmp.strip()
@@ -43,64 +56,56 @@ def is_admin(user_id: int) -> bool:
     return user_id in Config.SUDO_USERS
 
 class ProgressUI:
-    def __init__(self, message: Message, module_name: str):
+    # [NEW] Menambahkan parameter engine_name (Default: Unified Core)
+    def __init__(self, message: Message, module_name: str, engine_name: str = "Unified Core"):
         self.message = message
         self.module_name = module_name
+        self.engine_name = engine_name
         self.last_text = ""
         self.start_time = time.time()
         
-        # [NEW] Anti-Flood Control
-        self.last_update_time = 0
-        self.update_interval = 3.0  # Safe limit Telegram: Edit max 1 kali per 3 detik
+        self.last_update_time = 0.0
+        self.update_interval = 2.0 
         
-        self.user_id = message.from_user.id
+        self.user_id = message.from_user.id if message.from_user else 0
         self.is_admin_user = is_admin(self.user_id)
-        if message.from_user.username: 
-            self.added_by = f"[{message.from_user.first_name}](https://t.me/{message.from_user.username})"
-        else: 
-            self.added_by = f"**{message.from_user.first_name}**"
+        
+        self.aktor_name = "Encoder 1"
 
         self._animating = False
         self._anim_task = None
         self._anim_status = "⚙️ Memproses Data..."
         self._anim_details = "Sistem sedang bekerja..."
 
-    # [NEW] Centralized Safe Edit Module
     async def _safe_edit(self, text: str, force: bool = False):
-        if text == self.last_text:
-            return
-        
+        if text == self.last_text: return
         now = time.time()
-        # Cegah update terlalu cepat kecuali dipaksa (force) untuk status Finish/Error
-        if not force and (now - self.last_update_time < self.update_interval):
-            return
+        if not force and (now - self.last_update_time < self.update_interval): return
 
         try:
             await self.message.edit_text(text, parse_mode="Markdown", disable_web_page_preview=True)
             self.last_text = text
             self.last_update_time = time.time()
         except TelegramRetryAfter as e:
-            # Jika tetap terkena limit, bot akan otomatis pause UI ini selama batas waktu Telegram
             await asyncio.sleep(e.retry_after)
-        except TelegramBadRequest:
-            pass  # Biasanya karena Message is not modified, aman diabaikan
+        except TelegramBadRequest: pass
         except Exception as e:
             LOGGER.error(f"UI Edit Error pada {self.module_name}: {e}")
 
     async def prep_phase(self, action_text: str = "Mempersiapkan proses...", remaining: int = 0):
         await self.stop_animation()
         admin_text = "👑 **Akses Admin:** Bypass sistem poin." if self.is_admin_user else "💎 **Sistem Poin:** Saldo Terpotong."
-        rem_text = f"⏳ **Belum di proses:** `{remaining}`" if remaining > 0 else "⏳ **Proses sinkronisasi...**"
+        rem_text = f"⏳ **Antrean Pemotongan:** `{remaining}` klip tersisa" if remaining > 0 else "⏳ **Menyusun kerangka video...**"
+        
         text = (
-            f"**{action_text}**\n"
-            f"📁 `{self.module_name}`\n"
+            f"📁 **{self.module_name}**\n"
             f"{DIVIDER}\n"
-            f"👤 **Aktor:** {self.added_by} | **ID:** `{self.user_id}`\n"
-            f"🚀 **Engine:** `Unified Core`\n"
+            f"👤 Aktor: {self.aktor_name} | ID: `{self.user_id}`\n"
+            f"🚀 Engine: `{self.engine_name}`\n" # <--- Teks Dinamis
             f"{admin_text}\n"
-            f"{rem_text}\n"
             f"{DIVIDER}\n"
-            f"_Sedang menyiapkan proses..._"
+            f"⚙️ **{action_text}**\n"
+            f"_{rem_text}_"
         )
         await self._safe_edit(text, force=True)
 
@@ -111,17 +116,16 @@ class ProgressUI:
             frame = frames[idx % len(frames)]
             idx += 1
             text = (
-                f"**{self._anim_status}**\n"
-                f"📁 `{self.module_name}`\n"
+                f"📁 **{self.module_name}**\n"
                 f"{frame} **Sedang Berjalan...**\n"
                 f"{DIVIDER}\n"
-                f"👤 **Aktor:** {self.added_by} | **ID:** `{self.user_id}`\n"
-                f"🚀 **Engine:** `Unified Core`\n"
+                f"👤 Aktor: {self.aktor_name} | ID: `{self.user_id}`\n"
+                f"🚀 Engine: `{self.engine_name}`\n" # <--- Teks Dinamis
                 f"{DIVIDER}\n"
+                f"**{self._anim_status}**\n"
                 f"_{self._anim_details}_"
             )
             await self._safe_edit(text)
-            # Tidur sesuai update interval, jangan 1 detik
             await asyncio.sleep(self.update_interval)
 
     async def start_animation(self, status: str, details: str = ""):
@@ -142,17 +146,24 @@ class ProgressUI:
             await self.stop_animation()
             percent = (current / total * 100)
             bar = get_progress_bar(current, total, width=10)
+            
             text = (
-                f"**{status}**\n"
-                f"📁 `{self.module_name}`\n"
+                f"📁 **{self.module_name}**\n"
                 f"{bar} **{round(min(max(percent, 0), 100), 1)}%**\n"
                 f"{DIVIDER}\n"
-                f"👤 **Aktor:** {self.added_by} | **ID:** `{self.user_id}`\n"
-                f"🚀 **Engine:** `Unified Core`\n"
-                f"📦 **Data:** `{humanbytes(current)} / {humanbytes(total)}`\n"
+                f"👤 Aktor: {self.aktor_name} | ID: `{self.user_id}`\n"
+                f"🚀 Engine: `{self.engine_name}`\n" # <--- Teks Dinamis
+                f"{DIVIDER}\n"
+                f"**{status}**\n"
             )
+            
+            if current > 1000 and total > 1000:
+                text += f"📦 **Data:** `{humanbytes(current)} / {humanbytes(total)}`\n"
+            else:
+                text += f"📦 **Progres:** `{int(current)} / {int(total)}`\n"
+                
             if speed > 0: text += f"⚡ **Speed:** `{humanbytes(speed)}/s` | ⏱ **ETA:** `{TimeFormatter(eta * 1000)}`\n"
-            if details: text += f"{DIVIDER}\n_{details}_"
+            if details: text += f"_{details}_"
             
             await self._safe_edit(text)
         else:
@@ -162,38 +173,44 @@ class ProgressUI:
         await self.stop_animation()
         elapsed = TimeFormatter((time.time() - self.start_time) * 1000)
         text = f"{final_text}\n\n⏱️ **Waktu Total:** `{elapsed}`"
-        # Gunakan force=True agar status selesai dipastikan terkirim tanpa ter-throttle
         await self._safe_edit(text, force=True)
 
     async def error(self, error_text: str):
         await self.stop_animation()
         text = f"❌ **Error Terjadi:**\n`{error_text}`"
-        # Gunakan force=True agar pesan error selalu tampil seketika
         await self._safe_edit(text, force=True)
+
 
 # ==========================================
 # 3. FUNGSI PENGIKAT (THE WRAPPER)
 # ==========================================
-async def execute_unified_task(message: Message, module_name: str, task_function, *args, **kwargs):
-    user_id = message.from_user.id
+# [NEW] Menambahkan parameter engine_name secara Spesifik (Keyword Only)
+async def execute_unified_task(message: Message, module_name: str, task_function, *args, engine_name: str = "Unified Core", **kwargs):
+    user_id = message.from_user.id if message.from_user else 0
     task_id = f"UE_{user_id}_{int(time.time())}"
-    status_msg = await message.answer(f"🔄 **Menambahkan {module_name} ke antrean...**", parse_mode="Markdown")
-    ui = ProgressUI(status_msg, module_name)
+    
+    status_msg = await message.answer(f"🔄 **Menambahkan `{module_name}` ke antrean...**", parse_mode="Markdown")
+    ui = ProgressUI(status_msg, module_name, engine_name=engine_name) # Melempar nama engine
     
     _ue_queued[task_id] = module_name
-    _ue_ui_objects[task_id] = ui # DAFTARKAN KE GLOBAL EXPORTER
+    _ue_ui_objects[task_id] = ui 
     
-    await ui.update(f"⏳ Menunggu Giliran", details=f"Posisi antrean: {len(_ue_queued)}")
+    if _task_semaphore.locked():
+        await ui.update(f"⏳ Menunggu Giliran Server", details=f"Server sedang memproses tugas lain (Posisi antrean: {len(_ue_queued)})")
     
     async with _task_semaphore:
         _ue_queued.pop(task_id, None)
         _ue_working[task_id] = module_name
+        
         await ui.update("⚙️ Mengeksekusi Modul...", details="Sistem sedang menganalisis data...")
+        
         try:
             await task_function(message, ui, *args, **kwargs)
         except Exception as e:
-            LOGGER.error(f"Task Error [{module_name}]: {e}", exc_info=True)
+            err_trace = traceback.format_exc()
+            LOGGER.error(f"Task Error [{module_name}]: {e}\n{err_trace}")
             await ui.error(str(e))
         finally:
+            await ui.stop_animation()
             _ue_working.pop(task_id, None)
-            _ue_ui_objects.pop(task_id, None) # HAPUS DARI GLOBAL EXPORTER SETELAH SELESAI
+            _ue_ui_objects.pop(task_id, None)
