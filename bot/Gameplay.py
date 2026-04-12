@@ -1,16 +1,11 @@
 """
 ╔══════════════════════════════════════════════════════════════════════╗
-║    bot/Gameplay.py — v6.0 (PERSONAL VAULT & ASYNC FFMPEG)            ║
+║    bot/Gameplay.py — v6.0.1 (HOTFIX IMPORT)                          ║
 ║    Studio Khoirul: Core Engine Video Production Bot (Pay-As-You-Go)  ║
 ╠══════════════════════════════════════════════════════════════════════╣
-║  CHANGELOG v6.0:                                                     ║
-║  [FIX CRITICAL] Mengubah `subprocess.run` menjadi `asyncio` pada     ║
-║                 proses FFmpeg Merge agar sistem tidak mengalami      ║
-║                 deadlock/stuck/macet saat buffer output penuh.       ║
-║  [NEW FEATURE]  Integrasi Personal Vault: Bot akan memprioritaskan   ║
-║                 pengambilan video, BGM, dan SFX dari folder pribadi  ║
-║                 User ID sebelum mencari di folder Global!            ║
-║  [CLEANUP]      Menghapus fungsi asset lama yang sudah dipindah.     ║
+║  CHANGELOG v6.0.1:                                                   ║
+║  [FIX CRITICAL] Menambahkan kembali import Command dan CommandObject ║
+║                 dari aiogram.filters yang sebelumnya hilang.         ║
 ╚══════════════════════════════════════════════════════════════════════╝
 """
 
@@ -29,6 +24,7 @@ from aiogram.types import (
     Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton, FSInputFile,
     ReplyKeyboardMarkup, KeyboardButton, ReplyKeyboardRemove
 )
+from aiogram.filters import Command, CommandObject # [FIX] Import yang hilang
 from aiogram.exceptions import TelegramBadRequest
 
 import edge_tts
@@ -130,7 +126,6 @@ def _make_reply_kb(options: list, row_width: int = 2) -> ReplyKeyboardMarkup:
     return ReplyKeyboardMarkup(keyboard=kb, resize_keyboard=True, one_time_keyboard=True)
 
 def find_gameplay_for_game(game_title: str, user_id: int) -> Optional[str]:
-    """Mencari video. Prioritas 1: Brankas User. Prioritas 2: Folder Global"""
     tgt = game_title.lower().strip()
     dirs_to_check = [os.path.join(ASET_VIDEO_BASE, str(user_id)), ASET_VIDEO_BASE]
     
@@ -144,7 +139,6 @@ def find_gameplay_for_game(game_title: str, user_id: int) -> Optional[str]:
     return None
 
 def get_audio_path(filename: str, user_id: int) -> Optional[str]:
-    """Mencari audio. Prioritas 1: Brankas User. Prioritas 2: Folder Global"""
     priv = os.path.join(AUDIO_BASE, str(user_id), filename)
     if os.path.exists(priv): return priv
     glob = os.path.join(AUDIO_BASE, filename)
@@ -222,7 +216,6 @@ def get_hook_clip(path: str, is_portrait: bool, est_dur: float):
 # ═══════════════════════════════════════════════════════════════════════
 
 async def merge_clips_async(video_paths: list, output_path: str, apply_bgm: bool, user_id: int) -> float:
-    """Menggabungkan video dengan sistem Asynchronous FFmpeg agar tidak memblokir dan macet (stuck)."""
     if not video_paths: return 0.0
     
     list_file = tmp(f"concat_{int(time.time())}.txt")
@@ -231,7 +224,6 @@ async def merge_clips_async(video_paths: list, output_path: str, apply_bgm: bool
         
     temp_concat = tmp(f"merged_{int(time.time())}.mp4")
     
-    # Exec FFmpeg secara Async dengan DEVNULL output agar pipa tidak penuh
     proc = await asyncio.create_subprocess_exec(
         "ffmpeg", "-y", "-f", "concat", "-safe", "0", "-i", list_file, "-c", "copy", temp_concat,
         stdout=asyncio.subprocess.DEVNULL,
@@ -241,7 +233,6 @@ async def merge_clips_async(video_paths: list, output_path: str, apply_bgm: bool
     
     if proc.returncode != 0:
         LOGGER.error(f"FFmpeg Concat Error: {stderr.decode()}")
-        # Fallback ke MoviePy secara manual jika format FFmpeg crash
         clips = [VideoFileClip(v) for v in video_paths]
         merged = concatenate_videoclips(clips, method="compose")
         await asyncio.to_thread(merged.write_videofile, temp_concat, fps=TARGET_FPS, codec="libx264", bitrate=BITRATE, audio_bitrate=AUDIO_BR, logger=None, threads=4)
@@ -488,7 +479,6 @@ async def render_studio_clip(scene_dict, segment_name, output_name, game_title, 
         }
         sfx_file = sfx_map.get(stype)
         if sfx_file:
-            # [NEW] Ambil SFX dari Private Vault jika ada
             sfx_path = get_audio_path(sfx_file, user_id)
             if sfx_path: 
                 try: sfx_audio = AudioFileClip(sfx_path).with_duration(min(1.5, dur))
@@ -626,7 +616,6 @@ async def _core_studio_logic(message: Message, ui, st: dict, gameplay_path: str)
             
             if valid_chunk_files:
                 part_name = tmp(f"PART_{chunk_idx//CHUNK_SIZE}_{safe_title}_{res_mode.replace(':','')}.mp4")
-                # Menggunakan Async Merge
                 await merge_clips_async(valid_chunk_files, part_name, False, user_id)
                 part_files.append(part_name)
                 cleanup_temp(valid_chunk_files)
@@ -636,7 +625,6 @@ async def _core_studio_logic(message: Message, ui, st: dict, gameplay_path: str)
             await ui.update(f"⚡ Final Merging [{res_mode}]", details="Menggabungkan semua part video (Async Mode)...")
             merged_path = tmp(f"FINAL_{st['segment_name'].replace(' ','')}_{res_mode.replace(':','')}_{safe_title}.mp4")
             
-            # Menggunakan Async Merge
             await merge_clips_async(part_files, merged_path, True, user_id)
             
             await ui.update(f"📤 Mengunggah ke Telegram [{res_mode}]", details="Mempersiapkan koneksi ke server Telegram...")
@@ -818,13 +806,12 @@ async def studio_dashboard_cb(call: CallbackQuery) -> None:
 
     await call.message.answer(f"⏳ ✅ Menyiapkan Mesin Produksi...\n{payment['message']}", reply_markup=ReplyKeyboardRemove())
     
-    # [FIX] Cari Gameplay dari folder Private dulu, baru Global
     gp_path = await asyncio.to_thread(find_gameplay_for_game, st["title"], user_id)
     if not gp_path: 
         cleanup_temp([txt_path])
         return await call.message.answer(f"❌ Aset Video untuk `{st['title']}` tidak ditemukan di Brankas Anda maupun Global!\nSilakan tambahkan dengan perintah `/addaset{CMD_SUFFIX}`.")
 
-    await execute_unified_task(txt_msg, f"PRODUKSI STUDIO ({segment_name})", _core_studio_logic, st, gp_path)
+    await execute_unified_task(txt_msg, f"PRODUKSI STUDIO ({segment_name})", _core_studio_logic, st, gp_path, engine_name="FFmpeg Ultrafast")
 
 
 # ═══════════════════════════════════════════════════════════════════════
@@ -872,3 +859,4 @@ async def _send_settings(message: Message) -> None:
 async def set_yt_cb(call: CallbackQuery) -> None: 
     await call.answer()
     await call.message.answer(_dash("📺","YouTube Status",[("API Upload", "✅ Siap" if YOUTUBE_ENABLED else "❌ Belum diinstall"),("yt-dlp", "✅ Siap" if YOUTUBE_ENABLED else "❌ Belum diinstall"),("Token", "✅ Ada" if os.path.exists("token.json") else "❌ Belum login"),("Secret", "✅ Ada" if os.path.exists("client_secret.json") else "❌ Tidak ada")]))
+"""
