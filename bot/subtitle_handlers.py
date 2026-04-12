@@ -1,9 +1,11 @@
 """
 ╔══════════════════════════════════════════════════════════════════════╗
-║                    bot/subtitle_handlers.py — v2.3                   ║
+║                    bot/subtitle_handlers.py — v2.4                   ║
 ║        Auto Subtitle (AI Whisper) & Auto Translate Subtitle          ║
 ╠══════════════════════════════════════════════════════════════════════╣
-║  CHANGELOG v2.3:                                                     ║
+║  CHANGELOG v2.4:                                                     ║
+║  [FIX CRITICAL] Ekstraksi audio via FFmpeg sebelum Whisper agar      ║
+║                 tidak stuck/macet di tengah proses pembacaan file.   ║
 ║  [FIX CRITICAL] Mengganti download Aiogram (max 20MB) dengan         ║
 ║                 Pyrogram (MTProto) agar support file hingga 2GB      ║
 ║                 saat menarik media untuk Auto Subtitle.              ║
@@ -103,6 +105,7 @@ def _is_vip(user_id: int) -> bool:
 async def _core_autosub_logic(message: Message, ui, reply_msg: Message, lang_code: str, fname: str) -> None:
     """Fungsi inti Whisper AI yang telah terintegrasi dengan ProgressUI & Anti-Macet"""
     media_path = _tmp(f"media_{message.message_id}.mp4")
+    audio_path = _tmp(f"audio_{message.message_id}.wav") # [FIX] Tambahan file audio
     srt_path = _tmp(f"{fname}.srt")
     
     try:
@@ -137,13 +140,30 @@ async def _core_autosub_logic(message: Message, ui, reply_msg: Message, lang_cod
 
         if not os.path.exists(media_path): raise RuntimeError("Gagal mengunduh berkas media.")
 
+        # [FIX] 1.5 Ekstraksi Audio Eksplisit agar AI Whisper tidak macet membaca Video
+        await ui.update("🎵 Mengekstrak Audio...", details="Memisahkan suara dari video agar AI 5x lebih cepat...")
+        proc = await asyncio.create_subprocess_exec(
+            "ffmpeg", "-y", "-i", media_path, "-vn", "-acodec", "pcm_s16le", "-ar", "16000", "-ac", "1", audio_path,
+            stdout=asyncio.subprocess.DEVNULL,
+            stderr=asyncio.subprocess.DEVNULL
+        )
+        await proc.communicate()
+        
+        # Gunakan audio_path jika ekstraksi berhasil, jika gagal fallback pakai media awal
+        target_file_for_ai = audio_path if os.path.exists(audio_path) and os.path.getsize(audio_path) > 0 else media_path
+
         # 2. Inisialisasi AI Whisper di latar belakang
         await ui.update("🧠 Memuat Model AI Whisper...", details="Memori sedang dialokasikan ke CPU, harap tunggu...")
         
         def init_whisper():
-            model = WhisperModel("base", device="cpu", compute_type="int8")
-            target_lang = None if lang_code == "auto" else lang_code
-            return model.transcribe(media_path, language=target_lang, beam_size=5)
+            try:
+                # [FIX] Catcher Error di dalam thread agar tidak silent crash
+                model = WhisperModel("base", device="cpu", compute_type="int8")
+                target_lang = None if lang_code == "auto" else lang_code
+                return model.transcribe(target_file_for_ai, language=target_lang, beam_size=5)
+            except Exception as e:
+                LOGGER.error(f"Whisper Init Error: {e}")
+                raise e
             
         segments_gen, info = await asyncio.to_thread(init_whisper)
         detected_lang = info.language
@@ -204,8 +224,12 @@ async def _core_autosub_logic(message: Message, ui, reply_msg: Message, lang_cod
         
         await ui.finish(f"✅ <b>Auto Subtitle Berhasil!</b>\nDeteksi Bahasa: <code>{detected_lang.upper()}</code>")
 
+    except Exception as e:
+        # [FIX] Tangkap semua error dan laporkan ke UI!
+        LOGGER.error(f"Error di AutoSub: {e}")
+        await ui.error(f"Gagal memproses Auto Subtitle:\n{str(e)[:100]}")
     finally:
-        _cleanup(media_path, srt_path)
+        _cleanup(media_path, audio_path, srt_path)
 
 
 # ═══════════════════════════════════════════════════════════════════════
