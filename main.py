@@ -1,13 +1,13 @@
 """
 ╔══════════════════════════════════════════════════════════════════════╗
-║                    main.py — v3.6 (Unified Engine Edition)           ║
-║        Encoder1 Bot — v3.6 (Studio Khoirul Premium Update)           ║
+║                    main.py — v3.7 (Asset Manager Edition)            ║
+║        Encoder1 Bot — v3.7 (Studio Khoirul Premium Update)           ║
 ╠══════════════════════════════════════════════════════════════════════╣
-║  CHANGELOG v3.6:                                                     ║
-║  [NEW] Mendaftarkan router `bot.CloudUploads` (Modul Leech/Mirror).  ║
-║  [FIX CRITICAL] Reorder Routers: Memindahkan `bot.callbacks` ke      ║
-║                 urutan PALING BAWAH untuk mencegah masalah           ║
-║                 'Router Black Hole' (Tombol macet/stuck).            ║
+║  CHANGELOG v3.7:                                                     ║
+║  [NEW] Mendaftarkan router `bot.asset_handlers` untuk mengaktifkan   ║
+║        sistem manajemen aset (Video & Audio) personal/global.        ║
+║  [FIX CRITICAL] Reorder Routers: Memastikan `bot.callbacks` tetap di ║
+║                 urutan PALING BAWAH.                                 ║
 ║  [NEW] Integrasi bot_helper.Process.Unified_Engine                   ║
 ║  [FIX] Inisialisasi antrean Semaphore global saat startup.           ║
 ║  [IMPROVE] Middleware Waiter Catcher diprioritaskan paling awal.     ║
@@ -60,10 +60,11 @@ import bot.Gameplay
 import bot.AutoClip
 import bot.MovieRecap
 import bot.YTUpload
-import bot.CloudUploads # [NEW v3.6] Modul Cloud Upload & Mirror
+import bot.CloudUploads # Modul Cloud Upload & Mirror
 import bot.subtitle_handlers
 import bot.subtitle_editor 
 import bot.ui_dashboard 
+import bot.asset_handlers # [NEW v3.7] Modul Asset Manager
 
 # Import task background
 try:
@@ -154,7 +155,8 @@ async def main():
         bot.ui_dashboard,   # Dashboard didahulukan
         bot.admin_handlers, bot.vip_handlers, bot.media_handlers,
         bot.advanced_media_handlers, bot.Gameplay, bot.AutoClip, 
-        bot.MovieRecap, bot.YTUpload, bot.CloudUploads, # [NEW] Tersisip dengan aman
+        bot.MovieRecap, bot.YTUpload, bot.CloudUploads, 
+        bot.asset_handlers, # [NEW] Modul Asset Manager ditambahkan di sini
         bot.subtitle_handlers, bot.subtitle_editor, 
         bot.callbacks       # <-- CALLBACKS HARUS PALING BAWAH
     ]
